@@ -7,7 +7,6 @@ import { Pool, type PoolClient, type QueryResultRow } from "pg";
  * pools, so the instance is cached on `globalThis`.
  */
 declare global {
-  // eslint-disable-next-line no-var
   var __shiftswitchPool: Pool | undefined;
 }
 

@@ -95,6 +95,23 @@ export async function parseJson<T>(
   return schema.parse(raw);
 }
 
+/** Parses a body that may legitimately be absent (e.g. an optional reason). */
+export async function parseOptionalJson<T>(
+  request: Request,
+  schema: ZodType<T>,
+  fallback: T,
+): Promise<T> {
+  const text = await request.text();
+  if (!text.trim()) return fallback;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw validationFailed("The request body was not valid JSON.");
+  }
+  return schema.parse(raw);
+}
+
 export function parseQuery<T>(request: Request, schema: ZodType<T>): T {
   const url = new URL(request.url);
   const params: Record<string, string | string[]> = {};
