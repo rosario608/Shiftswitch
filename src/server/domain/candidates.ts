@@ -95,3 +95,48 @@ async function residentPgyLevel(residentId: string, fallback: number): Promise<n
   );
   return row?.pgy_level ?? fallback;
 }
+
+export interface TradeMatchSummary {
+  tradeRequestId: string;
+  bestScore: number | null;
+  bestReasons: string[];
+  candidateCount: number;
+}
+
+/**
+ * Cheap match preview for the "Available trades" list: scores the viewer's
+ * offerable shifts against each posted shift without running the full rules
+ * engine (that happens when they open the trade).
+ */
+export async function summariseMatches(
+  context: AuthedContext & { resident: { id: string } },
+  trades: Array<{ id: string; source_shift_id: string; preferences: unknown; shift: ShiftDetail }>,
+): Promise<Map<string, TradeMatchSummary>> {
+  const summaries = new Map<string, TradeMatchSummary>();
+  if (trades.length === 0) return summaries;
+
+  const { queryOne } = await import("@/server/db/pool");
+  const residentRow = await queryOne<{ pgy_level: number }>(
+    "SELECT pgy_level FROM residents WHERE id = $1",
+    [context.resident.id],
+  );
+  const pgy = residentRow?.pgy_level ?? 1;
+
+  for (const trade of trades) {
+    const offerable = await listOfferableShifts(context.resident.id, trade.source_shift_id);
+    const ranked = rankCandidates(
+      { preferences: (trade.preferences ?? {}) as never },
+      trade.shift,
+      offerable,
+      pgy,
+      context.program,
+    );
+    summaries.set(trade.id, {
+      tradeRequestId: trade.id,
+      bestScore: ranked[0]?.match.score ?? null,
+      bestReasons: ranked[0]?.match.reasons.slice(0, 3) ?? [],
+      candidateCount: ranked.length,
+    });
+  }
+  return summaries;
+}
