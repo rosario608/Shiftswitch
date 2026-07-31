@@ -1,0 +1,196 @@
+name: Release — Android bundle
+
+# Deliberately manual. There is no path from a merge to a store upload: a
+# release is a decision a person makes, and this workflow only ever produces a
+# signed artifact for that person to inspect and upload. It does not talk to
+# the Play Console, and it cannot publish anything.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Marketing version, e.g. 1.1.0. Leave blank to use mobile/version.json as committed."
+        required: false
+        type: string
+      version_code:
+        description: "Play build number. Must be higher than the last upload. Blank keeps the committed value."
+        required: false
+        type: string
+      confirm:
+        description: 'Type "release" to confirm you intend to build a signed store artifact.'
+        required: true
+        type: string
+
+concurrency:
+  group: release-mobile
+  cancel-in-progress: false
+
+jobs:
+  bundle:
+    name: Signed release bundle
+    runs-on: ubuntu-latest
+    environment: mobile-release
+
+    steps:
+      - name: Confirm intent
+        run: |
+          if [ "${{ inputs.confirm }}" != "release" ]; then
+            echo "::error::Type 'release' in the confirm field to run this workflow."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - run: npm ci
+      - run: npm ci --prefix mobile
+
+      - name: Set the version
+        if: inputs.version != ''
+        run: |
+          if [ -n "${{ inputs.version_code }}" ]; then
+            node mobile/scripts/set-version.mjs "${{ inputs.version }}" --code "${{ inputs.version_code }}"
+          else
+            node mobile/scripts/set-version.mjs "${{ inputs.version }}"
+          fi
+
+      - name: Versions agree across both platforms
+        run: node mobile/scripts/set-version.mjs --check
+
+      - name: Write the production environment
+        run: |
+          cat > mobile/.env.production <<EOF
+          VITE_API_URL=${{ secrets.MOBILE_API_URL }}
+          VITE_APP_SCHEME=${{ vars.MOBILE_APP_SCHEME || 'shiftswitch' }}
+          VITE_ENVIRONMENT=production
+          VITE_ALLOW_TEST_LOGIN=false
+          VITE_APP_VERSION=$(node -p "require('./mobile/version.json').version")
+          VITE_SUPPORT_EMAIL=${{ secrets.MOBILE_SUPPORT_EMAIL }}
+          EOF
+
+      - name: Refuse a configuration that is not production
+        env:
+          APP_URL: ${{ secrets.MOBILE_API_URL }}
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DATABASE_SSL: "true"
+          AUTH_SECRET: ${{ secrets.PRODUCTION_AUTH_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          FCM_PROJECT_ID: ${{ secrets.FCM_PROJECT_ID }}
+        run: npm run check:release -- --mobile
+
+      - name: Build the client
+        run: npm --prefix mobile run build
+
+      - name: The bundle carries nothing from development
+        run: |
+          set -euo pipefail
+          if grep -rq "auth/test-login" mobile/dist/assets/*.js; then
+            echo "::error::The test-login path reached a production bundle."
+            exit 1
+          fi
+          if [ -n "$(ls mobile/dist/assets/*.map 2>/dev/null || true)" ]; then
+            echo "::error::Source maps must not ship in a production bundle."
+            exit 1
+          fi
+
+      - name: Firebase configuration for push
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" | base64 -d > mobile/android/app/google-services.json
+            echo "google-services.json written; push will be enabled."
+          else
+            echo "::warning::No ANDROID_GOOGLE_SERVICES_JSON secret. The build will succeed but push notifications will not work."
+          fi
+
+      - name: Sync the native project
+        run: npx cap sync android
+        working-directory: mobile
+
+      - name: Restore the upload keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not set. A release build must be signed with the upload key, never with the debug key."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+
+      - name: Build the signed bundle
+        working-directory: mobile/android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/upload.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew :app:bundleRelease :app:assembleRelease --no-daemon \
+            -PappLinkHost="${{ secrets.MOBILE_APP_LINK_HOST }}" \
+            -PappScheme="${{ vars.MOBILE_APP_SCHEME || 'shiftswitch' }}"
+
+      - name: Verify what was built
+        working-directory: mobile/android
+        run: |
+          set -euo pipefail
+          AAB=app/build/outputs/bundle/release/app-release.aab
+          APK=app/build/outputs/apk/release/app-release.apk
+          AAPT="$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort -r | head -1)"
+
+          echo "--- signing certificate ---"
+          keytool -printcert -jarfile "$AAB" | tee /tmp/cert.txt
+          if grep -qi "CN=Android Debug" /tmp/cert.txt; then
+            echo "::error::Signed with the debug key. This artifact must not be uploaded."
+            exit 1
+          fi
+
+          echo "--- manifest ---"
+          "$AAPT" dump badging "$APK" | grep -E "package:|uses-permission|debuggable" | tee /tmp/badging.txt
+          if grep -q "application-debuggable" /tmp/badging.txt; then
+            echo "::error::The release APK is debuggable."
+            exit 1
+          fi
+
+      - name: Delete the keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.jks"
+
+      - name: Upload the artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-${{ github.run_number }}
+          path: |
+            mobile/android/app/build/outputs/bundle/release/app-release.aab
+            mobile/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+
+      - name: What happens next
+        run: |
+          cat <<'NOTE'
+          ============================================================
+          A signed bundle has been produced and attached to this run.
+
+          It has NOT been uploaded anywhere, and the app is NOT
+          published. Someone still has to:
+
+            1. Download and install the APK on a real device and walk
+               release/RELEASE_CHECKLIST.md section 5.
+            2. Upload the .aab to the Play Console internal testing
+               track.
+            3. Promote it once it has been tested.
+
+          The app is "ready for submission" until a person has seen it
+          live in the Play Console.
+          ============================================================
+          NOTE

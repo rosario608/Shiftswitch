@@ -30,5 +30,7 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  // The native app is a separate package with its own compiler settings and its
+  // own `@/*` mapping; it is type-checked by `npm --prefix mobile run typecheck`.
+  "exclude": ["node_modules", "mobile"]
 }

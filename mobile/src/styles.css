@@ -1,0 +1,219 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   ShiftSwitch native app styling.
+
+   The tokens are the same clinical palette as the web app so a resident who
+   uses both does not see two different products. What differs here is native
+   chrome: safe areas are real insets rather than a guess, scrolling is
+   momentum-based, and nothing depends on a hover state.
+--------------------------------------------------------------------------- */
+
+:root {
+  --canvas: oklch(98.4% 0.004 240);
+  --surface: oklch(100% 0 0);
+  --surface-muted: oklch(96.6% 0.005 240);
+  --border-base: oklch(91% 0.007 240);
+  --border-strong: oklch(84% 0.01 240);
+
+  --ink: oklch(24% 0.02 250);
+  --ink-muted: oklch(46% 0.015 250);
+  --ink-subtle: oklch(56% 0.012 250);
+
+  --brand: oklch(48% 0.09 200);
+  --brand-strong: oklch(41% 0.095 200);
+  --brand-soft: oklch(95% 0.02 200);
+  --brand-ink: oklch(36% 0.09 200);
+
+  --positive: oklch(48% 0.11 155);
+  --positive-soft: oklch(95.5% 0.03 155);
+  --caution: oklch(52% 0.12 70);
+  --caution-soft: oklch(96% 0.04 80);
+  --critical: oklch(51% 0.16 25);
+  --critical-soft: oklch(96% 0.03 25);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: oklch(19% 0.012 250);
+    --surface: oklch(23% 0.014 250);
+    --surface-muted: oklch(27% 0.014 250);
+    --border-base: oklch(32% 0.014 250);
+    --border-strong: oklch(42% 0.016 250);
+
+    --ink: oklch(96% 0.004 250);
+    --ink-muted: oklch(80% 0.008 250);
+    --ink-subtle: oklch(68% 0.01 250);
+
+    --brand: oklch(74% 0.1 200);
+    --brand-strong: oklch(82% 0.09 200);
+    --brand-soft: oklch(30% 0.04 200);
+    --brand-ink: oklch(88% 0.07 200);
+
+    --positive: oklch(78% 0.13 155);
+    --positive-soft: oklch(28% 0.05 155);
+    --caution: oklch(84% 0.12 80);
+    --caution-soft: oklch(31% 0.05 80);
+    --critical: oklch(75% 0.15 25);
+    --critical-soft: oklch(30% 0.06 25);
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-border-base: var(--border-base);
+  --color-border-strong: var(--border-strong);
+
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-subtle: var(--ink-subtle);
+
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-ink: var(--brand-ink);
+
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-caution: var(--caution);
+  --color-caution-soft: var(--caution-soft);
+  --color-critical: var(--critical);
+  --color-critical-soft: var(--critical-soft);
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+
+  --radius-card: 0.875rem;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  /* No rubber-band on the page itself; individual scrollers opt back in. */
+  overscroll-behavior: none;
+  /* Long-pressing a card should not offer "Copy"/"Look Up" like a web page. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Text the user may legitimately want to select: the generated email body,
+   the calendar URL, error details. */
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* Native inertial scrolling inside panes. */
+.scroll-pane {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Real device insets — the notch, the Dynamic Island, the home indicator and
+   the Android gesture bar. */
+.safe-top {
+  padding-top: max(env(safe-area-inset-top), 0.5rem);
+}
+.safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+}
+.safe-x {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Nothing interactive smaller than the platform minimum touch target. */
+.tap {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 0.375rem;
+}
+
+/* Remove the grey flash Android draws over tapped elements; the app draws its
+   own pressed state. */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-sheet-in {
+  animation: sheet-in 0.18s ease-out;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.15s ease-out;
+}
+
+.animate-spin-slow {
+  animation: spin 0.9s linear infinite;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border-width: 0;
+}

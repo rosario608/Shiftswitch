@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ShiftSwitch</string>
+    <string name="title_activity_main">ShiftSwitch</string>
+    <string name="package_name">org.shiftswitch.app</string>
+    <string name="custom_url_scheme">org.shiftswitch.app</string>
+</resources>
