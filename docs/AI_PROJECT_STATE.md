@@ -3,38 +3,37 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 31 July 2026, after the first production deployment.
+Last updated: 31 July 2026, after production was fully configured.
 
 ---
 
 ## Current phase
 
-`AWAITING_VERCEL_ENV_VARS`
+`AWAITING_FIRST_ADMIN_SIGN_IN`
 
 ## Current status
 
-The application is **deployed and publicly reachable** at
-`https://shiftswitch.vercel.app`, with the database schema live behind it. No
-environment variables are set yet, so nothing that touches the database works
-and nobody can sign in. Nothing is submitted or published.
+The web application is **live and fully configured** at
+`https://shiftswitch.vercel.app`: environment variables set, database reachable,
+Google sign-in wired up and verified, and the first program created. Nobody has
+signed in yet, so there is no administrator. Nothing is submitted or published.
 
 ## Current blocker
 
-**No environment variables are set on Vercel.** The Google OAuth client now
-exists and its redirect URI has been verified against Google's authorisation
-endpoint (302 to the sign-in page, no `redirect_uri_mismatch`). Everything is
-ready; the variables just have to reach the deployment.
+**Nobody has signed in.** The first sign-in by the address in
+`BOOTSTRAP_ADMIN_EMAILS` promotes that account to administrator; until then
+there is no one who can configure services, rotations or residents.
 
 ## User action required
 
-1. **A Vercel API token** (vercel.com → Account Settings → Tokens), so the
-   agent can set the environment variables, redeploy and verify sign-in — one
-   action that also covers every future change. The alternative is pasting
-   eight variables into the dashboard by hand, which is more error-prone and
-   repeats on every change.
-2. **Sign in once** at the deployed site after the variables are set, to become
-   the first administrator. Nobody else can do this — it is their Google
-   account.
+1. **Sign in once** at `https://shiftswitch.vercel.app` with the Google account
+   in `BOOTSTRAP_ADMIN_EMAILS`, to become the administrator. Nobody else can do
+   this — it is their Google account.
+2. **Correct the program details** in Settings afterwards. The program was
+   created with placeholders (`My Residency Program` / `My Hospital` /
+   `America/New_York`) so the bootstrap promotion had something to attach to.
+   **The timezone must be right before any schedule is imported** — every shift
+   time is interpreted in it.
 3. **A Google Play developer account.** One-off $25 plus identity verification,
    which can take a few days. Worth starting now; it is the long pole.
 4. **An Apple Developer account.** $99/year plus identity verification. Only
@@ -105,6 +104,8 @@ create the reviewer accounts (`scripts/seed-demo.ts`) → Play internal testing.
 | Legal URLs | `/legal/privacy` and `/legal/terms`, public, no sign-in |
 | Dev signing key | `~/.shiftswitch-dev-keys/dev-upload.jks` — **outside the repo, never for release** |
 | Production URL | `https://shiftswitch.vercel.app` — public, no deployment protection |
+| Vercel env vars | Set on **production** only: `APP_URL`, `NEXT_PUBLIC_APP_NAME`, `DATABASE_SSL`, `AUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `BOOTSTRAP_ADMIN_EMAILS`. `DATABASE_URL` is managed by the Neon integration and must not be overridden |
+| First program | `My Residency Program` / `My Hospital` / `America/New_York` — **placeholders, to be corrected in Settings** |
 | Vercel project | `shiftswitch`, team `rosario608-2488s-projects`, builds from `main`, root directory. Preview deployments are SSO-protected; production is not |
 | Database | Neon, PostgreSQL 17.10, region us-east-1. Schema live: 25 tables, migrations 0001–0003 applied, 0 rows |
 | Connection pooling | The **pooled** Neon endpoint is safe — verified empirically, see docs/DEPLOYMENT.md |
@@ -122,6 +123,11 @@ Secrets are never in the repository. `.env.production`, `key.properties`,
 - **The Capacitor plugins are untested on a device** — secure storage, push
   registration, the OS back button, haptics. They have no browser
   implementation, so the end-to-end suite cannot reach them.
+- **Preview deployments share the production database.** The Neon integration
+  set `DATABASE_URL` for all three targets, so a pull-request preview writes to
+  production data. Previews are SSO-protected, so this is not urgent, but a
+  separate Neon branch for preview should be configured before anyone else
+  works on the repository.
 - **App Links / Universal Links are unverified.** The route-parsing logic is
   unit-tested, including that it refuses foreign origins, but verification needs
   a real host and a real device.
@@ -159,6 +165,12 @@ Also verified by execution, not inspection:
   security headers are present, including HSTS with preload.
 - `next build` succeeds with no environment variables at all, so a fresh
   deployment cannot fail at build time for want of configuration.
+- **Against the fully configured production deployment:** `/calendar/<bad token>`
+  returns 404 "Calendar not found", which proves the app reached the database
+  and ran the query rather than failing to connect; and
+  `/api/auth/google/start` returns a redirect to `accounts.google.com` carrying
+  the correct client ID, the production callback as `redirect_uri`, and a PKCE
+  `code_challenge`.
 - **The Google OAuth client is valid**: Google's authorisation endpoint
   returned 302 to its sign-in page for this client ID and the production
   redirect URI, so the client exists and the URI is registered.
