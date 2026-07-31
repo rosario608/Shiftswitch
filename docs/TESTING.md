@@ -100,6 +100,16 @@ never grants a role.
 | Seeded schedule does not violate the program's own rules | `tests/integration/demo-data.test.ts` |
 | Every seeded rule type has a handler | `tests/integration/demo-data.test.ts` |
 | Demo scenarios: valid swap, invalid swap, no match, overlapping schedule | `tests/integration/demo-data.test.ts` |
+| The five roles have exactly the documented capabilities | `tests/unit/roles.test.ts` |
+| Nobody can assign a role at or above their own, or change their own | `tests/unit/roles.test.ts`, `tests/integration/permissions.test.ts`, `tests/e2e/roles-and-onboarding.spec.ts` |
+| A program can never be left without leadership | `tests/integration/permissions.test.ts` |
+| Multi-email input: typing, paste, commas, semicolons, newlines, spreadsheet columns | `tests/unit/email-input.test.ts`, `tests/e2e/roles-and-onboarding.spec.ts` |
+| Invalid and duplicate addresses are flagged individually | `tests/unit/email-input.test.ts`, `tests/e2e/roles-and-onboarding.spec.ts` |
+| Service creation, case-insensitive duplicates, rename, deactivate | `tests/integration/services.test.ts`, `tests/e2e/roles-and-onboarding.spec.ts` |
+| A service with upcoming shifts cannot be deactivated | `tests/integration/services.test.ts` |
+| Email is never delivered outside a production build | `tests/unit/environment.test.ts` |
+| The invitation sandbox is unreachable in production | `tests/unit/environment.test.ts`, `tests/e2e/security.spec.ts` |
+| Whole self-test path: service → invite → accept → resident view → switch back → chief | `tests/e2e/roles-and-onboarding.spec.ts` |
 
 ---
 

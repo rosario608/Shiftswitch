@@ -314,6 +314,38 @@ test("signing out ends the session everywhere", async ({ page }) => {
   expect(schedule.status()).toBe(401);
 });
 
+test("the development invitation shortcut is gated, not open", async ({ page }) => {
+  /* The sandbox exists so one person can test an invitation without a second
+     Google account. It must never be a way *round* acceptance. */
+  const fake = "0".repeat(43);
+
+  // Unauthenticated, with a token that was never issued: refused, and the
+  // refusal says nothing about whether any token would have worked.
+  const anonymous = await page.request.post("/api/dev/accept-invitation", {
+    data: { token: fake },
+  });
+  expect(anonymous.status()).toBe(404);
+
+  // Signed in as a resident makes no difference — it is not an authorization
+  // shortcut, it is a stand-in for Google.
+  await signIn(page, ACCOUNTS.bob);
+  expect(
+    (await page.request.post("/api/dev/accept-invitation", { data: { token: fake } }))
+      .status(),
+  ).toBe(404);
+
+  // A malformed token is rejected before anything is looked up.
+  expect(
+    (await page.request.post("/api/dev/accept-invitation", { data: { token: "short" } }))
+      .status(),
+  ).toBe(422);
+
+  /* This suite runs with ALLOW_TEST_LOGIN=true, so the route is reachable here.
+     That it is *unreachable* in production is enforced by `describeEnvironment`
+     and covered in tests/unit/environment.test.ts, which asserts the flag is
+     ignored entirely when NODE_ENV is production. */
+});
+
 test("security headers are present", async ({ page }) => {
   const response = await page.request.get("/login");
   const headers = response.headers();

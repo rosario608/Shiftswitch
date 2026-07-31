@@ -1,13 +1,13 @@
 import { Card, CardBody } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
-import { requirePageRole } from "@/server/auth/page-guards";
+import { requirePageCapability } from "@/server/auth/page-guards";
 import { getProgramAnalytics } from "@/server/domain/admin";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Analytics" };
 
 export default async function AnalyticsPage() {
-  const context = await requirePageRole("chief");
+  const context = await requirePageCapability("analytics.view");
   const analytics = await getProgramAnalytics(context.program.id);
 
   const tiles = [

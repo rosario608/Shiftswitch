@@ -1,4 +1,4 @@
-import { requireAdmin } from "@/server/auth/guards";
+import { requireCapability } from "@/server/auth/guards";
 import { apiHandler, ok, parseJson, requireUuid } from "@/server/http/api";
 import { contactPatchSchema } from "@/lib/schemas";
 import { deleteContact, updateContact } from "@/server/domain/admin";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export const PATCH = apiHandler(
   async (request: Request, ctx: { params: Promise<{ contactId: string }> }) => {
-    const context = await requireAdmin();
+    const context = await requireCapability("contacts.manage");
     const { contactId: rawId } = await ctx.params;
     const contactId = requireUuid(rawId, "contact");
     const patch = await parseJson(request, contactPatchSchema);
@@ -18,7 +18,7 @@ export const PATCH = apiHandler(
 
 export const DELETE = apiHandler(
   async (_request: Request, ctx: { params: Promise<{ contactId: string }> }) => {
-    const context = await requireAdmin();
+    const context = await requireCapability("contacts.manage");
     const { contactId: rawId } = await ctx.params;
     const contactId = requireUuid(rawId, "contact");
     await deleteContact(context, contactId);

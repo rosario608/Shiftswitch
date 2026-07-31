@@ -5,6 +5,7 @@ import type { UserRole, UserRow } from "@/server/db/types";
 import { conflict, notFound, validationFailed } from "@/server/http/errors";
 import { recordAudit } from "./audit";
 import { linkIdentity } from "./account";
+import { expectsResidentRecord } from "@/server/auth/roles";
 import { logger } from "@/server/observability/logger";
 
 /**
@@ -421,9 +422,13 @@ export async function acceptInvitation(
           client,
         );
 
-    // A resident role needs a resident record, or the person signs in to an
-    // account with no schedule and no way to trade.
-    if (row.role === "resident") {
+    /* A role that holds a schedule needs a resident record, or the person signs
+       in to an account with no shifts and no way to trade. That means chief
+       residents too — a chief is a resident with extra responsibilities, and
+       checking only for `"resident"` here left every invited chief unable to
+       hold a shift. The predicate is shared with `updateManagedUser` so the two
+       paths cannot drift apart again. */
+    if (expectsResidentRecord(row.role)) {
       const resident = await queryOne<{ id: string }>(
         "SELECT id FROM residents WHERE user_id = $1",
         [user!.id],

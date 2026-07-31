@@ -1,7 +1,7 @@
 import { Download } from "lucide-react";
 import { Card, CardBody } from "@/components/ui/card";
 import { ImportWizard } from "@/components/app/import-wizard";
-import { requirePageRole } from "@/server/auth/page-guards";
+import { requirePageCapability } from "@/server/auth/page-guards";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Import schedule" };
@@ -58,7 +58,7 @@ const COLUMNS: Array<{ name: string; required: boolean; notes: string }> = [
 ];
 
 export default async function ImportPage() {
-  const context = await requirePageRole("chief");
+  const context = await requirePageCapability("schedule.manage");
   return (
     <div className="space-y-5">
       <header>

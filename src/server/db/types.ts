@@ -1,4 +1,10 @@
-export type UserRole = "resident" | "chief" | "admin";
+/**
+ * The five roles a residency program has. Ordered by seniority, which is also
+ * the order of the `user_role` enum in the database. What each one may *do* is
+ * an explicit matrix in `src/server/auth/roles.ts`, not a function of this
+ * order.
+ */
+export type UserRole = "resident" | "chief" | "apd" | "pd" | "admin";
 
 export type ShiftStatus =
   | "scheduled"

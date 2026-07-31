@@ -1,6 +1,7 @@
 import { AppError, forbidden, unauthenticated } from "@/server/http/errors";
 import type { ProgramRow, ResidentRow, UserRole } from "@/server/db/types";
 import { getSessionContext, type SessionContext, type SessionUser } from "./session";
+import { can, ROLE_LABEL, roleRank, type Capability } from "./roles";
 
 /**
  * Server-side authorization. Every route handler and every server component
@@ -15,10 +16,13 @@ export interface AuthedContext {
   sessionId: string;
 }
 
-const ROLE_RANK: Record<UserRole, number> = { resident: 1, chief: 2, admin: 3 };
-
+/**
+ * Seniority comparison. This answers "who outranks whom", which matters when
+ * deciding who may change whose role — it is **not** how permissions are
+ * decided. For that, use `requireCapability` / `can`.
+ */
 export function roleAtLeast(role: UserRole, minimum: UserRole): boolean {
-  return ROLE_RANK[role] >= ROLE_RANK[minimum];
+  return roleRank(role) >= roleRank(minimum);
 }
 
 export async function getOptionalContext(): Promise<SessionContext | null> {
@@ -50,20 +54,62 @@ export async function requireUser(): Promise<AuthedContext> {
   };
 }
 
-export async function requireRole(minimum: UserRole): Promise<AuthedContext> {
+/**
+ * The guard everything should use. It names what the caller is trying to do,
+ * not how senior they are, so the reason for a refusal is legible at the call
+ * site and the policy lives in exactly one place.
+ */
+export async function requireCapability(
+  capability: Capability,
+): Promise<AuthedContext> {
   const context = await requireUser();
-  if (!roleAtLeast(context.user.role, minimum)) {
-    throw forbidden(
-      minimum === "admin"
-        ? "This area is limited to program administrators."
-        : "This area is limited to chief residents and administrators.",
-    );
+  if (!can(context.user.role, capability)) {
+    throw forbidden(CAPABILITY_REFUSAL[capability](context.user.role));
   }
   return context;
 }
 
-export const requireChief = () => requireRole("chief");
-export const requireAdmin = () => requireRole("admin");
+/**
+ * Refusal messages say what the person *is* and what the area is for, because
+ * "forbidden" on its own sends people to a help desk. They never reveal
+ * anything about the resource being refused.
+ */
+const CAPABILITY_REFUSAL: Record<Capability, (role: UserRole) => string> = {
+  "trade.participate": () => "Only residents can post and offer shifts.",
+  "approvals.decide": (role) =>
+    `Approving switches is for chief residents and program leadership. You are signed in as ${ROLE_LABEL[role]}.`,
+  "schedule.manage": (role) =>
+    `Managing the schedule is for chief residents and program leadership. You are signed in as ${ROLE_LABEL[role]}.`,
+  "schedule.export_program": () =>
+    "Exporting the whole program schedule is for chief residents and program leadership.",
+  "analytics.view": () =>
+    "Program analytics are for chief residents and program leadership.",
+  "audit.view": () => "The audit log is for chief residents and program leadership.",
+  "services.manage": (role) =>
+    `Services and rotations are managed by program leadership. You are signed in as ${ROLE_LABEL[role]}.`,
+  "invitations.manage": (role) =>
+    `Inviting people is done by program leadership. You are signed in as ${ROLE_LABEL[role]}.`,
+  "users.manage": (role) =>
+    `Managing people and roles is done by program leadership. You are signed in as ${ROLE_LABEL[role]}.`,
+  "rules.manage": () => "The rules engine is configured by program leadership.",
+  "contacts.manage": () => "Program contacts are managed by program leadership.",
+  "program.manage": (role) =>
+    `The program's settings are changed by the Program Director or an administrator. You are signed in as ${ROLE_LABEL[role]}.`,
+  "maintenance.run": () => "Maintenance is limited to program administrators.",
+};
+
+/**
+ * Kept for the handful of places that genuinely mean "at least this senior"
+ * rather than a capability — currently none in routes, but the distinction is
+ * worth preserving rather than collapsing back into a rank check.
+ */
+export async function requireRole(minimum: UserRole): Promise<AuthedContext> {
+  const context = await requireUser();
+  if (!roleAtLeast(context.user.role, minimum)) {
+    throw forbidden(`This area is limited to ${ROLE_LABEL[minimum]} and above.`);
+  }
+  return context;
+}
 
 /** A signed-in user who is an actual resident with a resident record. */
 export async function requireResident(): Promise<
@@ -100,6 +146,6 @@ export function assertOwnResidentOrElevated(
   residentId: string,
 ): void {
   if (context.resident?.id === residentId) return;
-  if (roleAtLeast(context.user.role, "chief")) return;
+  if (can(context.user.role, "schedule.manage")) return;
   throw forbidden("You can only view or change your own schedule.");
 }

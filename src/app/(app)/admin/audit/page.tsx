@@ -1,6 +1,6 @@
 import { Card, CardBody } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
-import { requirePageRole } from "@/server/auth/page-guards";
+import { requirePageCapability } from "@/server/auth/page-guards";
 import { listAuditLogs } from "@/server/domain/audit";
 import { fmtTimestamp, titleCase } from "@/lib/format";
 
@@ -12,7 +12,7 @@ export default async function AuditPage({
 }: {
   searchParams: Promise<{ action?: string; page?: string }>;
 }) {
-  const context = await requirePageRole("chief");
+  const context = await requirePageCapability("audit.view");
   const params = await searchParams;
   const page = Math.max(1, Number(params.page ?? 1));
   const limit = 50;

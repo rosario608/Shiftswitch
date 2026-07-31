@@ -1,4 +1,5 @@
-import { requireUser, roleAtLeast } from "@/server/auth/guards";
+import { requireUser } from "@/server/auth/guards";
+import { can } from "@/server/auth/roles";
 import { apiHandler, ok, requireUuid } from "@/server/http/api";
 import { forbidden, notFound } from "@/server/http/errors";
 import { getCompletedTrade } from "@/server/domain/trades";
@@ -17,7 +18,7 @@ export const GET = apiHandler(
     const residentId = context.resident?.id ?? null;
     const isParticipant =
       residentId === trade.resident_a || residentId === trade.resident_b;
-    if (!isParticipant && !roleAtLeast(context.user.role, "chief")) {
+    if (!isParticipant && !can(context.user.role, "schedule.manage")) {
       throw forbidden("You can only view switches you were part of.");
     }
     return ok({ trade, timezone: context.program.timezone });

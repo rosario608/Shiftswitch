@@ -1,4 +1,5 @@
-import { requireUser, roleAtLeast } from "@/server/auth/guards";
+import { requireUser } from "@/server/auth/guards";
+import { can } from "@/server/auth/roles";
 import { apiHandler } from "@/server/http/api";
 import { forbidden, validationFailed } from "@/server/http/errors";
 import { listProgramSchedule } from "@/server/domain/admin";
@@ -26,7 +27,7 @@ export const GET = apiHandler(async (request: Request) => {
     throw validationFailed("Choose CSV, XLSX or PDF.");
   }
   const scope = url.searchParams.get("scope") ?? "mine";
-  const elevated = roleAtLeast(context.user.role, "chief");
+  const elevated = can(context.user.role, "schedule.export_program");
   if (scope === "program" && !elevated) {
     throw forbidden("Only chief residents and administrators can export the program schedule.");
   }

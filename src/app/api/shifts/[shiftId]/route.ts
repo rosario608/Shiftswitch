@@ -1,4 +1,5 @@
-import { assertSameProgram, requireUser, roleAtLeast } from "@/server/auth/guards";
+import { assertSameProgram, requireUser } from "@/server/auth/guards";
+import { can } from "@/server/auth/roles";
 import { apiHandler, ok, requireUuid } from "@/server/http/api";
 import { forbidden, notFound } from "@/server/http/errors";
 import { getShiftDetail } from "@/server/domain/schedule";
@@ -20,7 +21,7 @@ export const GET = apiHandler(
     assertSameProgram(context, shift.program_id);
 
     const isOwner = context.resident?.id === shift.resident_id;
-    const isElevated = roleAtLeast(context.user.role, "chief");
+    const isElevated = can(context.user.role, "schedule.manage");
     if (!isOwner && !isElevated) {
       const posted = await queryOne<{ id: string }>(
         `SELECT id FROM trade_requests

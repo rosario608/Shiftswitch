@@ -1,4 +1,4 @@
-import { requireChief } from "@/server/auth/guards";
+import { requireCapability } from "@/server/auth/guards";
 import { apiHandler, ok, parseJson } from "@/server/http/api";
 import { validationFailed } from "@/server/http/errors";
 import { importCommitSchema } from "@/lib/schemas";
@@ -15,7 +15,7 @@ const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 /** Which schedule sources this deployment can import from. */
 export const GET = apiHandler(async () => {
-  await requireChief();
+  await requireCapability("schedule.manage");
   return ok({ sources: listScheduleSources() });
 });
 
@@ -30,7 +30,7 @@ export const GET = apiHandler(async () => {
  * around it.
  */
 export const POST = apiHandler(async (request: Request) => {
-  const context = await requireChief();
+  const context = await requireCapability("schedule.manage");
   const contentType = request.headers.get("content-type") ?? "";
 
   if (contentType.includes("multipart/form-data")) {
