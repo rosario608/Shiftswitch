@@ -24,7 +24,8 @@
     "mobile:build": "npm --prefix mobile run build",
     "mobile:test": "npm --prefix mobile run test",
     "mobile:version": "node mobile/scripts/set-version.mjs",
-    "lint:mobile": "eslint --config mobile/eslint.config.mjs mobile/src mobile/scripts"
+    "lint:mobile": "eslint --config mobile/eslint.config.mjs mobile/src mobile/scripts",
+    "setup:production": "tsx scripts/setup-production.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.5.7",
@@ -45,6 +46,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/luxon": "^3.7.2",

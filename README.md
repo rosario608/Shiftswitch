@@ -145,8 +145,8 @@ authenticate, authorise, validate input with Zod, and delegate to
 that writes to the database.
 
 More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
-[docs/RULES.md](docs/RULES.md) · [docs/TESTING.md](docs/TESTING.md) ·
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+[docs/ONBOARDING.md](docs/ONBOARDING.md) · [docs/RULES.md](docs/RULES.md) ·
+[docs/TESTING.md](docs/TESTING.md) · [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 
 ---
 

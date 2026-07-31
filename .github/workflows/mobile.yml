@@ -9,6 +9,10 @@ on:
       - "tests/e2e-mobile/**"
       - "playwright.mobile.config.ts"
       - ".github/workflows/mobile.yml"
+      # The native end-to-end job applies migrations and seeds a fixture, so a
+      # change to either can break it even when nothing under mobile/ moved.
+      - "scripts/**"
+      - "db/**"
   pull_request:
     paths:
       - "mobile/**"
@@ -16,6 +20,10 @@ on:
       - "tests/e2e-mobile/**"
       - "playwright.mobile.config.ts"
       - ".github/workflows/mobile.yml"
+      # The native end-to-end job applies migrations and seeds a fixture, so a
+      # change to either can break it even when nothing under mobile/ moved.
+      - "scripts/**"
+      - "db/**"
 
 concurrency:
   group: mobile-${{ github.ref }}

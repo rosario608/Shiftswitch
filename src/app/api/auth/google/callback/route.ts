@@ -13,6 +13,7 @@ import {
   safeEqual,
 } from "@/server/auth/session";
 import { createHandoffCode, nativeCallbackUrl } from "@/server/auth/native";
+import { acceptInvitation } from "@/server/domain/invitations";
 import { logger } from "@/server/observability/logger";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +61,45 @@ export async function GET(request: Request) {
       throw new OidcError("Google did not return an ID token", "token_exchange");
     }
     const identity = await verifyIdToken(config, tokens.id_token, stored.nonce);
+
+    /*
+     * An invitation short-circuits normal provisioning. Normal provisioning
+     * creates an account with no role and leaves it waiting for an
+     * administrator; an invitation already says which program and role this
+     * person gets, so redeeming it is what makes the link worth sending.
+     *
+     * The invited address must equal the verified Google address. That check
+     * lives in acceptInvitation and is what stops a forwarded link working for
+     * whoever received it.
+     */
+    if (stored.inviteToken) {
+      const accepted = await acceptInvitation(stored.inviteToken, {
+        subject: identity.subject,
+        email: identity.email,
+        name: identity.name,
+        picture: identity.picture,
+      });
+
+      if (accepted.outcome === "email_mismatch") {
+        logger.warn("auth.invite_email_mismatch", { email: identity.email });
+        return loginRedirect(request, { error: "invite_mismatch" });
+      }
+      if (accepted.outcome === "invalid") {
+        return loginRedirect(request, { error: "invite_invalid" });
+      }
+
+      await createSession(accepted.user.id, {
+        userAgent: request.headers.get("user-agent"),
+        ip: request.headers.get("x-forwarded-for"),
+      });
+      logger.info("auth.login", {
+        userId: accepted.user.id,
+        client: "web",
+        via: "invitation",
+      });
+      return NextResponse.redirect(new URL("/", request.url));
+    }
+
     const result = await provisionUserFromIdentity(identity);
     if (result.outcome === "domain_rejected") {
       logger.warn("auth.domain_rejected", { email: identity.email });

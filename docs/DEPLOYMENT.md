@@ -13,9 +13,27 @@ Requirements:
 
 - PostgreSQL 14 or newer;
 - the `pgcrypto` extension is created by the first migration;
-- a **session-mode** connection (not transaction pooling) — the trade
-  finaliser relies on `SELECT … FOR UPDATE` across statements in a transaction;
 - TLS enabled (`DATABASE_SSL=true`).
+
+### Connection pooling
+
+A **transaction-pooled** connection string is fine, and is what you should use
+on a serverless platform. The trade finaliser holds `SELECT … FOR UPDATE` row
+locks across several statements, but always *within one transaction*, and a
+transaction pooler pins a transaction to a single backend for its whole
+lifetime. What transaction pooling breaks is session state that outlives a
+transaction — named prepared statements, `SET`, `LISTEN`/`NOTIFY`, session-level
+advisory locks — and this application uses none of them.
+
+Verified against Neon's pooled endpoint on 31 July 2026:
+
+- a second transaction requesting the same row waited 1535 ms for a lock held
+  1501 ms, so it genuinely blocked rather than reading through the lock;
+- ten concurrent read-modify-write transactions produced exactly ten
+  increments, so no update was lost.
+
+If you are unsure about a particular provider, run that check against it rather
+than guessing — a lost update here means two residents both think they are off.
 
 Apply migrations before the new build serves traffic:
 
@@ -58,6 +76,20 @@ GOOGLE_CLIENT_SECRET=…
 AUTH_SECRET=…                        # openssl rand -base64 48
 NEXT_PUBLIC_APP_NAME=ShiftSwitch
 ```
+
+Optional, and the only credential the onboarding flow needs:
+
+```
+RESEND_API_KEY=…                     # enables automatic invitation email
+INVITATION_FROM_ADDRESS=ShiftSwitch <invites@your-domain.example>
+```
+
+Without `RESEND_API_KEY`, invitations still work: they are created normally and
+the administrator sends the link from their own mailbox. Nothing reports a
+delivery that did not happen. See `docs/ONBOARDING.md`.
+
+`APP_URL` is what invitation links point at, so it must be the production origin
+before anybody is invited.
 
 Must **not** be set in production:
 

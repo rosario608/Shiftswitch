@@ -16,6 +16,9 @@ export async function GET(request: Request) {
   // The native app starts the same flow, but finishes on a custom scheme with
   // a one-time code instead of a session cookie.
   const nativeChallenge = url.searchParams.get("nativeChallenge") ?? undefined;
+  // Started from an invitation link. The token is validated on the way back;
+  // carrying it here just keeps it attached across the round trip to Google.
+  const inviteToken = url.searchParams.get("invite") ?? undefined;
   const rawReturnTo = url.searchParams.get("returnTo") ?? "/";
   // Only same-origin relative paths may be used as a post-login destination.
   const returnTo = rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//")
@@ -33,6 +36,7 @@ export async function GET(request: Request) {
       codeVerifier,
       returnTo,
       nativeChallenge,
+      inviteToken,
     });
     return NextResponse.redirect(
       buildAuthorizationUrl(config, { state, nonce, codeVerifier }),

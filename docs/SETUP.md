@@ -1,6 +1,8 @@
 # Setup
 
-This guide covers local development, the database, and Google sign-in.
+This guide covers local development, the database, and Google sign-in. Getting a
+real program running — inviting residents and importing their schedule — is
+`docs/ONBOARDING.md`.
 
 ---
 
@@ -172,6 +174,8 @@ Swapping in Supabase Auth later means replacing `src/server/auth/oidc.ts` and
 | `SESSION_TTL_DAYS`       | no       | Session lifetime (default 30)                                       |
 | `BOOTSTRAP_ADMIN_EMAILS` | no       | Comma-separated emails allowed to self-promote on an empty instance |
 | `ALLOW_TEST_LOGIN`       | no       | Enables the test sign-in endpoint; ignored in production            |
+| `RESEND_API_KEY`         | no       | Enables automatic invitation email; without it links are sent by hand |
+| `INVITATION_FROM_ADDRESS`| no       | From address for invitation email                                   |
 | `LOG_LEVEL`              | no       | `debug` \| `info` \| `warn` \| `error`                              |
 
 Never commit `.env.local`. `.env.example` and `.env.test` contain no secrets.
@@ -191,6 +195,9 @@ npm run dev
 4. Sign in as `admin@hospital.org` (seeded) and open **Admin → Users** to give
    the new account a role, program and PGY level.
 5. Sign back in as that account — the schedule is now visible.
+
+For a real program you would invite residents rather than configure them one by
+one, then import the schedule: see `docs/ONBOARDING.md`.
 
 ---
 

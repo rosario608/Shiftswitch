@@ -96,6 +96,113 @@ test("a resident cannot reach administrator or chief endpoints", async ({ page }
   await expect(page).not.toHaveURL(/\/admin\/users/);
 });
 
+test("a resident cannot import a schedule or invite anybody", async ({ page }) => {
+  await signIn(page, ACCOUNTS.bob);
+
+  // Reading the template would leak the program's timezone and column layout.
+  expect((await page.request.get("/api/admin/import/template")).status()).toBe(403);
+  expect((await page.request.get("/api/admin/invitations")).status()).toBe(403);
+
+  // Previewing a file is a write-adjacent operation: it reads every resident in
+  // the program to match email addresses.
+  const preview = await page.request.post("/api/admin/import", {
+    multipart: {
+      file: {
+        name: "schedule.csv",
+        mimeType: "text/csv",
+        buffer: Buffer.from(
+          "Email,Date,Start time,End time,Service\ne2e.bob@hospital.org,2030-01-01,07:00,19:00,MICU\n",
+        ),
+      },
+    },
+  });
+  expect(preview.status()).toBe(403);
+
+  // Committing rows directly, skipping the preview.
+  const commit = await page.request.post("/api/admin/import", {
+    data: {
+      rows: [
+        {
+          residentEmail: ACCOUNTS.bob,
+          date: "2030-01-01",
+          startTime: "07:00",
+          endTime: "19:00",
+          service: "MICU",
+        },
+      ],
+    },
+  });
+  expect(commit.status()).toBe(403);
+
+  const invite = await page.request.post("/api/admin/invitations", {
+    data: { emails: ["intruder@hospital.org"], role: "admin" },
+  });
+  expect(invite.status()).toBe(403);
+
+  // Acting on an invitation by guessing its id fails on authorization, before
+  // the identifier is ever looked up.
+  const fakeId = "00000000-0000-0000-0000-000000000000";
+  expect((await page.request.post(`/api/admin/invitations/${fakeId}`)).status()).toBe(403);
+  expect((await page.request.delete(`/api/admin/invitations/${fakeId}`)).status()).toBe(
+    403,
+  );
+
+  // Neither screen is reachable by typing the URL.
+  await page.goto("/admin/import");
+  await expect(page).not.toHaveURL(/\/admin\/import/);
+});
+
+test("a chief cannot invite anybody either", async ({ page }) => {
+  // Inviting creates an account, so it sits with the rest of user management:
+  // administrator only. A chief who could invite a chief would be a quiet
+  // privilege escalation.
+  await signIn(page, ACCOUNTS.chief);
+
+  expect((await page.request.get("/api/admin/invitations")).status()).toBe(403);
+  for (const role of ["resident", "chief", "admin"]) {
+    const attempt = await page.request.post("/api/admin/invitations", {
+      data: { emails: [`e2e.new-${role}@hospital.org`], role },
+    });
+    expect(attempt.status(), role).toBe(403);
+  }
+
+  // …but the chief's own remit — running the schedule — still works.
+  expect((await page.request.get("/api/admin/import/template")).ok()).toBe(true);
+});
+
+test("an invitation link is useless to anybody but its addressee", async ({ page }) => {
+  await signIn(page, ACCOUNTS.admin);
+  const response = await page.request.post("/api/admin/invitations", {
+    data: { emails: ["e2e.invitee@hospital.org"], role: "resident" },
+  });
+  expect(response.status()).toBe(201);
+  const { created } = (await response.json()) as {
+    created: Array<{ id: string; url: string }>;
+  };
+  const url = created[0].url;
+
+  await signOut(page);
+
+  // The acceptance page is public — it has to be, the invitee is not signed in
+  // yet — but it only reveals the program and the address it was sent to.
+  await page.goto(url);
+  await expect(page.getByRole("link", { name: /continue with google/i })).toBeVisible();
+  await expect(page.getByText("e2e.invitee@hospital.org").first()).toBeVisible();
+
+  // A token that was never issued says the same thing as an expired one: no
+  // oracle that distinguishes "wrong" from "used up".
+  await page.goto("/invite/0000000000000000000000000000000000000000000");
+  await expect(page.getByText(/may have expired, been cancelled/i)).toBeVisible();
+  await expect(page.getByRole("link", { name: /continue with google/i })).toHaveCount(0);
+
+  // Revoking it takes the link out of service immediately.
+  await signIn(page, ACCOUNTS.admin);
+  await page.request.delete(`/api/admin/invitations/${created[0].id}`);
+  await signOut(page);
+  await page.goto(url);
+  await expect(page.getByText(/may have expired, been cancelled/i)).toBeVisible();
+});
+
 test("a chief cannot reach administrator-only endpoints", async ({ page }) => {
   await signIn(page, ACCOUNTS.chief);
   expect((await page.request.get("/api/admin/users")).status()).toBe(403);

@@ -774,6 +774,95 @@ export async function updateShift(
   });
 }
 
+/**
+ * Removes a shift outright.
+ *
+ * This exists for correcting a mistake — a bad import, a shift entered twice —
+ * not for taking a shift out of service. Cancelling (`updateShift` with
+ * `status: "cancelled"`) is the right operation for a shift that genuinely
+ * happened and then stopped: it keeps the record and notifies whoever was
+ * assigned. Deleting erases it.
+ *
+ * So deletion is refused whenever the shift carries history somebody else
+ * depends on. `completed_trades` and `trade_legs` reference shifts with
+ * ON DELETE RESTRICT, so the database would refuse anyway — but a foreign key
+ * violation surfaces as "something went wrong", and an administrator staring at
+ * a schedule deserves to be told which switch is in the way.
+ */
+export async function deleteShift(
+  context: AuthedContext,
+  shiftId: string,
+): Promise<void> {
+  return withTransaction(async (client) => {
+    const existing = await getShiftDetailForUpdate(shiftId, client);
+    if (!existing) throw notFound("That shift no longer exists.");
+    if (existing.program_id !== context.program.id) {
+      throw forbidden("That shift belongs to a different program.");
+    }
+
+    const completed = await queryOne<{ count: string }>(
+      `SELECT count(*)::text AS count FROM completed_trades
+        WHERE source_shift_id = $1 OR destination_shift_id = $1`,
+      [shiftId],
+      client,
+    );
+    if (Number(completed?.count ?? 0) > 0) {
+      throw conflict(
+        "This shift was part of a completed switch, so it cannot be deleted — the program needs the record of who worked it. Cancel it instead if it is no longer happening.",
+      );
+    }
+
+    const live = await queryOne<{ count: string }>(
+      `SELECT count(*)::text AS count FROM trade_requests
+        WHERE source_shift_id = $1
+          AND status IN ('open', 'offer_pending', 'accepted', 'pending_approval')`,
+      [shiftId],
+      client,
+    );
+    if (Number(live?.count ?? 0) > 0) {
+      throw conflict(
+        "This shift is currently posted for switching. Cancel the post first, then delete the shift.",
+      );
+    }
+
+    const offered = await queryOne<{ count: string }>(
+      `SELECT count(*)::text AS count FROM trade_offers
+        WHERE offered_shift_id = $1 AND status IN ('pending', 'accepted')`,
+      [shiftId],
+      client,
+    );
+    if (Number(offered?.count ?? 0) > 0) {
+      throw conflict(
+        "This shift has been offered in a switch that is still open. Withdraw or resolve that offer first.",
+      );
+    }
+
+    await recordAudit(
+      {
+        programId: context.program.id,
+        actorUserId: context.user.id,
+        actorLabel: context.user.email,
+        action: "shift.deleted",
+        entityType: "shift",
+        entityId: shiftId,
+        previousState: {
+          date: existing.date,
+          service: existing.service_name,
+          start: existing.start_datetime,
+          end: existing.end_datetime,
+          resident: existing.resident_name,
+        },
+        reason: "Deleted by an administrator",
+      },
+      client,
+    );
+
+    // Assignments and any dead trade rows cascade; the audit entry above is
+    // what survives, so the deletion itself is never invisible.
+    await query("DELETE FROM shifts WHERE id = $1", [shiftId], client);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Analytics
 // ---------------------------------------------------------------------------

@@ -7,22 +7,26 @@
  *
  *   npm run db:migrate
  *   npm run db:reset     (drops and recreates the public schema first)
+ *
+ * `runMigrations()` is exported so other scripts — setup-production.ts — can
+ * apply migrations in-process instead of shelling out and parsing the output.
  */
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { Client } from "pg";
+import { createAdminClient } from "./db-client";
 import { loadEnv } from "./load-env";
 
 const MIGRATIONS_DIR = path.join(process.cwd(), "db", "migrations");
 
-async function main() {
+/** Applies any outstanding migrations. Returns how many ran. */
+export async function runMigrations(
+  options: { reset?: boolean } = {},
+): Promise<number> {
   loadEnv();
-  const reset = process.argv.includes("--reset");
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) throw new Error("DATABASE_URL is not set");
+  const reset = options.reset ?? false;
 
-  const client = new Client({ connectionString });
+  const client = await createAdminClient();
   await client.connect();
   try {
     if (reset) {
@@ -38,12 +42,11 @@ async function main() {
       )
     `);
 
+    const existing = await client.query<{ version: string; checksum: string }>(
+      "SELECT version, checksum FROM schema_migrations",
+    );
     const applied = new Map<string, string>(
-      (
-        await client.query<{ version: string; checksum: string }>(
-          "SELECT version, checksum FROM schema_migrations",
-        )
-      ).rows.map((r) => [r.version, r.checksum]),
+      existing.rows.map((r) => [r.version, r.checksum]),
     );
 
     const files = readdirSync(MIGRATIONS_DIR)
@@ -79,17 +82,31 @@ async function main() {
         throw error;
       }
     }
-    console.log(
-      ran === 0
-        ? "[migrate] database is up to date"
-        : `[migrate] applied ${ran} migration(s)`,
-    );
+    return ran;
   } finally {
     await client.end();
   }
 }
 
-main().catch((error) => {
-  console.error("[migrate] failed:", error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+/**
+ * Only run when invoked directly, so importing this module does not migrate a
+ * database as a side effect.
+ */
+const invokedDirectly = process.argv[1]?.includes("migrate.ts");
+if (invokedDirectly) {
+  runMigrations({ reset: process.argv.includes("--reset") })
+    .then((ran) => {
+      console.log(
+        ran === 0
+          ? "[migrate] database is up to date"
+          : `[migrate] applied ${ran} migration(s)`,
+      );
+    })
+    .catch((error) => {
+      console.error(
+        "[migrate] failed:",
+        error instanceof Error ? error.message : error,
+      );
+      process.exit(1);
+    });
+}

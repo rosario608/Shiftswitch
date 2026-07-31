@@ -198,8 +198,8 @@ export default function PrivacyPolicyPage() {
 
       <h2>Security</h2>
       <p>
-        All traffic is encrypted in transit. Sign-in uses your institution&rsquo;s
-        Google account; ShiftSwitch never handles a password. Session tokens are
+        All traffic is encrypted in transit. Signing in is done entirely through
+        Google; ShiftSwitch never handles a password. Session tokens are
         stored on the server only as hashes, and on your phone in the platform
         keychain. Authorisation is enforced on the server for every request — the
         app cannot grant itself a role.

@@ -203,6 +203,12 @@ export interface OAuthStateCookie {
   returnTo: string;
   /** Set when the native app started the flow; carries its PKCE challenge. */
   nativeChallenge?: string;
+  /**
+   * Set when the flow began from an invitation link. The raw token rides in
+   * the state cookie — which is httpOnly, Secure and short-lived — rather than
+   * in the redirect URL, so it never reaches Google or a browser history.
+   */
+  inviteToken?: string;
 }
 
 export async function setOAuthStateCookie(

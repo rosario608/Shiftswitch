@@ -3,6 +3,7 @@ import { Card, CardBody } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ShiftCard } from "@/components/app/shift-card";
 import { ShiftEditorButton } from "@/components/app/shift-editor";
+import { ShiftCreateButton } from "@/components/app/shift-create";
 import { requirePageRole } from "@/server/auth/page-guards";
 import { listProgramSchedule } from "@/server/domain/admin";
 import { listProgramResidents, listServices } from "@/server/domain/schedule-actions";
@@ -59,6 +60,19 @@ export default async function AdminSchedulePage({
           </p>
         </div>
         <div className="flex shrink-0 flex-col gap-1">
+          <ShiftCreateButton
+            services={services.map((service) => ({
+              id: service.id,
+              name: service.name,
+            }))}
+            residents={residents.map((resident) => ({
+              id: resident.id,
+              full_name: resident.full_name,
+              pgy_level: resident.pgy_level,
+              active: resident.active,
+            }))}
+            timezone={context.program.timezone}
+          />
           <a
             href={`/api/admin/export?${exportQuery.toString()}`}
             className="flex min-h-[2.5rem] items-center gap-1.5 rounded-xl border border-border-strong px-3 text-sm font-semibold text-ink"
