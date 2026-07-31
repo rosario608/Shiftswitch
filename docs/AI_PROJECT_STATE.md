@@ -9,7 +9,7 @@ Last updated: 31 July 2026, after the first production deployment.
 
 ## Current phase
 
-`AWAITING_GOOGLE_OAUTH_CLIENT`
+`AWAITING_VERCEL_ENV_VARS`
 
 ## Current status
 
@@ -20,20 +20,21 @@ and nobody can sign in. Nothing is submitted or published.
 
 ## Current blocker
 
-**No environment variables on Vercel, and no Google OAuth client.** Sign-in is
-the gate: until a Google OAuth client exists and the variables are set, the app
-serves only its public pages.
+**No environment variables are set on Vercel.** The Google OAuth client now
+exists and its redirect URI has been verified against Google's authorisation
+endpoint (302 to the sign-in page, no `redirect_uri_mismatch`). Everything is
+ready; the variables just have to reach the deployment.
 
 ## User action required
 
-1. **Create a Google OAuth client** (free, needs the user's Google account).
-   In the Google Cloud console: a project, then *APIs & Services → Credentials →
-   OAuth client ID → Web application*, with authorised redirect URI exactly
-   `https://shiftswitch.vercel.app/api/auth/google/callback`. Send the client ID
-   and secret.
-2. **Either** create a Vercel API token so the agent can set the environment
-   variables, redeploy and verify — one action, and it covers every future
-   change — **or** paste the variables into the Vercel dashboard by hand.
+1. **A Vercel API token** (vercel.com → Account Settings → Tokens), so the
+   agent can set the environment variables, redeploy and verify sign-in — one
+   action that also covers every future change. The alternative is pasting
+   eight variables into the dashboard by hand, which is more error-prone and
+   repeats on every change.
+2. **Sign in once** at the deployed site after the variables are set, to become
+   the first administrator. Nobody else can do this — it is their Google
+   account.
 3. **A Google Play developer account.** One-off $25 plus identity verification,
    which can take a few days. Worth starting now; it is the long pole.
 4. **An Apple Developer account.** $99/year plus identity verification. Only
@@ -55,7 +56,7 @@ end to end against the real host. Required now:
 | `DATABASE_SSL` | `true` |
 | `AUTH_SECRET` | `openssl rand -base64 48` — generate, never reuse |
 | `APP_URL` | `https://shiftswitch.vercel.app` |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | from the OAuth client |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | from the OAuth client — created, redirect URI verified |
 | `NEXT_PUBLIC_APP_NAME` | `ShiftSwitch` |
 | `BOOTSTRAP_ADMIN_EMAILS` | the first administrator's Google address; clear it after the first sign-in |
 
@@ -158,6 +159,9 @@ Also verified by execution, not inspection:
   security headers are present, including HSTS with preload.
 - `next build` succeeds with no environment variables at all, so a fresh
   deployment cannot fail at build time for want of configuration.
+- **The Google OAuth client is valid**: Google's authorisation endpoint
+  returned 302 to its sign-in page for this client ID and the production
+  redirect URI, so the client exists and the URI is registered.
 - **The mobile production bundle builds against the real host**
   (`https://shiftswitch.vercel.app`): no test-login path, no source maps, no
   local URL, and the production host present in the bundle.
