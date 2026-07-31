@@ -3,9 +3,12 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 31 July 2026, after finishing the resident-facing product and
-auditing the trade lifecycle end to end: dead ends, rule wording, notification
-routing, five-role gaps, and concurrency.
+Last updated: 31 July 2026, after making the repository runnable unattended:
+`/CLAUDE.md`, a single `npm run verify`, guards on every irreversible script,
+and this document reconciled against the code by inspection.
+
+Before that, the resident-facing product and the trade lifecycle audit: dead
+ends, rule wording, notification routing, five-role gaps, and concurrency.
 
 ---
 
@@ -19,22 +22,42 @@ Live at `https://shiftswitch.vercel.app` with one administrator and the program
 named **Internal Medicine / DUH / America/New_York**. No residents, services or
 shifts in production yet.
 
-The repository has been audited end to end and the implementation, database,
-tests, environments and documentation now agree with one another. **Production's
-schema is byte-identical to a fresh migration run** — verified by comparing a
-structural fingerprint (columns, constraints, indexes, enums, triggers) of the
-production database against a database built from scratch by the migration
-runner. Migrations 0001–0006 are applied everywhere.
+`npm run verify` exits 0 on this tree. That is the one claim about this
+repository that is checked rather than asserted, and it is checked in full —
+see **Tested**.
 
-**Migration `0007_notification_route.sql` has NOT been applied to production.**
-It was written and applied locally in this session; the production connection
-string was not available in the session's environment, so it could not be run
-there and this has not been verified against production. It must be applied
-**before** this code is deployed: `notify()` now inserts a `route` column, so on
-a database without it every trade action that produces a notification would
-fail. Nothing deploys migrations automatically — there is no build hook, only
-`npm run db:migrate` against the production `DATABASE_URL`. Production currently
-has no residents, shifts or notifications, so nothing is currently broken.
+### Migrations
+
+| | |
+|---|---|
+| In the repository | `0001` – `0007` |
+| Applied locally, and proven to apply to an **empty** database in order | `0001` – `0007` |
+| Reported applied to production by the session of 31 July 2026 | `0001` – `0006` |
+| **Not applied to production** | **`0007_notification_route.sql`** |
+
+**`0007_notification_route.sql` must be applied to production before the code on
+`main` is deployed.** `notify()` now inserts a `route` column; against a database
+without it, every trade action that produces a notification fails. Nothing
+applies migrations automatically — there is no build hook, only
+`npm run db:migrate` against the production `DATABASE_URL`. Production has no
+residents, shifts or notifications yet, so nothing is broken today. It is listed
+under **User action required**.
+
+A note on the row above it, because this document previously contradicted
+itself — one section said `0005` was "applied locally, **not yet applied to
+production**" while three others said `0001`–`0006` were applied everywhere.
+Both cannot be true, and **this session cannot settle it by inspection**:
+sessions do not connect to the production database (see `/CLAUDE.md`), so
+production's actual schema is not observable from here. What is observable is
+that the "not yet applied" line was written when `0005` was new and was never
+updated, while the later statements were written after a session that reported
+running the migration and comparing a structural fingerprint. The stale line has
+been removed and the table above now states the provenance of each claim rather
+than presenting a second-hand report as a verified fact.
+
+**Anything in this document about production is a report from a session that had
+access, not something the current session verified.** Everything about the
+repository is verified by `npm run verify`.
 
 ## Current blocker
 
@@ -42,6 +65,12 @@ The program has no people and no schedule. Neither can be invented: they are the
 institution's real roster and real block schedule. Nothing technical is blocked.
 
 ## User action required
+
+0. **Apply `db/migrations/0007_notification_route.sql` to production**, before
+   the code on `main` is deployed. `npm run db:migrate` against the production
+   `DATABASE_URL`. Without it, every trade action that produces a notification
+   fails, because `notify()` writes a `route` column the production schema does
+   not yet have. Sessions do not do this — see `/CLAUDE.md`.
 
 1. **The residents' email addresses**, for **Admin → Users & roles → Invite
    people**. Any format: commas, semicolons, one per line, or a spreadsheet
@@ -59,19 +88,81 @@ Do not ask the user for passwords or verification codes at any point.
 
 ## Next action
 
-Nothing is blocked. The setup sequence is **Admin → Program settings** →
-**Admin → Services** → **Admin → Users & roles → Invite people** →
-**Admin → Import** (`docs/ONBOARDING.md`).
+Nothing is blocked, and the repository is now set up to be worked on
+unattended: `/CLAUDE.md` carries the standing rules, `npm run verify` is the
+single definition of done, and the three scripts that issue irreversible
+statements refuse any target that is not demonstrably local.
 
-To exercise it without real data, `npm run demo:seed` locally and use the
-invitation sandbox — see `docs/DEMO_DATA.md`.
+**For a new development session.** Pick up whatever the goal names. The product
+work that most recently landed was the resident experience and the trade
+lifecycle audit — dead ends, rule wording, notification routing, the five-role
+leftovers, and concurrency. What has *not* been done is a deliberate design
+pass: every session so far has fixed defects rather than shaping the product,
+and the difference shows.
 
-The natural next development phase is the one this baseline was established
-for: **the UX pass**. The audit deliberately fixed only defects, not design.
+**For onboarding the first real program** (a human sequence, not a session's):
+**Admin → Program settings** → **Admin → Services** → **Admin → Users & roles →
+Invite people** → **Admin → Import** (`docs/ONBOARDING.md`). To exercise it
+without real data, `npm run demo:seed` and the invitation sandbox — see
+`docs/DEMO_DATA.md`.
 
-For the mobile apps, `mobile/.env.production` already points at the live host.
-Still needed: `ANDROID_PACKAGE_NAME`, `ANDROID_CERT_FINGERPRINTS`,
+**For the mobile apps.** `mobile/.env.production` already points at the live
+host. Still needed: `ANDROID_PACKAGE_NAME`, `ANDROID_CERT_FINGERPRINTS`,
 `APPLE_TEAM_ID`, `IOS_BUNDLE_ID`, and FCM credentials.
+
+## Decisions
+
+Choices made without asking, as `/CLAUDE.md` requires. Each says what was
+chosen, why, and what was rejected, so any of them can be revisited by someone
+who disagrees rather than rediscovered.
+
+**`verify` is a TypeScript script, not a chain of `&&` in package.json.**
+`scripts/verify.ts` can set per-step environment — the from-scratch migration
+needs `NODE_ENV=test` so it drops the test database and never the development
+one — and it reports which step failed and how long each took. *Rejected:* a
+shell chain, which cannot vary environment per step and reports only the exit
+code of whatever died. *Cost:* one more file, and `tsx` is required to run the
+runner, which every other script in this repository already needs.
+
+**`build` runs before the Playwright suites, not after.** Both Playwright
+configs start `next dev`, and `next dev` and `next build` contend over `.next`.
+Building first means no dev server is running yet. *Rejected:* the literal order
+in the request, which put the end-to-end suites first and produced an avoidable
+race. The full set of steps is unchanged.
+
+**Destructive scripts refuse non-local targets rather than warning.**
+`migrate.ts --reset` and `e2e-fixture.ts` had no guard at all, and `verify` runs
+both on every invocation. They now refuse before opening a connection.
+*Rejected:* a confirmation prompt, which would make `verify` non-interactive in
+name only, and a single global override variable — each caller opts in under its
+own name so that unlocking one does not unlock the rest.
+
+**The concurrency invariant reads assignment history, not current holders.**
+`assertDatabaseConsistent` checks the assignment that was active at the moment a
+trade completed, reconstructed from `shift_assignments`. *Rejected:* comparing
+current holders, which was the original implementation and which reported a torn
+write as soon as an administrator legitimately reassigned a shift after a switch
+— an ordinary action, and one the accept-versus-reassign race performs by
+design. Atomicity is a question about the moment of the transaction; the later
+state of a shift is a different question.
+
+**The CI workflow was left as two parallel jobs rather than one `npm run verify`.**
+`.github/workflows/ci.yml` already covers the same ground, and its two jobs use
+*separate* databases — `shiftswitch_test` for the unit and integration run,
+`shiftswitch_e2e` for the browser run — which is a better arrangement than
+verify's single serial pass and is why the end-to-end job can run concurrently.
+Collapsing it would make CI slower and couple the two. *Rejected:* rewriting
+`ci.yml` to call `verify`, which the request allows but does not ask for.
+`verify` is usable in CI — no prompts, one exit code — and is the command for a
+developer or a session; the workflow is the command for a machine with two
+databases and a reason to parallelise.
+
+**Claims about production are labelled as reports, not verified facts.**
+Sessions no longer connect to the production database, so its schema is not
+observable from a session. Statements about it now name their provenance.
+*Rejected:* deleting them, which would lose real information, and leaving them
+stated as verified, which is how this document came to contradict itself about
+migration `0005`.
 
 ## Completed
 
@@ -99,11 +190,10 @@ Still needed: `ANDROID_PACKAGE_NAME`, `ANDROID_CERT_FINGERPRINTS`,
   (Resident, Chief, APD, PD, Administrator) as an explicit capability matrix
   replacing the old three-tier rank; a Services screen; a conventional
   multi-address invite field; role management with assignment rules; and a
-  development-only invitation sandbox. Migration `0005_roles_and_services.sql`,
-  applied locally, **not yet applied to production**.
+  development-only invitation sandbox. Migration `0005_roles_and_services.sql`.
 - **Demo program and schedule architecture** — `ShiftSwitch Demo Residency`
-  (21 people, ~370 shifts over four weeks, four posted switches, three
-  invitations in three states) with idempotent, deterministic seed/reset
+  (21 people, 330 shifts over four weeks, 8 posted switches, a trade in every
+  lifecycle state, three invitations in three states) with idempotent, deterministic seed/reset
   commands and a three-gate production interlock; the `ScheduleSource` seam so
   MedHub can become a source later without touching the scheduling model; and
   shift editing extended to move a shift in time.
@@ -113,10 +203,16 @@ Still needed: `ANDROID_PACKAGE_NAME`, `ANDROID_CERT_FINGERPRINTS`,
 `npm run demo:seed` · `npm run demo:reset` · `npm run demo:status`
 
 Builds **ShiftSwitch Demo Residency**: 18 residents, 2 chiefs, 1 administrator,
-six services, four weeks of shifts including overnights and 24-hour weekend
-call, four posted switches, and invitations in pending, expired and revoked
+six services, 330 shifts across four weeks including overnights and 24-hour
+weekend call, 8 posted switches, and invitations in pending, expired and revoked
 states. Everything is invented and every address is under `.invalid`, which can
 never be delivered to.
+
+It also leaves a trade in **every lifecycle state** — one offer waiting on a
+decision, one switch awaiting a chief, one completed, one declined — each
+produced by calling the domain functions a resident's taps call, so the
+notifications, audit entries and assignment swaps are the real ones.
+`npm run demo:status` reports the counts.
 
 Refuses to run unless `NODE_ENV` is not production, the database is local (or
 `ALLOW_REMOTE_DEMO_DATA=true` is set deliberately), and neither the database
@@ -126,9 +222,14 @@ to the demo program's name.
 Deterministic: the same anchor Monday always produces byte-identical data.
 Idempotent: a seed removes and rebuilds rather than merging.
 
-Accounts, the four trade scenarios and the three invitation scenarios are
-documented in `docs/DEMO_DATA.md` and asserted in
-`tests/integration/demo-data.test.ts`.
+Accounts, the trade scenarios and the three invitation scenarios are documented
+in `docs/DEMO_DATA.md` and asserted in `tests/integration/demo-data.test.ts`,
+which fails if any lifecycle state stops being produced.
+
+The interlock is shared with the other two scripts that issue irreversible
+statements — `migrate.ts --reset` and `e2e-fixture.ts` — through
+`scripts/db-guard.ts`, so "does this look like production" has one answer rather
+than one per script. See `tests/unit/db-guard.test.ts`.
 
 **Multi-person swaps are not supported** — every switch is between exactly two
 residents. `trade_legs.leg_index` would accommodate more; the domain does not.
@@ -178,7 +279,7 @@ not production-with-email.
 | First program | **Internal Medicine / DUH / America/New_York** — corrected from the placeholders by the administrator. The timezone governs every shift time, so it is worth a second look before the first import |
 | Administrator | One, the repository owner's Google account: role `admin`, identity linked, first sign-in 31 July 2026 17:29 UTC |
 | Vercel project | `shiftswitch`, team `rosario608-2488s-projects`, builds from `main`, root directory. Preview deployments are SSO-protected; production is not |
-| Database | Neon, PostgreSQL 17.10, region us-east-1. Migrations 0001–0006 applied. **Structurally identical to a fresh migration run**, verified by fingerprint comparison. Contents: 1 program, 1 user, 0 residents, 0 services, 0 shifts |
+| Database | Neon, PostgreSQL 17.10, region us-east-1. Migrations `0001`–`0006` reported applied on 31 July 2026, `0007` **not applied** — see Current status. Contents at that time: 1 program, 1 user, 0 residents, 0 services, 0 shifts |
 | Connection pooling | The **pooled** Neon endpoint is safe — verified empirically, see docs/DEPLOYMENT.md |
 
 Secrets are never in the repository. `.env.production`, `key.properties`,
@@ -403,15 +504,25 @@ Three of the defects above were found this way and by nothing else.
 
 ## Tested
 
-| Suite | Command | Result |
-|---|---|---|
-| Server unit + integration | `npx vitest run` | 353 passed |
-| Native client unit | `npm --prefix mobile run test` | 37 passed |
-| Web end-to-end | `npx playwright test` | 122 passed (mobile + desktop projects) |
-| Native client end-to-end | `npx playwright test --config playwright.mobile.config.ts` | 16 passed (including the 9 screenshot specs) |
-| Screenshots | `… --config playwright.mobile.config.ts screenshots` | 9 passed, 10 images |
-| Typecheck / lint | `npx tsc --noEmit`, `npm run lint`, `npm run lint:mobile` | clean |
-| Production build | `npm run build` + `npm --prefix mobile run build` | both succeed |
+**`npm run verify` exits 0.** That is the whole answer, and the only one worth
+quoting — it runs every row below in one command with one exit code. Last full
+run: 10 steps, 588 seconds.
+
+| Step | Result |
+|---|---|
+| Typecheck (`tsc --noEmit`) | clean |
+| Lint, server + web | clean |
+| Lint, native client | clean |
+| Server unit + integration (`vitest run`) | **391 passed**, 21 files |
+| Native client unit (`npm --prefix mobile run test`) | **37 passed**, 6 files |
+| Production build (`next build`) | succeeds |
+| Web end-to-end (`playwright test`) | **122 passed**, mobile + desktop projects |
+| Native end-to-end (`--config playwright.mobile.config.ts`) | **16 passed**, including the 9 screenshot specs |
+| Migrations from scratch (`migrate.ts --reset`) | **0001–0007 apply to an empty database** |
+| Integration suite against the rebuilt schema | **270 passed**, 13 files |
+
+566 distinct tests. The final 270 is the integration subset re-run against the
+freshly rebuilt schema, which is why it is not added again.
 
 Also verified by execution, not inspection:
 
@@ -466,9 +577,12 @@ Also verified by execution, not inspection:
   double-tapped renames and deactivations settle; repeated role changes leave
   one resident record; and audit entries and shift assignments survive the
   deactivation of the people in them.
-- **Migrations from empty** — `0001`–`0006` applied to a brand-new database,
-  and the resulting schema compared field by field against the incrementally
-  migrated development database and against production. All three identical.
+- **Migrations from empty** — `0001`–`0007` applied to a brand-new database, as
+  a step of `npm run verify`, with the integration suite then run against the
+  rebuilt schema. An earlier session additionally compared the resulting schema
+  field by field against the development database and against production and
+  found all three identical; that comparison covered `0001`–`0006` and has not
+  been repeated, because sessions no longer connect to production.
 - **The self-test path** (`tests/e2e/roles-and-onboarding.spec.ts`, 15 tests):
   an administrator finds Services in the navigation and creates one, is refused
   a case-insensitive duplicate and a deactivation that would strand upcoming
@@ -565,15 +679,26 @@ token. It has already caught three real defects.
 | Inviting residents and importing a schedule | `docs/ONBOARDING.md` |
 | The synthetic demo program and its scenarios | `docs/DEMO_DATA.md` |
 | Roles and the permission matrix | `docs/ROLES.md` |
+| Standing rules for every session | `/CLAUDE.md` |
+| The rules engine and how failures are worded | `docs/RULES.md` |
+| What each suite covers | `docs/TESTING.md` |
 
 ## Rules for this project
+
+The standing rules live in **`/CLAUDE.md`**, which every session reads
+automatically: no questions during a goal, no waiting for data that does not
+exist, no touching the production database, no role literals, commit per
+sub-objective, and `npm run verify` as the definition of done.
+
+These are the release-specific ones it does not cover:
 
 - Three states, never confused: **ready for submission** → **submitted** →
   **published**. Only say "published" after seeing it live in the developer
   console.
-- Never claim something works without having run it.
+- Never claim something works without having run it. This document quotes
+  numbers from an actual run, and labels anything it cannot re-check.
 - Never commit a signing key, a keystore password, a service-account file or a
   production env file.
 - Never point a store build at a development database or a local URL.
 - Never give a reviewer access to a real resident, schedule, email address or
-  leave record — use `scripts/seed-demo.ts`.
+  leave record — `scripts/seed-demo.ts` builds the isolated reviewer program.

@@ -13,12 +13,51 @@ Three suites, each with a different job.
 ## Running them
 
 ```bash
+npm run verify            # everything, one exit code — what "done" means
+npm run verify:fast       # typecheck, lint, unit + integration — the inner loop
+
 npm run test              # unit + integration
 npm run test:unit
 npm run test:integration
 npm run test:e2e          # Playwright: mobile (Pixel 7) and desktop projects
-npm run verify            # typecheck + lint + unit/integration + production build
+npm run test:e2e:mobile   # the native client against its own origin
 ```
+
+`npm run verify` (`scripts/verify.ts`) is the one that decides whether the
+repository is in a good state. It runs, in order and stopping at the first
+failure:
+
+| | |
+|---|---|
+| 1 | `tsc --noEmit` |
+| 2 | lint, server + web |
+| 3 | lint, native client |
+| 4 | unit + integration (`vitest run`) |
+| 5 | native client unit suite |
+| 6 | production build |
+| 7 | end-to-end, web |
+| 8 | end-to-end, native |
+| 9 | migrations from scratch — drops the **test** schema and applies `0001`… |
+| 10 | the integration suite again, against that rebuilt schema |
+
+It needs a local PostgreSQL and nothing else: no credential, no network
+service, no prompt. A preflight reports an unreachable database as a single
+line, because with PostgreSQL down the integration suite otherwise fails
+thirteen times with `ECONNREFUSED` buried in a subprocess.
+
+Two orderings are deliberate. **Build runs before the Playwright suites**,
+because both Playwright configs start `next dev` and `next dev` contends with
+`next build` over `.next`. **The migration reset runs last**, because it drops
+the schema every earlier step depends on.
+
+Step 9 is the one a developer's own database can never demonstrate: an
+incrementally-migrated database has been carrying each migration's result since
+whenever it landed, so it cannot show that the set still applies to an empty
+database in order.
+
+**Running verify destroys the local demo program.** Every end-to-end spec
+rebuilds `scripts/e2e-fixture.ts` in `beforeAll`, and that truncates every table
+in the development database. `npm run demo:seed` puts it back.
 
 ### Database used by tests
 
@@ -30,6 +69,18 @@ between tests. They never touch the development database as long as
 ```
 TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/shiftswitch_test
 ```
+
+The **end-to-end** suites are different: they drive a real `next dev`, which
+uses `DATABASE_URL` from `.env.local` — the development database. That is why
+running them clears the demo program.
+
+Three scripts issue statements that cannot be undone — the migration reset, the
+end-to-end fixture, and the demo seeder. All three refuse any target that is not
+demonstrably local, before opening a connection, and name the host and every
+reason. The detection is shared (`scripts/db-guard.ts`, covered by
+`tests/unit/db-guard.test.ts`) so there is one answer to "does this look like
+production". Each caller opts in to a remote target under its own variable, so
+unlocking one does not unlock the others. **If a guard refuses, it is right.**
 
 `tests/setup.ts` forces `NODE_ENV=test` and loads `.env.test`.
 
