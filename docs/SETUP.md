@@ -18,18 +18,30 @@ real program running — inviting residents and importing their schedule — is
 
 ```bash
 npm install
-cp .env.example .env.local
+npm run setup:local
 ```
 
-Generate a session secret:
+`setup:local` creates both local databases, writes `.env.local` from
+`.env.example` with a generated `AUTH_SECRET`, and applies the migrations. It is
+idempotent and refuses to overwrite an existing `.env.local`.
+
+Then:
 
 ```bash
-openssl rand -base64 48        # paste into AUTH_SECRET in .env.local
+npm run verify        # everything — should pass on a fresh checkout
+npm run demo:seed     # a program to click around in
+npm run dev
 ```
+
+Sign-in still needs Google credentials — section 4. The test suites do not,
+because they sign in through the test-login endpoint.
 
 ---
 
 ## 3. Database
+
+`npm run setup:local` covers the common case. The rest of this section is for
+doing it by hand, or for a hosted database.
 
 ### Option A — local PostgreSQL
 

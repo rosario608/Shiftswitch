@@ -22,9 +22,10 @@ Live at `https://shiftswitch.vercel.app` with one administrator and the program
 named **Internal Medicine / DUH / America/New_York**. No residents, services or
 shifts in production yet.
 
-`npm run verify` exits 0 on this tree. That is the one claim about this
-repository that is checked rather than asserted, and it is checked in full —
-see **Tested**.
+`npm run verify` exits 0 on this tree, and from a clean clone whose only
+preparation was `npm ci && npm run setup:local`. That is the one claim about
+this repository that is checked rather than asserted, and it is checked in
+full — see **Tested**.
 
 ### Migrations
 
@@ -145,6 +146,24 @@ write as soon as an administrator legitimately reassigned a shift after a switch
 — an ordinary action, and one the accept-versus-reassign race performs by
 design. Atomicity is a question about the moment of the transaction; the later
 state of a shift is a different question.
+
+**`verify` passes `CI` through rather than forcing it.** An earlier version set
+`CI=1` so Playwright would always start its own servers. That also turns on
+`retries: 1` — wrong for a command whose job is to say whether the tree is good,
+because a retried flake reads as a pass — and it makes the native config refuse
+to reuse a server, so `verify` failed on any machine with the dev server
+running. *Rejected:* forcing `CI=1` for determinism. Real CI sets it itself and
+gets both behaviours; locally, reuse is robust and no retries is honest.
+
+**A fresh checkout gets `npm run setup:local` rather than a longer README.**
+"Clone, install, verify" did not work: `.env.local` is not committed, correctly,
+so a clean checkout has no `DATABASE_URL` and no `AUTH_SECRET`. One command now
+creates both databases, writes `.env.local` from `.env.example` with a generated
+secret, and migrates. *Rejected:* committing a development `.env`, which puts a
+session secret in git and invites someone to reuse it; and leaving the manual
+steps in `docs/SETUP.md`, which is fine for a person and a dead stop for an
+unattended session. It deliberately does not configure Google OAuth — those are
+real credentials that cannot be invented, and the suites do not need them.
 
 **The CI workflow was left as two parallel jobs rather than one `npm run verify`.**
 `.github/workflows/ci.yml` already covers the same ground, and its two jobs use

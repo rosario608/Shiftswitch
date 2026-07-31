@@ -30,7 +30,9 @@ npm run verify:fast   typecheck, lint, unit + integration — the inner loop
 ```
 
 It needs a local PostgreSQL and nothing else. No credential, no network service,
-no prompt.
+no prompt. On a fresh checkout, `npm run setup:local` first — it creates both
+databases, writes `.env.local` with a generated secret, and migrates. After
+that `verify` passes from a clean clone.
 
 **Running verify destroys the local demo program** — every end-to-end spec
 rebuilds `scripts/e2e-fixture.ts`, which truncates every table in the
@@ -178,6 +180,7 @@ worse than one that says "copy this link".
 | Architecture | `docs/ARCHITECTURE.md` |
 | Deployment | `docs/DEPLOYMENT.md` |
 | Native release process | `docs/MOBILE_RELEASE.md` |
+| First-time local setup | `docs/SETUP.md` |
 
 Read `docs/AI_PROJECT_STATE.md` first in a new session. It is the authoritative
 checkpoint: current status, what is genuinely verified, what is not, and every

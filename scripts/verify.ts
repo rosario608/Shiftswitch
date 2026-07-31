@@ -101,9 +101,16 @@ const STEPS: Step[] = [
 function run(step: Step): boolean {
   const started = Date.now();
   process.stdout.write(`\n▶ ${step.name}\n`);
+  /* `CI` is passed through, never forced.
+     An earlier version set `CI=1` so Playwright would always start its own
+     servers. That also turns on `retries: 1`, which is exactly wrong here — a
+     command whose job is to say whether the tree is good should show a flake
+     rather than paper over it — and it makes the native config refuse to reuse
+     a server, so `verify` failed on any machine that happened to have the dev
+     server running. Real CI sets `CI` itself and gets both behaviours. */
   const result = spawnSync(step.command, step.args, {
     stdio: "inherit",
-    env: { ...process.env, ...step.env, CI: process.env.CI ?? "1" },
+    env: { ...process.env, ...step.env },
     shell: process.platform === "win32",
   });
   const seconds = ((Date.now() - started) / 1000).toFixed(0);
