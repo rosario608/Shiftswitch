@@ -46,6 +46,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/luxon": "^3.7.2",

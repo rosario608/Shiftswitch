@@ -3,7 +3,7 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 31 July 2026, after PR #2 merged.
+Last updated: 31 July 2026, after the production database was provisioned.
 
 ---
 
@@ -13,16 +13,16 @@ Last updated: 31 July 2026, after PR #2 merged.
 
 ## Current status
 
-The application and both mobile apps are built, tested and store-ready. Nothing
-is deployed. Nothing is submitted. Nothing is published.
+The application and both mobile apps are built, tested and store-ready. The
+production **database exists and its schema is live**. There is still no web
+host, so nothing is deployed, submitted or published.
 
 ## Current blocker
 
-**There is no production deployment.** The app has never run anywhere but a
-development machine, and there is no public URL.
+**There is no web host.** The database is ready; the application has nowhere to
+run, so there is no public URL yet.
 
-Everything remaining depends on this one thing, because a live https host is
-what the following all need to be configured *against*:
+A live https host is what the following all need to be configured *against*:
 
 - the Google OAuth redirect URI,
 - the mobile apps' compiled-in API address,
@@ -32,12 +32,11 @@ what the following all need to be configured *against*:
 
 ## User action required
 
-Four things need accounts, payment or identity verification, so only the user
-can do them. In priority order — the first one unblocks everything:
+In priority order — the first unblocks everything:
 
-1. **A hosting account and a PostgreSQL database.** Any provider works. Vercel
-   (free tier) with Neon Postgres is the fewest moving parts for this stack and
-   needs no server administration.
+1. **A hosting account.** Vercel's free tier is the fewest moving parts for this
+   stack and needs no server administration. Connect the GitHub repo and paste
+   in the environment variables; the database is already provisioned.
 2. **A Google Cloud project with an OAuth client**, so residents can sign in.
    Free.
 3. **A Google Play developer account.** One-off $25 plus identity verification,
@@ -52,19 +51,18 @@ Do not ask the user for passwords or verification codes at any point.
 
 ## Next action
 
-When the user has a hosting account and a database URL:
+Deploy the web application, then re-run setup to create the first program:
 
 ```bash
-APP_URL=https://<host> DATABASE_URL=<url> AUTH_SECRET=$(openssl rand -base64 48) \
+APP_URL=https://<host> DATABASE_URL=<neon url> AUTH_SECRET=<generated> \
 GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=… \
 PROGRAM_NAME="…" PROGRAM_INSTITUTION="…" PROGRAM_TIMEZONE="…" \
 BOOTSTRAP_ADMIN_EMAILS=<their Google address> \
 npm run setup:production
 ```
 
-That one command checks the configuration, applies migrations, creates the first
-program, and prints exactly what is left. It refuses to touch anything if the
-configuration is not production, and is safe to re-run.
+Safe to re-run; it skips what is already done. From a network that blocks
+outbound TCP 5432, add `DATABASE_DRIVER=neon-ws`.
 
 Then, in order: verify sign-in works against the real host → point
 `mobile/.env.production` at it → rebuild and re-verify the mobile bundle →
@@ -93,6 +91,8 @@ create the reviewer accounts (`scripts/seed-demo.ts`) → Play internal testing.
 | Custom URL scheme | `shiftswitch://` (sign-in handoff only) |
 | Legal URLs | `/legal/privacy` and `/legal/terms`, public, no sign-in |
 | Dev signing key | `~/.shiftswitch-dev-keys/dev-upload.jks` — **outside the repo, never for release** |
+| Database | Neon, PostgreSQL 17.10, region us-east-1. Schema live: 25 tables, migrations 0001–0003 applied, 0 rows |
+| Connection pooling | The **pooled** Neon endpoint is safe — verified empirically, see docs/DEPLOYMENT.md |
 
 Secrets are never in the repository. `.env.production`, `key.properties`,
 `*.jks`, `*.p8`, `*.p12` and `google-services.json` are all git-ignored.
@@ -133,6 +133,10 @@ Also verified by execution, not inspection:
   re-run.
 - `scripts/seed-demo.ts` builds the isolated reviewer program.
 - The CI permission gate was run against the real APK.
+- **Against the real Neon database:** all three migrations applied, all 7 core
+  tables confirmed readable, and row locking verified correct through the
+  pooled endpoint (a competing transaction blocked 1535 ms for a 1501 ms hold;
+  ten concurrent read-modify-write transactions lost no updates).
 
 The native end-to-end suite is the one that matters most: it serves the compiled
 client from its own origin, exactly as the Capacitor webview does, and drives it

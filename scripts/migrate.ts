@@ -14,7 +14,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { Client } from "pg";
+import { createAdminClient } from "./db-client";
 import { loadEnv } from "./load-env";
 
 const MIGRATIONS_DIR = path.join(process.cwd(), "db", "migrations");
@@ -25,10 +25,8 @@ export async function runMigrations(
 ): Promise<number> {
   loadEnv();
   const reset = options.reset ?? false;
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) throw new Error("DATABASE_URL is not set");
 
-  const client = new Client({ connectionString });
+  const client = await createAdminClient();
   await client.connect();
   try {
     if (reset) {
@@ -44,12 +42,11 @@ export async function runMigrations(
       )
     `);
 
+    const existing = await client.query<{ version: string; checksum: string }>(
+      "SELECT version, checksum FROM schema_migrations",
+    );
     const applied = new Map<string, string>(
-      (
-        await client.query<{ version: string; checksum: string }>(
-          "SELECT version, checksum FROM schema_migrations",
-        )
-      ).rows.map((r) => [r.version, r.checksum]),
+      existing.rows.map((r) => [r.version, r.checksum]),
     );
 
     const files = readdirSync(MIGRATIONS_DIR)

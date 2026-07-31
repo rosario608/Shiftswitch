@@ -21,6 +21,7 @@
  *   - It never creates a user. The first administrator signs in with Google and
  *     is promoted by BOOTSTRAP_ADMIN_EMAILS; there is no password to set.
  */
+import { createAdminClient, describeConnection } from "./db-client";
 import { loadEnv } from "./load-env";
 
 loadEnv();
@@ -132,7 +133,8 @@ function report(): boolean {
 }
 
 async function main() {
-  console.log("\n[setup] Checking the configuration\n");
+  console.log(`\n[setup] Checking the configuration`);
+  console.log(`        Database: ${describeConnection()}\n`);
   checkConfiguration();
   if (!report()) process.exit(1);
 
@@ -145,13 +147,16 @@ async function main() {
       : `  ok       Applied ${applied} migration(s).`,
   );
 
-  const { closePool, query, queryOne } = await import("@/server/db/pool");
+  const db = await createAdminClient();
+  await db.connect();
 
   console.log("\n[setup] Checking the program and administrator\n");
 
-  const programCount = await queryOne<{ count: string }>(
-    "SELECT count(*)::text AS count FROM programs",
-  );
+  const programCount = (
+    await db.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM programs",
+    )
+  ).rows[0];
   if (Number(programCount?.count ?? 0) === 0) {
     const name = process.env.PROGRAM_NAME;
     const institution = process.env.PROGRAM_INSTITUTION;
@@ -165,20 +170,24 @@ async function main() {
           "             npm run setup:production",
       );
     } else {
-      const created = await queryOne<{ id: string }>(
-        `INSERT INTO programs (name, institution, timezone, approved_email_domains, default_trade_approval_required)
-         VALUES ($1, $2, $3, '{}', false) RETURNING id`,
-        [name, institution, timezone],
-      );
-      console.log(`  ok       Created the program "${name}" (${created!.id}).`);
+      const created = (
+        await db.query<{ id: string }>(
+          `INSERT INTO programs (name, institution, timezone, approved_email_domains, default_trade_approval_required)
+           VALUES ($1, $2, $3, '{}', false) RETURNING id`,
+          [name, institution, timezone],
+        )
+      ).rows[0];
+      console.log(`  ok       Created the program "${name}" (${created.id}).`);
     }
   } else {
     console.log(`  ok       ${programCount!.count} program(s) already exist.`);
   }
 
-  const adminCount = await queryOne<{ count: string }>(
-    "SELECT count(*)::text AS count FROM users WHERE role = 'admin'",
-  );
+  const adminCount = (
+    await db.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM users WHERE role = 'admin'",
+    )
+  ).rows[0];
   const admins = Number(adminCount?.count ?? 0);
   const bootstrap = (process.env.BOOTSTRAP_ADMIN_EMAILS ?? "").trim();
 
@@ -205,16 +214,18 @@ async function main() {
 
   // Prove the application can actually reach and read the schema, rather than
   // assuming the migration step was enough.
-  const tables = await query<{ table_name: string }>(
-    `SELECT table_name FROM information_schema.tables
-      WHERE table_schema = 'public' AND table_name IN
-        ('users','programs','shifts','trade_requests','completed_trades','devices','calendar_feeds')`,
-  );
+  const tables = (
+    await db.query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name IN
+          ('users','programs','shifts','trade_requests','completed_trades','devices','calendar_feeds')`,
+    )
+  ).rows;
   if (tables.length < 7) {
     console.error(
       `\n[setup] The schema is incomplete — found ${tables.length} of 7 core tables. Stopping.\n`,
     );
-    await closePool();
+    await db.end();
     process.exit(1);
   }
   console.log("  ok       All core tables present and readable.");
@@ -227,7 +238,7 @@ async function main() {
     console.log("");
   }
 
-  await closePool();
+  await db.end();
 }
 
 main().catch((error) => {
