@@ -61,6 +61,25 @@ export function ShiftEditorButton({
     },
   );
 
+  /*
+   * Deleting is separate from cancelling and deliberately harder to reach.
+   * Cancelling keeps the shift and tells the resident; deleting erases a row
+   * that should never have existed. The server refuses to delete anything
+   * carrying history, so the worst outcome here is a clear refusal.
+   */
+  const [confirmDelete, setConfirmDelete] = React.useState(false);
+  const remove = useAction(
+    async () =>
+      apiFetch(`/api/admin/shifts/${shift.id}`, { method: "DELETE" }),
+    {
+      onSuccess: () => {
+        setOpen(false);
+        setConfirmDelete(false);
+        router.refresh();
+      },
+    },
+  );
+
   const reassigning = (residentId || null) !== shift.residentId;
   const disruptive = reassigning || cancelShift || (!tradeable && shift.tradeable);
 
@@ -172,6 +191,44 @@ export function ShiftEditorButton({
             </Field>
           </>
         ) : null}
+
+        <div className="mt-6 border-t border-border-base pt-4">
+          {confirmDelete ? (
+            <div className="space-y-2">
+              <Alert tone="warning">
+                Deleting removes this shift entirely. Use “Cancel this shift”
+                instead if it was real and is no longer happening — that keeps the
+                record and notifies the resident.
+              </Alert>
+              {remove.error ? <Alert tone="error">{remove.error}</Alert> : null}
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="danger"
+                  loading={remove.pending}
+                  onClick={remove.run}
+                >
+                  Delete permanently
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setConfirmDelete(false)}
+                >
+                  Keep it
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              className="text-sm font-medium text-critical underline"
+            >
+              Delete this shift
+            </button>
+          )}
+        </div>
       </Sheet>
     </>
   );

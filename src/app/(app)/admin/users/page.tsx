@@ -2,8 +2,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardBody } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { UserRoleForm } from "@/components/app/admin-actions";
+import { InvitationsManager } from "@/components/app/invitations-manager";
 import { requirePageRole } from "@/server/auth/page-guards";
 import { listManagedUsers } from "@/server/domain/admin";
+import { listInvitations } from "@/server/domain/invitations";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Users" };
@@ -20,6 +22,7 @@ export default async function UsersPage({
     search: params.search,
   });
   const unconfigured = users.filter((user) => !user.role);
+  const invitations = await listInvitations(context.program.id);
 
   return (
     <div className="space-y-5">
@@ -32,6 +35,25 @@ export default async function UsersPage({
             : ""}
         </p>
       </header>
+
+      {/*
+        Invitations sit above the account list because inviting is what an
+        administrator comes here to do when setting a program up; reviewing
+        existing accounts comes later.
+      */}
+      <InvitationsManager
+        invitations={invitations.map((invitation) => ({
+          id: invitation.id,
+          email: invitation.email,
+          role: invitation.role,
+          status: invitation.status,
+          expires_at: invitation.expires_at.toISOString(),
+          send_count: invitation.send_count,
+          invited_by_name: invitation.invited_by_name,
+          accepted_user_email: invitation.accepted_user_email,
+          created_at: invitation.created_at.toISOString(),
+        }))}
+      />
 
       <form method="get" className="flex gap-2">
         <input

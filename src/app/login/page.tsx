@@ -18,6 +18,10 @@ const ERROR_MESSAGES: Record<string, string> = {
   cancelled: "Sign-in was cancelled.",
   token_exchange: "Google couldn't complete the sign-in. Please try again.",
   id_token: "We couldn't verify your Google account. Please try again.",
+  invite_mismatch:
+    "That invitation was sent to a different email address. Sign in with the Google account the invitation was addressed to, or ask your program administrator to re-send it to the address you use.",
+  invite_invalid:
+    "That invitation link has expired or been cancelled. Ask your program administrator to send you a new one.",
   email_unverified:
     "Your Google account's email address isn't verified, so we can't sign you in.",
   domain:
@@ -72,8 +76,16 @@ export default async function LoginPage({
         Continue with Google
       </a>
 
+      {/*
+        Google is the only sign-in method the application offers, so the page
+        says exactly that and nothing more. It must not mention hospital or
+        institutional log-in, or single sign-on: none of those are implemented,
+        and hinting at them sends people to a help desk that cannot help.
+        Adding a provider later is a change to `src/server/auth/` plus a second
+        button here — the architecture does not need advertising in advance.
+      */}
       <p className="mt-3 text-center text-sm text-ink-subtle">
-        Use your hospital or institutional Google account. No separate password.
+        Sign in with the Google account your program has on file.
       </p>
 
       <ul className="mt-10 space-y-4">

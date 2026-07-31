@@ -6,10 +6,12 @@ import { Button, ErrorState, InlineNotice } from "@/components/ui";
 /**
  * Sign-in.
  *
- * One provider, because the program's accounts are Google Workspace accounts —
- * the app authenticates the resident against the same directory their
- * institution already trusts. There is no password to create, and the app never
- * sees one.
+ * Google is the only sign-in method, so this screen offers exactly one button
+ * and says nothing about hospital log-ins, institutional accounts or single
+ * sign-on — none of those exist, and mentioning them sends residents to a help
+ * desk that cannot help. There is no password to create, and the app never sees
+ * one. Adding a provider later is a change to `src/server/auth/` plus a second
+ * button here; the architecture does not need advertising in advance.
  */
 export function LoginScreen() {
   const { signInWithGoogle, signInWithEmail, signingIn, error, clearError } =

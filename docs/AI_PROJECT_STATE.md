@@ -3,7 +3,8 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 31 July 2026, after production was fully configured.
+Last updated: 31 July 2026, after the onboarding features (invitations,
+schedule ingestion, Google-only sign-in) were built and tested.
 
 ---
 
@@ -46,39 +47,21 @@ Do not ask the user for passwords or verification codes at any point.
 
 ## Next action
 
-Set the environment variables on Vercel, redeploy, then confirm sign-in works
-end to end against the real host. Required now:
+Everything on the server side is done and deployed except the first sign-in.
+Once an administrator exists, the onboarding path is: **Admin → Program**
+(correct the placeholders, above all the timezone) → **Admin → Users → Invite**
+→ **Admin → Import**. See `docs/ONBOARDING.md`.
 
-| Variable | Value |
-|---|---|
-| `DATABASE_URL` | the Neon **pooled** connection string |
-| `DATABASE_SSL` | `true` |
-| `AUTH_SECRET` | `openssl rand -base64 48` — generate, never reuse |
-| `APP_URL` | `https://shiftswitch.vercel.app` |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | from the OAuth client — created, redirect URI verified |
-| `NEXT_PUBLIC_APP_NAME` | `ShiftSwitch` |
-| `BOOTSTRAP_ADMIN_EMAILS` | the first administrator's Google address; clear it after the first sign-in |
+Then, in order: point `mobile/.env.production` at the live host → rebuild and
+re-verify the mobile bundle → create the reviewer accounts
+(`scripts/seed-demo.ts`) → Play internal testing.
 
 Needed later, for the mobile apps: `ANDROID_PACKAGE_NAME`,
 `ANDROID_CERT_FINGERPRINTS` (from the real upload key), `APPLE_TEAM_ID`,
 `IOS_BUNDLE_ID`, and the FCM credentials.
 
-Then create the first program:
-
-```bash
-APP_URL=https://<host> DATABASE_URL=<neon url> AUTH_SECRET=<generated> \
-GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=… \
-PROGRAM_NAME="…" PROGRAM_INSTITUTION="…" PROGRAM_TIMEZONE="…" \
-BOOTSTRAP_ADMIN_EMAILS=<their Google address> \
-npm run setup:production
-```
-
-Safe to re-run; it skips what is already done. From a network that blocks
-outbound TCP 5432, add `DATABASE_DRIVER=neon-ws`.
-
-Then, in order: verify sign-in works against the real host → point
-`mobile/.env.production` at it → rebuild and re-verify the mobile bundle →
-create the reviewer accounts (`scripts/seed-demo.ts`) → Play internal testing.
+`npm run setup:production` is safe to re-run; it skips what is already done.
+From a network that blocks outbound TCP 5432, add `DATABASE_DRIVER=neon-ws`.
 
 ## Completed
 
@@ -91,6 +74,12 @@ create the reviewer accounts (`scripts/seed-demo.ts`) → Play internal testing.
   account deletion); both native projects configured; the complete store
   compliance package. PR #2, merged.
 - A signed Android release bundle has been **built and verified** — see Tested.
+- **Onboarding** — admin-only invitations (hashed expiring tokens, resend,
+  revoke, batch invite, public acceptance page, Google-only acceptance with a
+  required email match), the downloadable schedule template and the documented
+  column set, manual shift create/edit/delete, and the Google-only sign-in
+  wording audit. Migration `0004_invitations.sql`, applied locally **and to the
+  production Neon database**.
 
 ## Important configuration
 
@@ -105,9 +94,10 @@ create the reviewer accounts (`scripts/seed-demo.ts`) → Play internal testing.
 | Dev signing key | `~/.shiftswitch-dev-keys/dev-upload.jks` — **outside the repo, never for release** |
 | Production URL | `https://shiftswitch.vercel.app` — public, no deployment protection |
 | Vercel env vars | Set on **production** only: `APP_URL`, `NEXT_PUBLIC_APP_NAME`, `DATABASE_SSL`, `AUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `BOOTSTRAP_ADMIN_EMAILS`. `DATABASE_URL` is managed by the Neon integration and must not be overridden |
+| Invitation email | **Not configured.** `RESEND_API_KEY` is the single credential that would enable automatic delivery. Without it invitations are created normally and the administrator sends the link — nothing reports a delivery that did not happen |
 | First program | `My Residency Program` / `My Hospital` / `America/New_York` — **placeholders, to be corrected in Settings** |
 | Vercel project | `shiftswitch`, team `rosario608-2488s-projects`, builds from `main`, root directory. Preview deployments are SSO-protected; production is not |
-| Database | Neon, PostgreSQL 17.10, region us-east-1. Schema live: 25 tables, migrations 0001–0003 applied, 0 rows |
+| Database | Neon, PostgreSQL 17.10, region us-east-1. Schema live: 26 tables, migrations 0001–0004 applied, 0 rows |
 | Connection pooling | The **pooled** Neon endpoint is safe — verified empirically, see docs/DEPLOYMENT.md |
 
 Secrets are never in the repository. `.env.production`, `key.properties`,
@@ -136,11 +126,12 @@ Secrets are never in the repository. `.env.production`, `key.properties`,
 
 | Suite | Command | Result |
 |---|---|---|
-| Server unit + integration | `npx vitest run` | 205 passed |
+| Server unit + integration | `npx vitest run` | 238 passed |
 | Native client unit | `npm --prefix mobile run test` | 34 passed |
-| Web end-to-end | `npx playwright test` | 50 passed |
-| Native client end-to-end | `npx playwright test --config playwright.mobile.config.ts` | 7 passed |
+| Web end-to-end | `npx playwright test` | 56 passed (mobile + desktop projects) |
+| Native client end-to-end | `npx playwright test --config playwright.mobile.config.ts` | 16 passed (including the 9 screenshot specs) |
 | Screenshots | `… --config playwright.mobile.config.ts screenshots` | 9 passed, 10 images |
+| Typecheck / lint | `npx tsc --noEmit`, `npm run lint`, `npm run lint:mobile` | clean |
 
 Also verified by execution, not inspection:
 
@@ -174,14 +165,28 @@ Also verified by execution, not inspection:
 - **The Google OAuth client is valid**: Google's authorisation endpoint
   returned 302 to its sign-in page for this client ID and the production
   redirect URI, so the client exists and the URI is registered.
+- **The onboarding path end to end** (`tests/integration/onboarding.test.ts`):
+  an empty program, two residents invited, both accepting with the Google
+  identity the OAuth callback would supply, a CSV block imported, each resident
+  seeing only their own shifts with the overnight row stored as one 12-hour
+  shift, and a completed post-and-offer between them. Google itself is the only
+  substituted piece; the signature verification that produces the identity is
+  covered in `tests/integration/oidc.test.ts`.
+- **The authorization boundaries around it** (`tests/e2e/security.spec.ts`,
+  driven over HTTP against the real server): a resident gets 403 on the import
+  template, the import preview, the import commit, the invitation list, invite
+  creation, resend and revoke; a chief gets 403 on everything invitation-related
+  but 200 on the import template; an invitation link shows nothing but the
+  program and the invited address, and an unissued or revoked token renders the
+  same neutral message as an expired one.
 - **The mobile production bundle builds against the real host**
   (`https://shiftswitch.vercel.app`): no test-login path, no source maps, no
   local URL, and the production host present in the bundle.
-- **`npm run check:release -- --mobile` against the real host and database now
-  reports exactly one blocking problem: the missing Google OAuth credentials.**
-  Everything else — host, database, session secret, mobile environment,
-  Capacitor config — passes. That single error is the whole distance between
-  here and a shippable store build.
+- **`npm run check:release` against the real host, the real database and the
+  real OAuth credentials now passes with no blocking problems** — one warning
+  only, that no FCM credentials are configured, so push is skipped rather than
+  claimed. (An earlier run reported the OAuth credentials missing; they have
+  since been set.)
 
 The native end-to-end suite is the one that matters most: it serves the compiled
 client from its own origin, exactly as the Capacitor webview does, and drives it
@@ -201,6 +206,7 @@ token. It has already caught three real defects.
 | What was and was not verified | `VERIFICATION_REPORT.md` |
 | Why Capacitor | `docs/MOBILE_ARCHITECTURE.md` |
 | Server deployment | `docs/DEPLOYMENT.md` |
+| Inviting residents and importing a schedule | `docs/ONBOARDING.md` |
 
 ## Rules for this project
 

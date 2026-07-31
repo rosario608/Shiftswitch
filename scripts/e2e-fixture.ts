@@ -24,7 +24,7 @@ async function main() {
   await query(`
     TRUNCATE audit_logs, email_records, notifications, trade_legs, completed_trades,
              trade_offers, trade_requests, shift_assignments, shifts, rules,
-             program_contacts, residents, sessions, users, services, rotations, programs
+             program_contacts, residents, sessions, invitations, users, services, rotations, programs
     RESTART IDENTITY CASCADE
   `);
 

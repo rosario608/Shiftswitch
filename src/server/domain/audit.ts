@@ -3,6 +3,10 @@ import type { AuditLogRow } from "@/server/db/types";
 
 export type AuditAction =
   | "user.created"
+  | "invitation.created"
+  | "invitation.resent"
+  | "invitation.revoked"
+  | "invitation.accepted"
   | "user.updated"
   | "user.role_changed"
   | "user.deactivated"
@@ -16,6 +20,7 @@ export type AuditAction =
   | "shift.created"
   | "shift.updated"
   | "shift.cancelled"
+  | "shift.deleted"
   | "shift.reassigned"
   | "schedule.imported"
   | "schedule.exported"

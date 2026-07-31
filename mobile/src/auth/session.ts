@@ -10,8 +10,8 @@ import { challengeFor, createVerifier } from "./pkce";
  *
  * 1. Generate a PKCE verifier and hold it in memory only.
  * 2. Open the system browser (not an embedded webview — Google refuses those,
- *    and it lets the resident use an existing institutional session) at the
- *    server's Google start endpoint, passing the challenge.
+ *    and it lets the resident reuse a Google session they are already signed
+ *    into) at the server's Google start endpoint, passing the challenge.
  * 3. The server completes OIDC, mints a one-time code and redirects to
  *    `shiftswitch://auth/callback?code=…`.
  * 4. The app receives that URL, closes the browser, and exchanges the code plus

@@ -77,6 +77,20 @@ AUTH_SECRET=…                        # openssl rand -base64 48
 NEXT_PUBLIC_APP_NAME=ShiftSwitch
 ```
 
+Optional, and the only credential the onboarding flow needs:
+
+```
+RESEND_API_KEY=…                     # enables automatic invitation email
+INVITATION_FROM_ADDRESS=ShiftSwitch <invites@your-domain.example>
+```
+
+Without `RESEND_API_KEY`, invitations still work: they are created normally and
+the administrator sends the link from their own mailbox. Nothing reports a
+delivery that did not happen. See `docs/ONBOARDING.md`.
+
+`APP_URL` is what invitation links point at, so it must be the production origin
+before anybody is invited.
+
 Must **not** be set in production:
 
 ```

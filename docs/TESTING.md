@@ -78,6 +78,18 @@ never grants a role.
 | Resident cannot reach another resident's data | `tests/e2e/security.spec.ts` |
 | Resident cannot reach admin routes | `tests/e2e/security.spec.ts` |
 | Email recipients, subject and body correct | `tests/unit/email.test.ts`, `tests/integration/email-and-admin.test.ts`, `tests/e2e/workflow.spec.ts` |
+| Invitation expiry, revocation, wrong token, single use, resend rotation | `tests/integration/invitations.test.ts` |
+| Invitation accepted by the wrong Google account | `tests/integration/invitations.test.ts` (mismatch does not consume the invitation), `tests/e2e/security.spec.ts` |
+| Concurrent acceptance of the same invitation | `tests/integration/invitations.test.ts` |
+| Invitation delivery reported honestly when no transport is configured | `tests/integration/invitations.test.ts` |
+| Malformed schedule file (not a spreadsheet, wrong columns, empty) | `tests/integration/onboarding.test.ts` |
+| Duplicate schedule import is idempotent | `tests/integration/email-and-admin.test.ts` |
+| Import into an empty/new program | `tests/integration/onboarding.test.ts` |
+| Import writes nothing when one row is bad | `tests/integration/onboarding.test.ts` |
+| Deleting a shift with trade history is refused | `tests/integration/onboarding.test.ts` |
+| Whole onboarding path: invite → accept → import → see shifts → trade | `tests/integration/onboarding.test.ts` |
+| Residents and chiefs cannot import or invite | `tests/e2e/security.spec.ts` |
+| Invitations are scoped to one program | `tests/integration/onboarding.test.ts` |
 
 ---
 
