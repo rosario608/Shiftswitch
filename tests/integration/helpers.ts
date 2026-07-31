@@ -334,9 +334,24 @@ export async function assertDatabaseConsistent(): Promise<void> {
     }
   }
 
-  // 3. A completed switch actually swapped the two residents. This is the
-  //    torn-write check: half-applied means one shift moved and the other did
-  //    not, which counting rows above cannot see.
+  /* 3. A completed switch actually swapped the two residents — the torn-write
+        check. Half-applied means one shift moved and the other did not, which
+        counting rows above cannot see.
+
+        Asked of the assignment that was active **at the moment the trade
+        completed**, reconstructed from `shift_assignments` history, rather than
+        of whoever holds the shift now. Those are different questions, and only
+        the first one is about atomicity. Comparing current holders says a
+        completed switch is torn the moment an administrator legitimately
+        reassigns either shift afterwards — which is an ordinary thing to do and
+        not a defect. Reading the history also makes the check immune to
+        anything that happens after the transaction it is testing.
+
+        The timestamps line up exactly because `now()` is transaction-start time
+        in PostgreSQL: within finalisation, the old assignment's `ended_at`, the
+        new one's `assigned_at` and `completed_at` are all the same instant. So
+        `assigned_at <= completed_at` includes the new row, and
+        `ended_at > completed_at` excludes the old one. */
   const swaps = await query<{
     id: string;
     source_holder: string | null;
@@ -346,10 +361,15 @@ export async function assertDatabaseConsistent(): Promise<void> {
   }>(
     `SELECT c.id, c.resident_a, c.resident_b,
             (SELECT a.resident_id FROM shift_assignments a
-              WHERE a.shift_id = c.source_shift_id AND a.assignment_status = 'active') AS source_holder,
+              WHERE a.shift_id = c.source_shift_id
+                AND a.assigned_at <= c.completed_at
+                AND (a.ended_at IS NULL OR a.ended_at > c.completed_at)
+              ORDER BY a.assigned_at DESC LIMIT 1) AS source_holder,
             (SELECT a.resident_id FROM shift_assignments a
-              WHERE a.shift_id = c.destination_shift_id AND a.assignment_status = 'active')
-              AS destination_holder
+              WHERE a.shift_id = c.destination_shift_id
+                AND a.assigned_at <= c.completed_at
+                AND (a.ended_at IS NULL OR a.ended_at > c.completed_at)
+              ORDER BY a.assigned_at DESC LIMIT 1) AS destination_holder
        FROM completed_trades c`,
   );
   for (const row of swaps) {

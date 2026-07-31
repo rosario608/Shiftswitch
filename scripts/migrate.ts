@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { createAdminClient } from "./db-client";
+import { assertDestructiveAllowed } from "./db-guard";
 import { loadEnv } from "./load-env";
 
 const MIGRATIONS_DIR = path.join(process.cwd(), "db", "migrations");
@@ -25,6 +26,17 @@ export async function runMigrations(
 ): Promise<number> {
   loadEnv();
   const reset = options.reset ?? false;
+
+  /* Checked before a socket is opened, not inside the transaction.
+     `--reset` is the most destructive statement in the repository and had no
+     guard at all: it dropped whatever `DATABASE_URL` pointed at. Refusing
+     before connecting means a wrong target produces a refusal naming the host,
+     rather than a connection error that says nothing about what was about to
+     happen. Applying migrations *forward* is safe anywhere and stays
+     unguarded; dropping the schema is not. */
+  if (reset) {
+    assertDestructiveAllowed("drop and recreate the schema", "ALLOW_REMOTE_DB_RESET");
+  }
 
   const client = await createAdminClient();
   await client.connect();
