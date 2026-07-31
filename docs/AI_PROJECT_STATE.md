@@ -3,62 +3,67 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 31 July 2026, after the synthetic demo program, the
-provider-agnostic schedule ingestion seam and manual schedule editing.
+Last updated: 31 July 2026, after the first administrator signed in and the
+live invitation path was verified against production.
 
 ---
 
 ## Current phase
 
-`AWAITING_FIRST_ADMIN_SIGN_IN`
+`AWAITING_PROGRAM_ROSTER`
 
 ## Current status
 
-The web application is **live and fully configured** at
-`https://shiftswitch.vercel.app`: environment variables set, database reachable,
-Google sign-in wired up and verified, and the first program created. Nobody has
-signed in yet, so there is no administrator. Nothing is submitted or published.
+The web application is **live, configured and in use** at
+`https://shiftswitch.vercel.app`. The first administrator has signed in with
+Google, the account is linked, and the program has been renamed from the
+placeholders to **Internal Medicine / DUH / America/New_York**.
+
+The program is otherwise empty: no residents, no services, no shifts. Nothing is
+submitted to either app store.
 
 ## Current blocker
 
-**Nobody has signed in.** The first sign-in by the address in
-`BOOTSTRAP_ADMIN_EMAILS` promotes that account to administrator; until then
-there is no one who can configure services, rotations or residents.
+**The program has no people and no schedule in it**, and neither can be invented
+— they are the institution's real roster and real block schedule. Every
+remaining product step (residents seeing shifts, posting, switching, the chief
+approval queue) needs at least a few real accounts to exist.
 
 ## User action required
 
-1. **Sign in once** at `https://shiftswitch.vercel.app` with the Google account
-   in `BOOTSTRAP_ADMIN_EMAILS`, to become the administrator. Nobody else can do
-   this — it is their Google account.
-2. **Correct the program details** in Settings afterwards. The program was
-   created with placeholders (`My Residency Program` / `My Hospital` /
-   `America/New_York`) so the bootstrap promotion had something to attach to.
-   **The timezone must be right before any schedule is imported** — every shift
-   time is interpreted in it.
+1. **The residents' email addresses.** Invitations go out from
+   **Admin → Users → Invite**; the import then matches shifts to people by that
+   same address, so the accounts have to exist first. Their Google Workspace
+   addresses are the ones to use.
+2. **The block schedule**, as a CSV or XLSX. Download the template from
+   **Admin → Import** — it always carries near-future example dates and the
+   canonical column names. Common aliases from other systems are accepted.
 3. **A Google Play developer account.** One-off $25 plus identity verification,
-   which can take a few days. Worth starting now; it is the long pole.
+   which can take days. The long pole for shipping the Android app.
 4. **An Apple Developer account.** $99/year plus identity verification. Only
-   needed for the iOS app.
+   needed for iOS.
+5. **A bundle id on a domain the institution controls**, replacing the
+   `org.shiftswitch.app` placeholder. It can never be changed after the first
+   store upload.
 
 Also, eventually: **a Mac** for the iOS build, and **12 real testers for 14
-days** if Google Play requires closed testing for this account type.
+days** if Play requires closed testing for this account type.
 
 Do not ask the user for passwords or verification codes at any point.
 
 ## Next action
 
-Everything on the server side is done and deployed except the first sign-in.
-Once an administrator exists, the onboarding path is: **Admin → Program**
-(correct the placeholders, above all the timezone) → **Admin → Users → Invite**
-→ **Admin → Import**. See `docs/ONBOARDING.md`.
+Nothing on the server side is blocked. Once residents exist, the sequence is
+**Admin → Users → Invite** → residents accept → **Admin → Import** → review the
+preview → commit. See `docs/ONBOARDING.md`.
 
-Then, in order: point `mobile/.env.production` at the live host → rebuild and
-re-verify the mobile bundle → create the reviewer accounts
-(`scripts/seed-demo.ts`) → Play internal testing.
+To demonstrate or explore the product before real data exists, seed the demo
+program locally (`npm run demo:seed`) — it refuses to touch anything that looks
+like production. See `docs/DEMO_DATA.md`.
 
-Needed later, for the mobile apps: `ANDROID_PACKAGE_NAME`,
-`ANDROID_CERT_FINGERPRINTS` (from the real upload key), `APPLE_TEAM_ID`,
-`IOS_BUNDLE_ID`, and the FCM credentials.
+For the mobile apps: `mobile/.env.production` already points at the live host.
+Still needed later: `ANDROID_PACKAGE_NAME`, `ANDROID_CERT_FINGERPRINTS` (from
+the real upload key), `APPLE_TEAM_ID`, `IOS_BUNDLE_ID`, and FCM credentials.
 
 `npm run setup:production` is safe to re-run; it skips what is already done.
 From a network that blocks outbound TCP 5432, add `DATABASE_DRIVER=neon-ws`.
@@ -125,11 +130,13 @@ residents. `trade_legs.leg_index` would accommodate more; the domain does not.
 | Legal URLs | `/legal/privacy` and `/legal/terms`, public, no sign-in |
 | Dev signing key | `~/.shiftswitch-dev-keys/dev-upload.jks` — **outside the repo, never for release** |
 | Production URL | `https://shiftswitch.vercel.app` — public, no deployment protection |
-| Vercel env vars | Set on **production** only: `APP_URL`, `NEXT_PUBLIC_APP_NAME`, `DATABASE_SSL`, `AUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `BOOTSTRAP_ADMIN_EMAILS`. `DATABASE_URL` is managed by the Neon integration and must not be overridden |
+| Vercel env vars | Set on **production** only: `APP_URL`, `NEXT_PUBLIC_APP_NAME`, `DATABASE_SSL`, `AUTH_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`. `DATABASE_URL` is managed by the Neon integration and must not be overridden |
+| `BOOTSTRAP_ADMIN_EMAILS` | **Removed**, and production redeployed to drop it, now that an administrator exists. It was already inert — the bootstrap only fires while the instance has no administrator at all — but leaving it set would make it live again if that account were ever deleted |
 | Invitation email | **Not configured.** `RESEND_API_KEY` is the single credential that would enable automatic delivery. Without it invitations are created normally and the administrator sends the link — nothing reports a delivery that did not happen |
-| First program | `My Residency Program` / `My Hospital` / `America/New_York` — **placeholders, to be corrected in Settings** |
+| First program | **Internal Medicine / DUH / America/New_York** — corrected from the placeholders by the administrator. The timezone governs every shift time, so it is worth a second look before the first import |
+| Administrator | One, the repository owner's Google account: role `admin`, identity linked, first sign-in 31 July 2026 17:29 UTC |
 | Vercel project | `shiftswitch`, team `rosario608-2488s-projects`, builds from `main`, root directory. Preview deployments are SSO-protected; production is not |
-| Database | Neon, PostgreSQL 17.10, region us-east-1. Schema live: 26 tables, migrations 0001–0004 applied, 0 rows |
+| Database | Neon, PostgreSQL 17.10, region us-east-1. Schema live: 26 tables, migrations 0001–0004 applied. Contents: 1 program, 1 user, 0 residents, 0 services, 0 shifts |
 | Connection pooling | The **pooled** Neon endpoint is safe — verified empirically, see docs/DEPLOYMENT.md |
 
 Secrets are never in the repository. `.env.production`, `key.properties`,
@@ -181,11 +188,12 @@ All found by tests that did not exist before, and all fixed:
 - **Multi-person swaps are not implemented.** Every switch is between exactly
   two residents; `finaliseTrade` writes two legs. The schema would carry more.
   Nothing in the product claims otherwise.
-- **No invitation has been accepted through a real Google account.** The
-  redemption logic is tested directly with the identity the OAuth callback
-  supplies, and the callback's signature verification is tested against a local
-  OpenID provider, but the two halves have not met on the live host because
-  nobody has signed in yet.
+- **No invitation has been *accepted* through a real Google account.** The live
+  path was verified up to Google's own consent screen (see Tested); the step
+  past it needs a second human Google account and cannot be automated. The
+  redemption logic itself is tested directly with the identity the callback
+  supplies, and the callback's signature verification against a local OpenID
+  provider.
 - **App Links / Universal Links are unverified.** The route-parsing logic is
   unit-tested, including that it refuses foreign origins, but verification needs
   a real host and a real device.
@@ -273,6 +281,19 @@ Also verified by execution, not inspection:
   end before the start, the DST gap and the repeated hour, invalidating live
   offers with a notification, reassigning and unassigning, and the schedule
   source seam.
+- **The live invitation path, against production, on 31 July 2026.** A real
+  invitation row was seeded in the live program and every check was made against
+  the production server: the public page renders the program name, institution,
+  invited address and inviter; it offers only "Continue with Google"; the
+  handoff carries the token; `/api/auth/google/start?invite=…` returns 307 to
+  `accounts.google.com` with a PKCE `code_challenge`, and the token travels in
+  an HttpOnly cookie rather than the redirect URL. Revoking killed the link
+  immediately and the page stopped offering sign-in. The invitation was then
+  deleted — production has zero invitations and is exactly as it was.
+- **The live sign-in page carries no non-Google wording** — fetched from
+  production and checked for "hospital log-in", "institutional", "single
+  sign-on" and "password". Only "Continue with Google" and "the Google account
+  your program has on file" are present.
 - **The mobile production bundle builds against the real host**
   (`https://shiftswitch.vercel.app`): no test-login path, no source maps, no
   local URL, and the production host present in the bundle.
