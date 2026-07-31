@@ -130,6 +130,14 @@ async function main() {
   Completed       ${result.completedSwitches}  switched, and in both residents' history
   Notifications   ${result.notifications}  already delivered in-app
 
+  Scheduling foundation, configured through the scheduler screens' own code:
+  Sites           ${result.sites}
+  Coverage rules  ${result.coverageRequirements}  weekday, weekend, a named date and a holiday period
+  Cohorts         ${result.cohorts}  paired per PGY class, ${result.cohortMembers} members
+  Blocks          ${result.blocks}  a 4+4 year, generated from weeks + alternating kinds
+  Draft schedule  ${result.draftShifts} shifts  waiting to be diffed and published
+  Phone numbers   ${result.phones}  validated, readable only with residents.contact_info
+
   Administrator   ${admin.email}
   Chief resident  ${chief.email}
 

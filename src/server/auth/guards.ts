@@ -102,6 +102,10 @@ const CAPABILITY_REFUSAL: Record<Capability, (role: UserRole) => string> = {
   "program.manage": (role) =>
     `The program's settings are changed by the Program Director or an administrator. You are signed in as ${ROLE_LABEL[role]}.`,
   "maintenance.run": () => "Maintenance is limited to program administrators.",
+  "scheduling.plan": (role) =>
+    `Planning cohorts, blocks and coverage is for chief residents and program leadership. You are signed in as ${ROLE_LABEL[role]}.`,
+  "residents.contact_info": () =>
+    "Residents' phone numbers are visible to chief residents and program leadership.",
 };
 
 /**

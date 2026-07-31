@@ -162,3 +162,23 @@ body {
   white-space: nowrap;
   border-width: 0;
 }
+
+/* One field style, because the scheduler screens are mostly forms and five
+   near-identical class lists in five components is how they drift apart.
+   `min-height` is the touch target, not decoration: these are used on a phone
+   by somebody standing up. */
+.input {
+  display: block;
+  width: 100%;
+  min-height: 2.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-border-strong);
+  background-color: var(--color-surface);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-ink);
+}
+
+.input:disabled {
+  opacity: 0.6;
+}

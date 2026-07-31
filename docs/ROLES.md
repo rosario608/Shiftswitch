@@ -41,7 +41,25 @@ guess.
 | `rules.manage` | The rules engine | | | ● | ● | ● |
 | `contacts.manage` | Programme notification contacts | | | ● | ● | ● |
 | `program.manage` | Name, institution, timezone, approved domains | | | | ● | ● |
+| `scheduling.plan` | Cohorts, block years, coverage planning, draft schedules | | ● | ● | ● | ● |
+| `residents.contact_info` | Read a resident's phone number | | ● | ● | ● | ● |
 | `maintenance.run` | Housekeeping: expire stale posts, recompute | | | | | ● |
+
+Two of these deserve a note.
+
+**`scheduling.plan`** is deliberately separate from `schedule.manage`.
+`schedule.manage` is about individual shifts — create one, move one, reassign
+one. `scheduling.plan` is about the shape of the programme's year: cohorts,
+blocks, coverage requirements and draft schedules. A **chief resident holds
+both**, because in most programmes the chief is the person who actually builds
+the schedule, and a scheduler screen a chief cannot open is not a scheduler.
+
+**`residents.contact_info`** guards one field: a resident's phone number. It has
+its own capability because it is the one genuinely personal thing in the roster.
+A chief calling somebody at 2am to cover a sick call needs it; nothing else
+does. The guard is **in the query** — `listRoster` does not select the column
+without it — so a payload that never contained the number cannot leak it to a
+client that inspects the response.
 
 Every capability corresponds to something the product does. Nothing is here for
 symmetry — if no route or screen checks it, it does not exist.

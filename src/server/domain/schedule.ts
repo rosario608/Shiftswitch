@@ -3,6 +3,23 @@ import { getPool, query, queryOne, type Queryable } from "@/server/db/pool";
 import type { ShiftDetail } from "@/server/db/types";
 import type { ResidentInfo, ShiftInfo } from "@/server/domain/rules/types";
 
+/**
+ * A shift a resident actually works.
+ *
+ * `shifts.schedule_version_id` is null for the live schedule and set for a
+ * draft, so this one condition is the entire boundary between "the schedule"
+ * and "somebody's work in progress". Every query that answers a question *for a
+ * resident* — their schedule, what they can offer, what a rule sees — must
+ * carry it, or a draft's copies show up as real shifts: duplicated on the
+ * calendar, offerable in a trade, and colliding with their originals under the
+ * overlap rule.
+ *
+ * Deliberately a named constant rather than four inline copies. The scheduler's
+ * own queries omit it on purpose, and the name is what makes that omission read
+ * as a decision instead of an oversight.
+ */
+export const PUBLISHED_ONLY = "s.schedule_version_id IS NULL";
+
 export const SHIFT_DETAIL_SELECT = `
   SELECT s.*,
          sv.name AS service_name,
@@ -87,6 +104,7 @@ export async function listResidentSchedule(
     "sa.resident_id = $1",
     "sa.assignment_status = 'active'",
     "s.status <> 'cancelled'",
+    PUBLISHED_ONLY,
   ];
   if (filters.from) {
     values.push(filters.from);
@@ -131,6 +149,7 @@ export async function listScheduleWindow(
       WHERE sa.resident_id = $1
         AND sa.assignment_status = 'active'
         AND s.status <> 'cancelled'
+        AND ${PUBLISHED_ONLY}
         AND s.end_datetime >= $2
         AND s.start_datetime <= $3
       ORDER BY s.start_datetime ASC`,
@@ -151,6 +170,7 @@ export async function listScheduleRange(
       WHERE sa.resident_id = $1
         AND sa.assignment_status = 'active'
         AND s.status <> 'cancelled'
+        AND ${PUBLISHED_ONLY}
         AND s.end_datetime >= $2
         AND s.start_datetime <= $3
       ORDER BY s.start_datetime ASC`,
@@ -255,6 +275,7 @@ export async function listAllOfferableShifts(
     `${SHIFT_DETAIL_SELECT}
       WHERE sa.resident_id = $1
         AND sa.assignment_status = 'active'
+        AND ${PUBLISHED_ONLY}
         AND s.tradeable = true
         AND s.status IN ('scheduled', 'posted')
         AND s.start_datetime > now()
@@ -279,6 +300,7 @@ export async function listOfferableShifts(
     `${SHIFT_DETAIL_SELECT}
       WHERE sa.resident_id = $1
         AND sa.assignment_status = 'active'
+        AND ${PUBLISHED_ONLY}
         AND s.id <> $2
         AND s.tradeable = true
         AND s.status IN ('scheduled', 'posted')

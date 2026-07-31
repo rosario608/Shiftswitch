@@ -45,6 +45,13 @@ export interface SeedResult {
   pendingApprovals: number;
   liveOffers: number;
   declinedOffers: number;
+  sites: number;
+  coverageRequirements: number;
+  cohorts: number;
+  cohortMembers: number;
+  blocks: number;
+  draftShifts: number;
+  phones: number;
   notifications: number;
   /** Plan ref -> shift id, so tests and tooling can address one exact shift. */
   shiftRefs: Record<string, string>;
@@ -365,6 +372,265 @@ export async function seedDemoProgram(
     invitations += 1;
   }
 
+
+  /* The scheduling foundation: sites, service configuration, coverage, cohorts,
+     a block year, and a draft schedule.
+     Driven through the same domain functions the scheduler screens call, so a
+     coordinator opening the demo meets a programme that is genuinely configured
+     rather than one whose tables happen to have rows in them. */
+  const { createSite, updateSchedulingData, setSiteEligibility } = await import(
+    "@/server/domain/roster"
+  );
+  const { createCoverage } = await import("@/server/domain/coverage");
+  const { createBlockStructure, generateBlocks, listBlocks } = await import(
+    "@/server/domain/blocks"
+  );
+  const { createCohort, addCohortMember, assignCohortToBlock } = await import(
+    "@/server/domain/cohorts"
+  );
+  const { createScheduleVersion } = await import("@/server/domain/schedule-versions");
+
+  const chiefContext = contextFor(program, users, residents, "whitfield");
+
+  // Two sites, because site eligibility is only meaningful with more than one.
+  const mainSite = await createSite(adminContext, {
+    name: "Demo University Hospital",
+    abbreviation: "DUH",
+    notes: "Main teaching hospital",
+  });
+  const vaSite = await createSite(adminContext, {
+    name: "Demo VA Medical Center",
+    abbreviation: "VA",
+    notes: "Separate credentialing — check site eligibility before scheduling",
+  });
+
+  /* Service configuration on the services the plan already created, so the
+     Services screen shows a configured programme rather than bare names. */
+  const serviceConfig: Record<
+    string,
+    { site: string; pgyMin: number; pgyMax: number; hours: number | null; mandatory: boolean }
+  > = {
+    "Demo MICU": { site: mainSite.id, pgyMin: 2, pgyMax: 3, hours: 12, mandatory: true },
+    "Demo Wards": { site: mainSite.id, pgyMin: 1, pgyMax: 3, hours: 12, mandatory: true },
+    "Demo Night Float": { site: mainSite.id, pgyMin: 1, pgyMax: 3, hours: 12, mandatory: true },
+    "Demo Clinic": { site: mainSite.id, pgyMin: 1, pgyMax: 3, hours: 9, mandatory: false },
+    "Demo Emergency": { site: vaSite.id, pgyMin: 1, pgyMax: 2, hours: 9, mandatory: true },
+    "Demo Scenario Ward": { site: mainSite.id, pgyMin: 1, pgyMax: 3, hours: 12, mandatory: false },
+  };
+
+  let coverageCount = 0;
+  for (const [name, config] of Object.entries(serviceConfig)) {
+    const serviceId = services.get(name);
+    if (!serviceId) continue;
+    await query(
+      `UPDATE services
+          SET site_id = $2, pgy_min = $3, pgy_max = $4, typical_shift_hours = $5,
+              coverage_mandatory = $6
+        WHERE id = $1`,
+      [serviceId, config.site, config.pgyMin, config.pgyMax, config.hours, config.mandatory],
+    );
+  }
+
+  /* Coverage requirements that exercise every scope: an ordinary week, a
+     weekend, a named holiday and a special period. A demo showing only weekday
+     coverage would not demonstrate that the other three exist. */
+  const micuId = services.get("Demo MICU");
+  if (micuId) {
+    await createCoverage(adminContext, {
+      serviceId: micuId,
+      scope: "weekday",
+      label: "Weekday day",
+      daysOfWeek: [1, 2, 3, 4, 5],
+      startTime: "07:00",
+      endTime: "19:00",
+      minStaff: 2,
+      maxStaff: 3,
+      pgyMix: [{ pgy: 2, min: 1, max: null }],
+    });
+    coverageCount += 1;
+    await createCoverage(adminContext, {
+      serviceId: micuId,
+      scope: "weekday",
+      label: "Weekend",
+      daysOfWeek: [0, 6],
+      minStaff: 1,
+      maxStaff: 2,
+    });
+    coverageCount += 1;
+  }
+
+  const wardsId = services.get("Demo Wards");
+  if (wardsId) {
+    await createCoverage(adminContext, {
+      serviceId: wardsId,
+      scope: "weekday",
+      label: "Every day",
+      daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+      minStaff: 3,
+      maxStaff: 4,
+      pgyMix: [
+        { pgy: 1, min: 2, max: 3 },
+        { pgy: 2, min: 1, max: 2 },
+      ],
+    });
+    coverageCount += 1;
+    // A named date and a period, so both precedence tiers are visible.
+    await createCoverage(adminContext, {
+      serviceId: wardsId,
+      scope: "date",
+      label: "Thanksgiving",
+      specificDate: `${new Date(anchor).getFullYear()}-11-26`,
+      minStaff: 1,
+      maxStaff: 2,
+    });
+    coverageCount += 1;
+    await createCoverage(adminContext, {
+      serviceId: wardsId,
+      scope: "period",
+      label: "Winter holiday block",
+      periodStart: `${new Date(anchor).getFullYear()}-12-24`,
+      periodEnd: `${new Date(anchor).getFullYear() + 1}-01-01`,
+      minStaff: 2,
+      maxStaff: 2,
+    });
+    coverageCount += 1;
+  }
+
+  const nightId = services.get("Demo Night Float");
+  if (nightId) {
+    await createCoverage(adminContext, {
+      serviceId: nightId,
+      scope: "weekday",
+      label: "Overnight",
+      daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+      startTime: "19:00",
+      endTime: "07:00",
+      minStaff: 2,
+      maxStaff: 3,
+      // Never an intern alone overnight.
+      pgyMix: [
+        { pgy: 1, min: 1, max: 2 },
+        { pgy: 2, min: 1, max: null },
+      ],
+    });
+    coverageCount += 1;
+  }
+
+  /* A 4+4 block year, generated rather than declared: `weeks: 4` with two
+     alternating kinds. Changing either argument gives a different programme's
+     year, which is the property worth demonstrating. */
+  const structure = await createBlockStructure(chiefContext, {
+    name: `${new Date(anchor).getFullYear()}–${String(new Date(anchor).getFullYear() + 1).slice(2)} 4+4`,
+    academicYear: new Date(anchor).getFullYear(),
+    description: "Four weeks inpatient paired with four ambulatory. Generated, then editable.",
+    blocks: generateBlocks({
+      startDate: anchor,
+      weeks: 4,
+      count: 13,
+      kinds: ["Inpatient", "Ambulatory"],
+    }),
+  });
+  const blockRows = await listBlocks(program.id, structure.id);
+
+  /* Paired cohorts per PGY class — the structure that makes 4+4 work. Residents
+     are distributed by their actual PGY level, so the cohorts reflect the
+     roster rather than a fixed split. */
+  const residentsByPgy = new Map<number, Array<{ key: string; id: string }>>();
+  for (const person of DEMO_PEOPLE) {
+    if (person.pgy === null) continue;
+    const resident = residents.get(person.key);
+    if (!resident) continue;
+    const list = residentsByPgy.get(person.pgy) ?? [];
+    list.push({ key: person.key, id: resident.id });
+    residentsByPgy.set(person.pgy, list);
+  }
+
+  let cohortCount = 0;
+  let cohortMembers = 0;
+  const cohortIds: string[] = [];
+  for (const [pgy, members] of [...residentsByPgy.entries()].sort((a, b) => a[0] - b[0])) {
+    const first = await createCohort(chiefContext, {
+      label: `PGY-${pgy} Cohort A`,
+      pgyLevel: pgy,
+      notes: "Alternates with Cohort B",
+    });
+    const second = await createCohort(chiefContext, {
+      label: `PGY-${pgy} Cohort B`,
+      pgyLevel: pgy,
+      pairedCohortId: first.id,
+      notes: "Alternates with Cohort A",
+    });
+    cohortCount += 2;
+    cohortIds.push(first.id, second.id);
+
+    members.forEach(() => undefined);
+    for (const [index, member] of members.entries()) {
+      const target = index % 2 === 0 ? first.id : second.id;
+      await addCohortMember(chiefContext, target, member.id);
+      cohortMembers += 1;
+    }
+
+    /* The alternation itself: A on wards while B is in clinic, swapping each
+       block. This is what a paired cohort structure produces, and seeing it in
+       the grid is how a scheduler understands the feature. */
+    const inpatient = services.get("Demo Wards");
+    const ambulatory = services.get("Demo Clinic");
+    for (const [index, block] of blockRows.entries()) {
+      const aInpatient = index % 2 === 0;
+      await assignCohortToBlock(chiefContext, {
+        cohortId: first.id,
+        blockId: block.id,
+        serviceId: (aInpatient ? inpatient : ambulatory) ?? null,
+      });
+      await assignCohortToBlock(chiefContext, {
+        cohortId: second.id,
+        blockId: block.id,
+        serviceId: (aInpatient ? ambulatory : inpatient) ?? null,
+      });
+    }
+  }
+
+  /* Resident scheduling data: phone numbers, one person off the schedule, and
+     VA eligibility recorded for a few. Enough that the roster screen shows
+     something other than defaults. */
+  let phones = 0;
+  for (const [index, person] of DEMO_PEOPLE.filter((p) => p.pgy !== null).entries()) {
+    const resident = residents.get(person.key);
+    if (!resident) continue;
+    await updateSchedulingData(chiefContext, resident.id, {
+      phone: `919555${String(1000 + index).padStart(4, "0")}`,
+      // One resident on leave, so "active but not schedulable" is visible.
+      schedulable: person.key !== "varga",
+      schedulingNotes:
+        person.key === "varga" ? "On parental leave until the end of the block." : "",
+    });
+    phones += 1;
+    // Two residents without VA credentialing, which is the point of the field.
+    if (person.key === "abiodun" || person.key === "sorensen") {
+      await setSiteEligibility(
+        chiefContext,
+        resident.id,
+        vaSite.id,
+        false,
+        "VA credentialing not yet complete",
+      );
+    }
+  }
+
+  /* A draft schedule over the coming fortnight, copied from the live one, so
+     the diff has something to show and "publish" is not an empty gesture. */
+  const draftStart = anchor;
+  const draftEndDate = new Date(`${anchor}T00:00:00Z`);
+  draftEndDate.setUTCDate(draftEndDate.getUTCDate() + 13);
+  const draft = await createScheduleVersion(chiefContext, {
+    name: "Next fortnight — draft",
+    periodStart: draftStart,
+    periodEnd: draftEndDate.toISOString().slice(0, 10),
+    blockStructureId: structure.id,
+    notes: "Copied from the published schedule. Check the diff before publishing.",
+    copyFromPublished: true,
+  });
+
   return {
     programId: program.id,
     anchor,
@@ -379,6 +645,13 @@ export async function seedDemoProgram(
     pendingApprovals,
     liveOffers,
     declinedOffers,
+    sites: 2,
+    coverageRequirements: coverageCount,
+    cohorts: cohortCount,
+    cohortMembers,
+    blocks: blockRows.length,
+    draftShifts: draft.shift_count,
+    phones,
     notifications: Number(
       (
         await queryOne<{ count: string }>(

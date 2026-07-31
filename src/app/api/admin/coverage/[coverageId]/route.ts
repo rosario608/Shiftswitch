@@ -1,0 +1,23 @@
+import { requireCapability } from "@/server/auth/guards";
+import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { deleteCoverage, updateCoverage } from "@/server/domain/coverage";
+import { coverageSchema } from "../route";
+
+export const dynamic = "force-dynamic";
+
+type Params = { params: Promise<{ coverageId: string }> };
+
+export const PATCH = apiHandler(async (request: Request, { params }: Params) => {
+  const context = await requireCapability("services.manage");
+  const { coverageId } = await params;
+  const input = await parseJson(request, coverageSchema);
+  const requirement = await updateCoverage(context, coverageId, input);
+  return ok({ requirement });
+});
+
+export const DELETE = apiHandler(async (_request: Request, { params }: Params) => {
+  const context = await requireCapability("services.manage");
+  const { coverageId } = await params;
+  await deleteCoverage(context, coverageId);
+  return ok({ deleted: true });
+});

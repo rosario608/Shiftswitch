@@ -492,7 +492,8 @@ describe("seeding again", () => {
          JOIN shift_assignments sa ON sa.shift_id = s.id AND sa.assignment_status = 'active'
          JOIN residents r ON r.id = sa.resident_id
          JOIN users u ON u.id = r.user_id
-        WHERE s.program_id = $1 ORDER BY signature`,
+        WHERE s.program_id = $1 AND s.schedule_version_id IS NULL
+        ORDER BY signature`,
       [program.id],
     );
 
@@ -509,10 +510,15 @@ describe("seeding again", () => {
          JOIN shift_assignments sa ON sa.shift_id = s.id AND sa.assignment_status = 'active'
          JOIN residents r ON r.id = sa.resident_id
          JOIN users u ON u.id = r.user_id
-        WHERE s.program_id = $1 ORDER BY signature`,
+        WHERE s.program_id = $1 AND s.schedule_version_id IS NULL
+        ORDER BY signature`,
       [again.programId],
     );
 
+    /* Scoped to the live schedule. The seed also builds a draft, whose shifts
+       are copies carrying the same service, date and assignee — real rows, but
+       not part of the plan `again.shifts` counts, and duplicates of the live
+       signatures by construction. */
     // The valid-swap scenario moved two shifts between the two people before
     // the re-seed, so `before` is *not* the pristine plan. The rebuilt program
     // must match the plan, which is the point: re-seeding repairs whatever the

@@ -100,6 +100,26 @@ export const CAPABILITIES = [
   "program.manage",
   /** Housekeeping: expire stale posts, prune, recompute. */
   "maintenance.run",
+  /**
+   * The scheduling structure: cohorts, block structures, coverage planning and
+   * draft schedules.
+   *
+   * Distinct from `schedule.manage`, which is about individual shifts, and from
+   * `services.manage`, which is about what a service *is*. This is the shape of
+   * the programme's year, and it belongs to whoever builds the schedule — which
+   * in most programmes is a chief resident, not the PD.
+   */
+  "scheduling.plan",
+  /**
+   * Read a resident's phone number.
+   *
+   * Its own capability because it is the one genuinely personal field in the
+   * roster. A chief calling somebody at 2am to cover a sick call needs it; the
+   * analytics screen does not, and a resident browsing the trade board
+   * certainly does not. `listResidents` will not select the column without it,
+   * so the guard is in the query rather than in a template that might forget.
+   */
+  "residents.contact_info",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -118,12 +138,16 @@ const ROLE_CAPABILITIES: Record<UserRole, ReadonlySet<Capability>> = {
     "schedule.export_program",
     "analytics.view",
     "audit.view",
+    "scheduling.plan",
+    "residents.contact_info",
   ]),
 
   apd: new Set<Capability>([
     "trade.participate",
     "approvals.decide",
     "schedule.manage",
+    "scheduling.plan",
+    "residents.contact_info",
     "schedule.export_program",
     "analytics.view",
     "audit.view",
@@ -138,6 +162,8 @@ const ROLE_CAPABILITIES: Record<UserRole, ReadonlySet<Capability>> = {
     "trade.participate",
     "approvals.decide",
     "schedule.manage",
+    "scheduling.plan",
+    "residents.contact_info",
     "schedule.export_program",
     "analytics.view",
     "audit.view",
