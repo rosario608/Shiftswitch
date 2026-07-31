@@ -11,6 +11,10 @@
  *   e2e.apd@hospital.org     associate program director
  *   e2e.admin@hospital.org   program administrator
  *   e2e.pending@hospital.org authenticated but not configured
+ *   e2e.deactivated@hospital.org  configured, then deactivated
+ *
+ * Plus a second program, "E2E Other Program", with its own administrator,
+ * resident and shift, so cross-program access can be attacked for real.
  */
 import { DateTime } from "luxon";
 import { loadEnv } from "./load-env";
@@ -170,6 +174,69 @@ async function main() {
     approvalRequired: true,
   });
   await createShift({ residentId: carol.residentId, inDays: 34, service: "Floor" });
+
+  /*
+   * A second program, and a deactivated account.
+   *
+   * Both exist so the authorization suite can attack the real thing rather than
+   * a hypothetical: cross-program access needs a genuine second program with a
+   * genuine administrator and a genuine shift, and "a deactivated account is
+   * refused" is only meaningful if the account previously worked.
+   */
+  const otherProgram = (await queryOne<{ id: string }>(
+    `INSERT INTO programs (name, institution, timezone, approved_email_domains, default_trade_approval_required)
+     VALUES ('E2E Other Program', 'Second Teaching Hospital', $1, '{}', false)
+     RETURNING id`,
+    [TZ],
+  ))!;
+  const otherService = (await queryOne<{ id: string }>(
+    "INSERT INTO services (program_id, name) VALUES ($1, 'Other MICU') RETURNING id",
+    [otherProgram.id],
+  ))!;
+  const otherAdmin = (await queryOne<{ id: string }>(
+    `INSERT INTO users (auth_user_id, email, full_name, role, program_id)
+     VALUES ('e2e-other-admin', 'e2e.other.admin@hospital.org', 'Otto Other', 'admin', $1)
+     RETURNING id`,
+    [otherProgram.id],
+  ))!;
+  const otherUser = (await queryOne<{ id: string }>(
+    `INSERT INTO users (auth_user_id, email, full_name, role, program_id)
+     VALUES ('e2e-other-resident', 'e2e.other.resident@hospital.org', 'Olive Other', 'resident', $1)
+     RETURNING id`,
+    [otherProgram.id],
+  ))!;
+  const otherResident = (await queryOne<{ id: string }>(
+    `INSERT INTO residents (user_id, program_id, pgy_level, graduation_year, credentials)
+     VALUES ($1, $2, 2, 2029, '{BLS}') RETURNING id`,
+    [otherUser.id, otherProgram.id],
+  ))!;
+  {
+    const date = DateTime.now().setZone(TZ).plus({ days: 15 }).toISODate() as string;
+    const shift = (await queryOne<{ id: string }>(
+      `INSERT INTO shifts
+         (program_id, service_id, date, start_datetime, end_datetime, location, shift_type,
+          required_pgy_min, required_pgy_max, tradeable, approval_required)
+       VALUES ($1, $2, $3, $4, $5, 'Other Ward', 'day', 1, 5, true, false) RETURNING id`,
+      [
+        otherProgram.id,
+        otherService.id,
+        date,
+        zonedWallTimeToInstant(date, "07:00", TZ),
+        zonedWallTimeToInstant(date, "19:00", TZ),
+      ],
+    ))!;
+    await query("INSERT INTO shift_assignments (shift_id, resident_id) VALUES ($1, $2)", [
+      shift.id,
+      otherResident.id,
+    ]);
+  }
+  void otherAdmin;
+
+  // Configured, then switched off — the state a resident who has left is in.
+  await createUser("e2e.deactivated@hospital.org", "Dee Activated", "resident");
+  await query("UPDATE users SET active = false WHERE email = $1", [
+    "e2e.deactivated@hospital.org",
+  ]);
 
   console.log("[e2e-fixture] ready");
   await closePool();

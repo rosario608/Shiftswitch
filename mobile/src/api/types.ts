@@ -7,7 +7,7 @@
  * exist and formats in the program timezone otherwise.
  */
 
-export type UserRole = "resident" | "chief" | "admin";
+export type UserRole = "resident" | "chief" | "apd" | "pd" | "admin";
 
 export type ShiftStatus =
   | "scheduled"

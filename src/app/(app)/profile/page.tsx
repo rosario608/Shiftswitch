@@ -1,3 +1,4 @@
+import { can, ROLE_LABEL } from "@/server/auth/roles";
 import Link from "next/link";
 import { Download, LogOut, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -8,12 +9,6 @@ import { queryOne } from "@/server/db/pool";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Profile" };
-
-const ROLE_LABEL: Record<string, string> = {
-  resident: "Resident",
-  chief: "Chief resident",
-  admin: "Program administrator",
-};
 
 export default async function ProfilePage() {
   const context = await requirePageUser();
@@ -100,7 +95,7 @@ export default async function ProfilePage() {
           <Download className="h-4 w-4" aria-hidden="true" />
           Download my schedule (PDF)
         </a>
-        {context.user.role === "chief" || context.user.role === "admin" ? (
+        {can(context.user.role, "audit.view") ? (
           <Link
             href="/admin"
             className="flex min-h-[2.75rem] items-center justify-center gap-2 rounded-xl border border-border-strong px-4 font-semibold text-ink"

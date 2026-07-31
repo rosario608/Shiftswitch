@@ -131,6 +131,18 @@ them a resident record deliberately.
 
 ---
 
+## The client side
+
+The admin navigation, the header badge, the profile page and the shift and
+switch detail pages all derive from capabilities rather than a list of roles.
+That is not cosmetic: when they tested `role === "chief" || role === "admin"`
+literally, a PD and an APD had no route into the administration area at all and
+were labelled "Chief" in the header.
+
+The native client cannot import server code, so it keeps its own copy of the
+role **labels** in `mobile/src/api/roles.ts` — labels only, never permissions.
+`mobile/src/api/roles.test.ts` stops the copy drifting.
+
 ## Program isolation
 
 Every query is scoped by `program_id`, and every guard reads the programme from

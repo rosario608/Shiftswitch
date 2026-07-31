@@ -1,3 +1,4 @@
+import { ROLE_LABEL } from "@/api/roles";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { api, ApiError } from "@/api/client";
@@ -54,11 +55,7 @@ export function ProfileScreen() {
           <div className="mt-3 flex flex-wrap gap-2">
             {user?.role && (
               <Pill tone="brand">
-                {user.role === "chief"
-                  ? "Chief resident"
-                  : user.role === "admin"
-                    ? "Administrator"
-                    : "Resident"}
+                {ROLE_LABEL[user.role]}
               </Pill>
             )}
             {session?.program && <Pill>{session.program.name}</Pill>}

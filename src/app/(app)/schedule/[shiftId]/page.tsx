@@ -1,3 +1,4 @@
+import { can } from "@/server/auth/roles";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, CalendarDays, Clock, MapPin, Users } from "lucide-react";
@@ -30,7 +31,8 @@ export default async function ShiftDetailPage({
   if (!shift || shift.program_id !== context.program.id) notFound();
 
   const isOwner = context.resident?.id === shift.resident_id;
-  const elevated = context.user.role === "chief" || context.user.role === "admin";
+  // Anybody who runs the schedule may look at one they are not part of.
+  const elevated = can(context.user.role, "schedule.manage");
   if (!isOwner && !elevated) notFound();
 
   const view = toShiftView(shift, context.program.timezone);

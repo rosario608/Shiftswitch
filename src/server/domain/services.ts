@@ -92,6 +92,18 @@ export async function createService(
   if (!name) throw validationFailed(`Give the ${spec.label} a name.`);
 
   return withTransaction(async (client) => {
+    /* Serialise concurrent creates of the same name. The check below plus the
+       insert is read-modify-write, and without this two racing requests — a
+       double-tapped button, or a retry — both see nothing and both insert, so
+       one dies on the unique index with a message naming an index rather than
+       a service. Transaction-scoped, and keyed narrowly enough that two
+       different services never wait on each other. */
+    await query(
+      "SELECT pg_advisory_xact_lock(hashtext($1))",
+      [`${spec.table}:${context.program.id}:${name.toLowerCase()}`],
+      client,
+    );
+
     /* Checked explicitly rather than left to the unique index, so the message
        names the existing one — including when it differs only in case, which is
        exactly the collision somebody is most likely to be confused by. */

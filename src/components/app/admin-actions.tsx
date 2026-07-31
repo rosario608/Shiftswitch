@@ -335,6 +335,9 @@ export function UserRoleForm({
     );
   }
 
+  /* Which roles carry a schedule, and therefore a PGY level. Mirrors
+     `expectsResidentRecord` on the server; kept as a literal here because this
+     is a client component and the server module is not client-safe. */
   const holdsSchedule = role === "resident" || role === "chief";
 
   return (

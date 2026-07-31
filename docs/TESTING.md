@@ -110,6 +110,16 @@ never grants a role.
 | Email is never delivered outside a production build | `tests/unit/environment.test.ts` |
 | The invitation sandbox is unreachable in production | `tests/unit/environment.test.ts`, `tests/e2e/security.spec.ts` |
 | Whole self-test path: service → invite → accept → resident view → switch back → chief | `tests/e2e/roles-and-onboarding.spec.ts` |
+| Program leadership can reach the admin area and is labelled correctly | `tests/e2e/roles-and-onboarding.spec.ts` |
+| Deactivating an account kills its live session and deletes it | `tests/e2e/red-team.spec.ts` |
+| Another program's administrator cannot read or write this program's data | `tests/e2e/red-team.spec.ts` |
+| A payload cannot move a user between programs | `tests/e2e/red-team.spec.ts` |
+| A well-formed id from another program is indistinguishable from a nonexistent one | `tests/e2e/red-team.spec.ts` |
+| A native bearer token carries the same limits as a cookie | `tests/e2e/red-team.spec.ts` |
+| Simultaneous or repeated invitations leave exactly one live invitation | `tests/integration/idempotency.test.ts` |
+| Simultaneous service creation produces one service and a readable conflict | `tests/integration/idempotency.test.ts` |
+| Audit entries and shift assignments survive deactivating the people in them | `tests/integration/idempotency.test.ts` |
+| The native client's role vocabulary matches the server's | `mobile/src/api/roles.test.ts` |
 
 ---
 

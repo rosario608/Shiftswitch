@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { findUsableInvitation } from "@/server/domain/invitations";
 import { getSessionContext } from "@/server/auth/session";
+import { ROLE_LABEL } from "@/server/auth/roles";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -52,12 +53,7 @@ export default async function InvitePage({
     );
   }
 
-  const roleLabel =
-    invitation.role === "chief"
-      ? "chief resident"
-      : invitation.role === "admin"
-        ? "program administrator"
-        : "resident";
+  const roleLabel = ROLE_LABEL[invitation.role];
 
   const startUrl = `/api/auth/google/start?invite=${encodeURIComponent(token)}`;
 

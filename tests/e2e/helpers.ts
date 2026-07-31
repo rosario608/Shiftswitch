@@ -10,6 +10,9 @@ export const ACCOUNTS = {
   apd: "e2e.apd@hospital.org",
   admin: "e2e.admin@hospital.org",
   pending: "e2e.pending@hospital.org",
+  deactivated: "e2e.deactivated@hospital.org",
+  otherAdmin: "e2e.other.admin@hospital.org",
+  otherResident: "e2e.other.resident@hospital.org",
 };
 
 /** Rebuilds the deterministic fixture in the database the server is using. */
