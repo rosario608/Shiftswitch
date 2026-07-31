@@ -158,6 +158,14 @@ Also verified by execution, not inspection:
   security headers are present, including HSTS with preload.
 - `next build` succeeds with no environment variables at all, so a fresh
   deployment cannot fail at build time for want of configuration.
+- **The mobile production bundle builds against the real host**
+  (`https://shiftswitch.vercel.app`): no test-login path, no source maps, no
+  local URL, and the production host present in the bundle.
+- **`npm run check:release -- --mobile` against the real host and database now
+  reports exactly one blocking problem: the missing Google OAuth credentials.**
+  Everything else — host, database, session secret, mobile environment,
+  Capacitor config — passes. That single error is the whole distance between
+  here and a shippable store build.
 
 The native end-to-end suite is the one that matters most: it serves the compiled
 client from its own origin, exactly as the Capacitor webview does, and drives it
