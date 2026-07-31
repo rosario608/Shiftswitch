@@ -247,6 +247,11 @@ the same domain functions the scheduler screens call:
 | Site eligibility | Abiodun and Sorensen not credentialed for the VA |
 | Draft schedule | A fortnight copied from the published one, so the diff has something to show |
 
+One thing is deliberately left wrong: **Demo Emergency is marked as needing
+coverage and has none**. The scheduler dashboard flags it under "Needs a
+decision", which is the point — a demo where nothing is wrong cannot show what
+the problem list is for.
+
 Sign in as **demo.whitfield@demo.invalid** (chief resident) and open
 **Admin → Scheduler** to meet it.
 

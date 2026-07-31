@@ -403,6 +403,82 @@ describe("draft and published schedules", () => {
     for (const row of perShift) expect(row.count).toBe("1");
   });
 
+  it("reports no change at all for a verbatim copy", async () => {
+    /* The defect this guards, found by opening the demo: pairing draft shifts
+       to live ones arbitrarily within a same-time group and comparing assignees
+       reported a reassignment whenever the two orderings differed. A fortnight
+       copied verbatim came back as 164 phantom reassignments. A diff that cries
+       wolf on an unchanged copy is worse than no diff — it is the screen a
+       scheduler consults to decide whether publishing is safe. */
+    const service = fixture.services.MICU;
+    for (const resident of [alice, bob]) {
+      await createShift(fixture.program, {
+        inDays: 10,
+        residentId: resident.resident.id,
+        service,
+      });
+    }
+    const third = await createResident(fixture.program, {
+      email: "cara@h.org",
+      name: "Cara C",
+      pgy: 2,
+    });
+    await createShift(fixture.program, {
+      inDays: 10,
+      residentId: third.resident.id,
+      service,
+    });
+
+    const draft = await createScheduleVersion(chief.context, {
+      name: "Verbatim",
+      periodStart: "2000-01-01",
+      periodEnd: "2100-01-01",
+      copyFromPublished: true,
+    });
+
+    const diff = await diffScheduleVersion(fixture.program.id, draft.id, "America/New_York");
+    expect(diff.reassigned).toHaveLength(0);
+    expect(diff.added).toHaveLength(0);
+    expect(diff.removed).toHaveLength(0);
+    expect(diff.unchanged).toBe(3);
+  });
+
+  it("still reports a genuine reassignment within a busy slot", async () => {
+    // The same-resident pass must not hide a real change.
+    const service = fixture.services.MICU;
+    for (const resident of [alice, bob]) {
+      await createShift(fixture.program, {
+        inDays: 10,
+        residentId: resident.resident.id,
+        service,
+      });
+    }
+    const draft = await createScheduleVersion(chief.context, {
+      name: "One moved",
+      periodStart: "2000-01-01",
+      periodEnd: "2100-01-01",
+      copyFromPublished: true,
+    });
+    const carol = await createResident(fixture.program, {
+      email: "carol2@h.org",
+      name: "Carol D",
+      pgy: 2,
+    });
+    const draftShifts = await query<{ id: string }>(
+      "SELECT id FROM shifts WHERE schedule_version_id = $1 ORDER BY id",
+      [draft.id],
+    );
+    await query("UPDATE shift_assignments SET resident_id = $2 WHERE shift_id = $1", [
+      draftShifts[0].id,
+      carol.resident.id,
+    ]);
+
+    const diff = await diffScheduleVersion(fixture.program.id, draft.id, "America/New_York");
+    expect(diff.reassigned).toHaveLength(1);
+    expect(diff.reassigned[0].to).toBe("Carol D");
+    expect(diff.unchanged).toBe(1);
+  });
+
   it("reports what publishing would change", async () => {
     const kept = await liveShift(10, alice.resident.id);
     await liveShift(11, alice.resident.id);

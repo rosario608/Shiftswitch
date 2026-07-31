@@ -290,7 +290,38 @@ export async function diffScheduleVersion(
   let unchanged = 0;
   const matchedLive = new Set<string>();
 
+  /* Two passes, and the order is the whole correctness of the diff.
+   *
+   * Within a (service, start, end) group there are often several shifts — three
+   * residents on wards at 07:00 is one group of three. Pairing them in
+   * arbitrary order and comparing assignees reports a reassignment whenever the
+   * two orderings happen to differ, which for a draft copied verbatim from the
+   * published schedule meant *every* shift in every multi-person group came
+   * back as "reassigned". A diff that cries wolf on an unchanged copy is worse
+   * than no diff: it is the screen a scheduler consults precisely to decide
+   * whether publishing is safe.
+   *
+   * So: first match every draft shift to a live shift held by the *same
+   * resident*. Those are unchanged by definition, whatever order they came back
+   * in. Only what is left over — genuinely different people — is paired
+   * positionally and reported as a reassignment.
+   */
+  const unmatchedDraft: ShiftSummary[] = [];
   for (const shift of draft) {
+    const candidates = liveByKey.get(key(shift)) ?? [];
+    const sameResident = candidates.find(
+      (candidate) =>
+        !matchedLive.has(candidate.id) && candidate.resident_id === shift.resident_id,
+    );
+    if (sameResident) {
+      matchedLive.add(sameResident.id);
+      unchanged += 1;
+    } else {
+      unmatchedDraft.push(shift);
+    }
+  }
+
+  for (const shift of unmatchedDraft) {
     const candidates = liveByKey.get(key(shift)) ?? [];
     const match = candidates.find((candidate) => !matchedLive.has(candidate.id));
     if (!match) {
@@ -298,11 +329,7 @@ export async function diffScheduleVersion(
       continue;
     }
     matchedLive.add(match.id);
-    if (match.resident_id !== shift.resident_id) {
-      reassigned.push({ shift, from: match.resident_name, to: shift.resident_name });
-    } else {
-      unchanged += 1;
-    }
+    reassigned.push({ shift, from: match.resident_name, to: shift.resident_name });
   }
 
   const removed = live.filter((shift) => !matchedLive.has(shift.id));

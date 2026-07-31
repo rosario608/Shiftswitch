@@ -602,22 +602,22 @@ Three of the defects above were found this way and by nothing else.
 
 **`npm run verify` exits 0.** That is the whole answer, and the only one worth
 quoting — it runs every row below in one command with one exit code. Last full
-run: 10 steps, 560 seconds.
+run: 10 steps, 563 seconds.
 
 | Step | Result |
 |---|---|
 | Typecheck (`tsc --noEmit`) | clean |
 | Lint, server + web | clean |
 | Lint, native client | clean |
-| Server unit + integration (`vitest run`) | **459 passed**, 23 files |
+| Server unit + integration (`vitest run`) | **461 passed**, 23 files |
 | Native client unit (`npm --prefix mobile run test`) | **37 passed**, 6 files |
 | Production build (`next build`) | succeeds |
 | Web end-to-end (`playwright test`) | **130 passed**, mobile + desktop projects |
 | Native end-to-end (`--config playwright.mobile.config.ts`) | **16 passed**, including the 9 screenshot specs |
 | Migrations from scratch (`migrate.ts --reset`) | **0001–0008 apply to an empty database** |
-| Integration suite against the rebuilt schema | **306 passed**, 14 files |
+| Integration suite against the rebuilt schema | **308 passed**, 14 files |
 
-642 distinct tests. The final 270 is the integration subset re-run against the
+644 distinct tests. The final 270 is the integration subset re-run against the
 freshly rebuilt schema, which is why it is not added again.
 
 Also verified by execution, not inspection:
