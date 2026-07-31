@@ -368,7 +368,7 @@ export async function commitImport(
   }
   if (preview.summary.newResidents.length > 0) {
     throw validationFailed(
-      `These residents are not in your program yet: ${preview.summary.newResidents.join(", ")}. Add them under Users first. No changes have been made.`,
+      `These residents are not in your program yet: ${preview.summary.newResidents.join(", ")}. Invite them under Users first, then import again. No changes have been made.`,
       { unknownResidents: preview.summary.newResidents },
     );
   }

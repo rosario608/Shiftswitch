@@ -99,6 +99,9 @@ Google credentials. It is refused outright when `NODE_ENV=production`.
 | `npm run db:seed`          | Load demo data (destructive)                                |
 | `npm run db:setup`         | `db:reset` + `db:seed`                                      |
 | `npm run e2e:fixture`      | Load the deterministic fixture used by the E2E suite        |
+| `npm run demo:seed`        | Build the synthetic demo program (dev/staging only)         |
+| `npm run demo:reset`       | Remove it                                                   |
+| `npm run demo:status`      | Report what is seeded                                       |
 | `npm run test`             | Unit + integration tests (Vitest, against a real database)  |
 | `npm run test:unit`        | Unit tests only                                             |
 | `npm run test:integration` | Integration tests only                                      |
@@ -145,8 +148,9 @@ authenticate, authorise, validate input with Zod, and delegate to
 that writes to the database.
 
 More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
-[docs/ONBOARDING.md](docs/ONBOARDING.md) · [docs/RULES.md](docs/RULES.md) ·
-[docs/TESTING.md](docs/TESTING.md) · [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+[docs/ONBOARDING.md](docs/ONBOARDING.md) · [docs/DEMO_DATA.md](docs/DEMO_DATA.md) ·
+[docs/RULES.md](docs/RULES.md) · [docs/TESTING.md](docs/TESTING.md) ·
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 
 ---
 

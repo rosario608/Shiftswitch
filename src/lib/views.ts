@@ -15,6 +15,11 @@ export interface ShiftView {
   duration: string;
   startIso: string;
   endIso: string;
+  /* Wall-clock values in the program timezone, so an editor can show and patch
+     exactly what the schedule says rather than reverse-engineering a label. */
+  startTime: string;
+  endTime: string;
+  endsNextDay: boolean;
   serviceId: string;
   serviceName: string;
   rotationName: string | null;
@@ -30,6 +35,24 @@ export interface ShiftView {
   residentPgy: number | null;
 }
 
+function wallClock(instant: Date, timezone: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(instant);
+}
+
+function localDate(instant: Date, timezone: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(instant);
+}
+
 export function toShiftView(shift: ShiftDetail, timezone: string): ShiftView {
   const start = shift.start_datetime;
   const end = shift.end_datetime;
@@ -43,6 +66,9 @@ export function toShiftView(shift: ShiftDetail, timezone: string): ShiftView {
     duration: fmtDuration(start, end),
     startIso: start.toISOString(),
     endIso: end.toISOString(),
+    startTime: wallClock(start, timezone),
+    endTime: wallClock(end, timezone),
+    endsNextDay: localDate(start, timezone) !== localDate(end, timezone),
     serviceId: shift.service_id,
     serviceName: shift.service_name,
     rotationName: shift.rotation_name,

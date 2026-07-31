@@ -118,6 +118,22 @@ export const shiftCreateSchema = z.object({
 });
 
 export const shiftPatchSchema = z.object({
+  /* Moving a shift is the correction an administrator most often needs after an
+     import: the spreadsheet said 07:00 and the block actually starts at 06:00.
+     All four move together — a new date with the old times is still a move. */
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  startTime: z
+    .string()
+    .regex(/^\d{2}:\d{2}$/)
+    .optional(),
+  endTime: z
+    .string()
+    .regex(/^\d{2}:\d{2}$/)
+    .optional(),
+  endsNextDay: z.boolean().optional(),
   location: z.string().max(120).optional(),
   shiftType: z.string().max(40).optional(),
   tradeable: z.boolean().optional(),

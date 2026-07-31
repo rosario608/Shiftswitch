@@ -14,7 +14,13 @@ import { notify } from "./notifications";
 import { RULE_HANDLERS, RULE_HANDLERS_BY_TYPE } from "./rules/handlers";
 import { SHIFT_DETAIL_SELECT, getShiftDetailForUpdate } from "./schedule";
 import { invalidateTradesForShift } from "./trades";
-import { isValidTimeZone, zonedWallTimeToInstant } from "./time";
+import {
+  addLocalDays,
+  InvalidZonedTimeError,
+  isValidTimeZone,
+  localDateString,
+  zonedWallTimeToInstant,
+} from "./time";
 import type {
   ContactInput,
   RuleInput,
@@ -648,6 +654,10 @@ async function assertResidentInProgram(
 }
 
 export interface ShiftPatch {
+  date?: string;
+  startTime?: string;
+  endTime?: string;
+  endsNextDay?: boolean;
   location?: string;
   shiftType?: string;
   tradeable?: boolean;
@@ -657,6 +667,35 @@ export interface ShiftPatch {
   residentId?: string | null;
   status?: "scheduled" | "cancelled";
   reason?: string;
+}
+
+/**
+ * What a shift's times look like to a person reading the schedule: the local
+ * calendar date it starts on, the wall-clock start and end, and whether the end
+ * belongs to the following day. Patching any one of those needs the other three
+ * as a starting point.
+ */
+function currentWallTimes(
+  shift: { start_datetime: Date; end_datetime: Date },
+  timezone: string,
+): { date: string; startTime: string; endTime: string; endsNextDay: boolean } {
+  const date = localDateString(shift.start_datetime, timezone);
+  const endDate = localDateString(shift.end_datetime, timezone);
+  return {
+    date,
+    startTime: wallClock(shift.start_datetime, timezone),
+    endTime: wallClock(shift.end_datetime, timezone),
+    endsNextDay: endDate !== date,
+  };
+}
+
+function wallClock(instant: Date, timezone: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(instant);
 }
 
 /**
@@ -683,6 +722,48 @@ export async function updateShift(
       patch.residentId !== undefined && patch.residentId !== existing.resident_id;
     const cancelling = patch.status === "cancelled" && existing.status !== "cancelled";
     const removingTradeability = patch.tradeable === false && existing.tradeable;
+
+    /* Moving a shift in time. The four fields are interdependent — changing the
+       date alone still moves both instants — so any one of them recomputes both
+       from the shift's current wall-clock values in the program timezone. */
+    const moving =
+      patch.date !== undefined ||
+      patch.startTime !== undefined ||
+      patch.endTime !== undefined ||
+      patch.endsNextDay !== undefined;
+
+    let newDate: string | null = null;
+    let newStart: Date | null = null;
+    let newEnd: Date | null = null;
+    if (moving) {
+      const timezone = context.program.timezone;
+      const current = currentWallTimes(existing, timezone);
+      const date = patch.date ?? current.date;
+      const startTime = patch.startTime ?? current.startTime;
+      const endTime = patch.endTime ?? current.endTime;
+      const endsNextDay = patch.endsNextDay ?? current.endsNextDay;
+
+      newDate = date;
+      const endDate = endsNextDay ? addLocalDays(date, 1) : date;
+      try {
+        newStart = zonedWallTimeToInstant(date, startTime, timezone);
+        newEnd = zonedWallTimeToInstant(endDate, endTime, timezone);
+      } catch (error) {
+        /* A wall-clock time that does not exist on the night the clocks go
+           forward. `zonedWallTimeToInstant` refuses rather than silently moving
+           the shift an hour, which is right — but the administrator needs to be
+           told that, not shown a 500. */
+        if (error instanceof InvalidZonedTimeError) {
+          throw validationFailed(error.message);
+        }
+        throw error;
+      }
+      if (newEnd <= newStart) {
+        throw validationFailed(
+          "The shift would end before it starts. Set \u201cends next day\u201d for an overnight shift.",
+        );
+      }
+    }
 
     if (reassigning) {
       if (patch.residentId) {
@@ -712,7 +793,10 @@ export async function updateShift(
               approval_required = COALESCE($5, approval_required),
               required_pgy_min = COALESCE($6, required_pgy_min),
               required_pgy_max = COALESCE($7, required_pgy_max),
-              status = COALESCE($8::shift_status, status)
+              status = COALESCE($8::shift_status, status),
+              start_datetime = COALESCE($9, start_datetime),
+              end_datetime = COALESCE($10, end_datetime),
+              date = COALESCE($11::date, date)
         WHERE id = $1
       RETURNING id`,
       [
@@ -724,17 +808,25 @@ export async function updateShift(
         patch.requiredPgyMin ?? null,
         patch.requiredPgyMax ?? null,
         patch.status ?? null,
+        newStart,
+        newEnd,
+        newDate,
       ],
       client,
     );
     if (!updated) throw notFound("That shift no longer exists.");
 
-    if (reassigning || cancelling || removingTradeability) {
+    /* Moving a shift invalidates live trades for the same reason reassigning
+       does: the thing the other resident agreed to take is no longer the thing
+       they looked at. */
+    if (reassigning || cancelling || removingTradeability || moving) {
       const reason = cancelling
         ? "This offer is no longer available because the shift was cancelled by your program."
         : reassigning
           ? "This offer is no longer available because the shift was reassigned by your program."
-          : "This offer is no longer available because the shift is no longer tradeable.";
+          : moving
+            ? "This offer is no longer available because your program moved the shift to a different time."
+            : "This offer is no longer available because the shift is no longer tradeable.";
       await invalidateTradesForShift(client, shiftId, reason, {
         userId: context.user.id,
         programId: context.program.id,

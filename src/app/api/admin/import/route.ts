@@ -2,16 +2,32 @@ import { requireChief } from "@/server/auth/guards";
 import { apiHandler, ok, parseJson } from "@/server/http/api";
 import { validationFailed } from "@/server/http/errors";
 import { importCommitSchema } from "@/lib/schemas";
-import { commitImport, parseScheduleFile, validateImport } from "@/server/domain/import";
+import { commitImport, validateImport } from "@/server/domain/import";
+import {
+  getScheduleSource,
+  listScheduleSources,
+  type UploadedFile,
+} from "@/server/domain/schedule-sources";
 
 export const dynamic = "force-dynamic";
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
+/** Which schedule sources this deployment can import from. */
+export const GET = apiHandler(async () => {
+  await requireChief();
+  return ok({ sources: listScheduleSources() });
+});
+
 /**
  * Two-step import:
  *   POST multipart/form-data  -> validates the whole file and returns a preview
  *   POST application/json     -> commits previously previewed rows
+ *
+ * The route never parses a file itself. It asks a `ScheduleSource` for records
+ * and hands them to the same validation either way, so a future source — MedHub
+ * or anything else — reaches the schedule through exactly this path rather than
+ * around it.
  */
 export const POST = apiHandler(async (request: Request) => {
   const context = await requireChief();
@@ -27,9 +43,10 @@ export const POST = apiHandler(async (request: Request) => {
       throw validationFailed("That file is larger than 5 MB.");
     }
     const buffer = Buffer.from(await file.arrayBuffer());
+    const source = getScheduleSource<UploadedFile>("spreadsheet");
     let records;
     try {
-      records = await parseScheduleFile(file.name, buffer);
+      records = await source.fetch({ filename: file.name, contents: buffer });
     } catch (error) {
       throw validationFailed(
         `That file could not be read: ${error instanceof Error ? error.message : "unknown format"}`,

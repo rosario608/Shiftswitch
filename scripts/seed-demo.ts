@@ -53,16 +53,42 @@ async function main() {
   const { zonedWallTimeToInstant } = await import("@/server/domain/time");
   type ProgramRow = import("@/server/db/types").ProgramRow;
 
-  // Remove any previous demo program. Scoped by name so a real program is
-  // never in scope, and cascading deletes take its residents and shifts.
+  // Remove any previous demo program. Scoped by name so a real program is never
+  // in scope.
+  //
+  // The order is forced by the foreign keys: `shift_assignments` references
+  // `residents` with ON DELETE RESTRICT, so the shifts have to go before the
+  // people do — deleting users first fails outright, which is what made an
+  // earlier version of this script safe to run once and not twice.
   const existing = await queryOne<{ id: string }>(
     "SELECT id FROM programs WHERE name = $1",
     [PROGRAM_NAME],
   );
   if (existing) {
     console.log("[demo] removing the previous demo program");
-    await query("DELETE FROM users WHERE program_id = $1", [existing.id]);
-    await query("DELETE FROM programs WHERE id = $1", [existing.id]);
+    const scoped = [existing.id];
+    await query(
+      `DELETE FROM trade_legs
+        WHERE completed_trade_id IN (SELECT id FROM completed_trades WHERE program_id = $1)`,
+      scoped,
+    );
+    await query("DELETE FROM completed_trades WHERE program_id = $1", scoped);
+    await query(
+      `DELETE FROM trade_offers
+        WHERE trade_request_id IN (SELECT id FROM trade_requests WHERE program_id = $1)`,
+      scoped,
+    );
+    await query("DELETE FROM trade_requests WHERE program_id = $1", scoped);
+    await query("DELETE FROM audit_logs WHERE program_id = $1", scoped);
+    await query(
+      `DELETE FROM notifications
+        WHERE recipient_user_id IN (SELECT id FROM users WHERE program_id = $1)`,
+      scoped,
+    );
+    await query("DELETE FROM invitations WHERE program_id = $1", scoped);
+    await query("DELETE FROM shifts WHERE program_id = $1", scoped);
+    await query("DELETE FROM users WHERE program_id = $1", scoped);
+    await query("DELETE FROM programs WHERE id = $1", scoped);
   }
 
   const program = (await queryOne<ProgramRow>(
@@ -82,13 +108,24 @@ async function main() {
 
   // A representative rule set, so a reviewer sees the rule engine do something
   // rather than an empty checklist.
+  //
+  // These identifiers must match `RULE_HANDLERS` exactly. `rules.rule_type` is
+  // plain text with no foreign key, so a typo does not fail — it inserts a row
+  // the engine has no handler for and silently never evaluates, which is the
+  // one failure mode this seeder is supposed to prevent. Asserted in
+  // tests/integration/demo-data.test.ts.
   const rules: Array<[string, Record<string, unknown>]> = [
-    ["max_consecutive_days", { maxDays: 6 }],
-    ["min_rest_between_shifts", { minHours: 10 }],
-    ["pgy_level_match", { allowHigher: true }],
-    ["max_hours_per_week", { maxHours: 80, windowDays: 7 }],
+    ["max_consecutive_shifts", { days: 6 }],
+    ["min_rest_hours", { hours: 10 }],
+    ["pgy_requirement", { maxPgyDifference: 2 }],
+    ["max_shifts_in_period", { maxShifts: 24, windowDays: 28 }],
+    ["no_overlapping_shifts", {}],
   ];
+  const { RULE_HANDLERS_BY_TYPE } = await import("@/server/domain/rules/handlers");
   for (const [ruleType, params] of rules) {
+    if (!RULE_HANDLERS_BY_TYPE.has(ruleType)) {
+      throw new Error(`No rule handler is registered for "${ruleType}".`);
+    }
     await query(
       "INSERT INTO rules (program_id, rule_type, name, params) VALUES ($1, $2, $2, $3::jsonb)",
       [program.id, ruleType, JSON.stringify(params)],
