@@ -139,10 +139,7 @@ export default async function TradeDetailPage({
 
       {isOwner ? (
         <section aria-labelledby="offers-heading">
-          <SectionHeading title="Offers received" />
-          <h2 id="offers-heading" className="sr-only">
-            Offers received
-          </h2>
+          <SectionHeading id="offers-heading" title="Offers received" />
           {offerViews.length === 0 ? (
             <EmptyState
               title="No offers yet"
@@ -162,10 +159,7 @@ export default async function TradeDetailPage({
           ) : null}
         </section>
       ) : (
-        <section aria-labelledby="offer-heading">
-          <h2 id="offer-heading" className="sr-only">
-            Offer one of your shifts
-          </h2>
+        <section aria-label="Offer one of your shifts">
           {myOffer ? (
             <Card>
               <CardBody className="space-y-3">

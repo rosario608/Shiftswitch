@@ -38,15 +38,20 @@ export function SectionHeading({
   title,
   action,
   description,
+  id,
 }: {
   title: string;
   description?: string;
   action?: React.ReactNode;
+  id?: string;
 }) {
   return (
     <div className="mb-2 flex items-end justify-between gap-3 px-1">
       <div>
-        <h2 className="text-sm font-semibold tracking-wide text-ink-muted uppercase">
+        <h2
+          id={id}
+          className="text-sm font-semibold tracking-wide text-ink-muted uppercase"
+        >
           {title}
         </h2>
         {description ? (

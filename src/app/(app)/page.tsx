@@ -35,10 +35,7 @@ export default async function HomePage() {
 
       {dashboard.pendingActions.length > 0 ? (
         <section aria-labelledby="pending-heading">
-          <SectionHeading title="Needs your attention" />
-          <h2 id="pending-heading" className="sr-only">
-            Actions that need you
-          </h2>
+          <SectionHeading id="pending-heading" title="Needs your attention" />
           <ul className="space-y-2">
             {dashboard.pendingActions.map((action) => (
               <li key={action.id}>
@@ -68,10 +65,7 @@ export default async function HomePage() {
       ) : null}
 
       <section aria-labelledby="next-shift-heading">
-        <SectionHeading title="Next shift" />
-        <h2 id="next-shift-heading" className="sr-only">
-          Your next shift
-        </h2>
+        <SectionHeading id="next-shift-heading" title="Next shift" />
         {dashboard.nextShift ? (
           <ShiftCard
             shift={toShiftView(dashboard.nextShift, timezone)}
@@ -104,6 +98,7 @@ export default async function HomePage() {
       {dashboard.upcoming.length > 0 ? (
         <section aria-labelledby="upcoming-heading">
           <SectionHeading
+            id="upcoming-heading"
             title="Upcoming"
             action={
               <Link
@@ -115,9 +110,6 @@ export default async function HomePage() {
               </Link>
             }
           />
-          <h2 id="upcoming-heading" className="sr-only">
-            Upcoming shifts
-          </h2>
           <ul className="space-y-2">
             {dashboard.upcoming.map((shift) => (
               <li key={shift.id}>
@@ -130,6 +122,7 @@ export default async function HomePage() {
 
       <section aria-labelledby="available-heading">
         <SectionHeading
+          id="available-heading"
           title="Available trades"
           action={
             <Link
@@ -141,9 +134,6 @@ export default async function HomePage() {
             </Link>
           }
         />
-        <h2 id="available-heading" className="sr-only">
-          Available trades
-        </h2>
         {dashboard.availableTrades.length === 0 ? (
           <EmptyState
             title="No available trades"
@@ -189,10 +179,7 @@ export default async function HomePage() {
       </section>
 
       <section aria-labelledby="quick-heading">
-        <SectionHeading title="Quick actions" />
-        <h2 id="quick-heading" className="sr-only">
-          Quick actions
-        </h2>
+        <SectionHeading id="quick-heading" title="Quick actions" />
         <Card>
           <CardBody className="grid gap-2 sm:grid-cols-3">
             {context.resident ? (

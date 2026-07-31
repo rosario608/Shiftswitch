@@ -46,7 +46,15 @@ export function zonedWallTimeToInstant(
   const dt = DateTime.fromISO(`${date}T${normalisedTime}`, { zone });
   if (!dt.isValid) {
     throw new InvalidZonedTimeError(
-      `${date} ${time} does not exist in ${zone} (${dt.invalidReason ?? "invalid"})`,
+      `${date} ${time} is not a valid time in ${zone} (${dt.invalidReason ?? "invalid"})`,
+    );
+  }
+  // Luxon silently shifts a wall time that falls inside a spring-forward gap.
+  // Round-tripping the value detects that case so the caller has to fix the
+  // input rather than silently moving a shift by an hour.
+  if (dt.toFormat("yyyy-MM-dd'T'HH:mm") !== `${date}T${normalisedTime.slice(0, 5)}`) {
+    throw new InvalidZonedTimeError(
+      `${date} ${normalisedTime.slice(0, 5)} does not exist in ${zone} — the clocks change that night.`,
     );
   }
   return dt.toJSDate();

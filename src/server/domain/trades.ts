@@ -27,6 +27,41 @@ import { logger } from "@/server/observability/logger";
 
 const DEFAULT_REQUEST_TTL_DAYS = 14;
 
+/**
+ * Some rejections need a durable side effect: when an offer turns out to be
+ * expired or no longer permitted, the offer must be marked as such *and* the
+ * caller must still see the error. Because the surrounding transaction rolls
+ * back, the write is carried out afterwards, in its own transaction.
+ */
+class RollbackWithFollowUp extends Error {
+  constructor(
+    readonly appError: AppError,
+    readonly followUp: () => Promise<void>,
+  ) {
+    super(appError.message);
+    this.name = "RollbackWithFollowUp";
+  }
+}
+
+async function withFollowUp<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof RollbackWithFollowUp) {
+      try {
+        await error.followUp();
+      } catch (followUpError) {
+        logger.error("trade.follow_up_failed", {
+          message:
+            followUpError instanceof Error ? followUpError.message : String(followUpError),
+        });
+      }
+      throw error.appError;
+    }
+    throw error;
+  }
+}
+
 function shiftLabel(shift: ShiftDetail, timezone: string): string {
   return `${formatShiftDate(shift.start_datetime, timezone)} · ${shift.service_name} ${formatShiftRange(
     shift.start_datetime,
@@ -528,7 +563,8 @@ export async function acceptOffer(
   context: AuthedContext & { resident: { id: string } },
   offerId: string,
 ): Promise<AcceptOutcome> {
-  return withTransaction(async (client) => {
+  return withFollowUp(() =>
+    withTransaction(async (client) => {
     const offer = await queryOne<TradeOfferRow>(
       "SELECT * FROM trade_offers WHERE id = $1 FOR UPDATE",
       [offerId],
@@ -554,12 +590,15 @@ export async function acceptOffer(
       );
     }
     if (offer.expires_at.getTime() <= Date.now()) {
-      await query(
-        "UPDATE trade_offers SET status = 'expired' WHERE id = $1 AND status = 'pending'",
-        [offer.id],
-        client,
+      throw new RollbackWithFollowUp(
+        new AppError("expired", "This offer has expired and can no longer be accepted."),
+        async () => {
+          await query(
+            "UPDATE trade_offers SET status = 'expired' WHERE id = $1 AND status = 'pending'",
+            [offer.id],
+          );
+        },
       );
-      throw new AppError("expired", "This offer has expired and can no longer be accepted.");
     }
     if (request.status !== "open" && request.status !== "offer_pending") {
       throw conflict("This trade is no longer active.");
@@ -574,18 +613,25 @@ export async function acceptOffer(
     );
 
     if (!validation.valid) {
-      await invalidateOffer(
-        client,
-        offer,
+      const reason =
         validation.failures[0]?.message ??
-          "This trade is no longer permitted by program rules.",
-        context.user.id,
-        context.program.id,
-      );
-      throw new AppError(
-        "rule_violation",
-        `This switch can no longer be completed: ${validation.failures[0]?.message ?? "program rules are no longer satisfied"}`,
-        { validation },
+        "This trade is no longer permitted by program rules.";
+      throw new RollbackWithFollowUp(
+        new AppError(
+          "rule_violation",
+          `This switch can no longer be completed: ${reason}`,
+          { validation },
+        ),
+        () =>
+          withTransaction((followUpClient) =>
+            invalidateOffer(
+              followUpClient,
+              offer,
+              reason,
+              context.user.id,
+              context.program.id,
+            ),
+          ),
       );
     }
 
@@ -664,12 +710,13 @@ export async function acceptOffer(
       approvalRequired: false,
     });
 
-    return {
-      status: "completed" as const,
-      completedTradeId: completed.id,
-      validation,
-    };
-  });
+      return {
+        status: "completed" as const,
+        completedTradeId: completed.id,
+        validation,
+      };
+    }),
+  );
 }
 
 async function revalidate(
@@ -991,11 +1038,23 @@ async function finaliseTrade(
 // Chief approval
 // ---------------------------------------------------------------------------
 
+/**
+ * Approval is a privileged operation. The route handler already requires the
+ * chief role; this is the second, authoritative check so the rule holds no
+ * matter which caller reaches the service.
+ */
+function assertApprover(context: AuthedContext): void {
+  if (context.user.role !== "chief" && context.user.role !== "admin") {
+    throw forbidden("Only chief residents and administrators can decide on a switch.");
+  }
+}
+
 export async function approveTrade(
   context: AuthedContext,
   requestId: string,
   options: { notes?: string; override?: { reason: string } } = {},
 ): Promise<{ completedTradeId: string; validation: TradeValidationResult }> {
+  assertApprover(context);
   return withTransaction(async (client) => {
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
@@ -1114,6 +1173,7 @@ export async function rejectTrade(
   requestId: string,
   reason: string,
 ): Promise<void> {
+  assertApprover(context);
   if (!reason.trim()) {
     throw validationFailed("A reason is required when rejecting a trade.");
   }

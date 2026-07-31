@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
   // can drive the dev server from either host.
   allowedDevOrigins: ["127.0.0.1", "localhost"],
   poweredByHeader: false,
+  // The dev overlay indicator sits on top of the bottom navigation on a phone
+  // viewport, so it is hidden; compile and runtime errors still surface.
+  devIndicators: false,
   async headers() {
     return [
       {
