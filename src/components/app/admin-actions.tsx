@@ -58,6 +58,7 @@ export function ApprovalActions({
   const router = useRouter();
   const online = useOnline();
   const [rejecting, setRejecting] = React.useState(false);
+  const [requestingChanges, setRequestingChanges] = React.useState(false);
   const [overriding, setOverriding] = React.useState(false);
   const [reason, setReason] = React.useState("");
   const [notes, setNotes] = React.useState("");
@@ -97,6 +98,21 @@ export function ApprovalActions({
     },
   );
 
+  const requestChanges = useAction(
+    async () =>
+      apiFetch(`/api/approvals/${tradeRequestId}/request-changes`, {
+        method: "POST",
+        body: JSON.stringify({ reason: reason.trim() }),
+      }),
+    {
+      onSuccess: () => {
+        setRequestingChanges(false);
+        setReason("");
+        router.refresh();
+      },
+    },
+  );
+
   return (
     <div className="space-y-2">
       {approve.error ? <Alert tone="error">{approve.error}</Alert> : null}
@@ -108,17 +124,20 @@ export function ApprovalActions({
           placeholder="Recorded with the approval"
         />
       </Field>
-      <div className="flex gap-2">
-        <Button variant="secondary" block onClick={() => setRejecting(true)}>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="secondary" onClick={() => setRejecting(true)}>
           Reject
         </Button>
+        <Button variant="ghost" onClick={() => setRequestingChanges(true)}>
+          Request changes
+        </Button>
         {hasFailures ? (
-          <Button variant="danger" block onClick={() => setOverriding(true)}>
+          <Button variant="danger" className="flex-1" onClick={() => setOverriding(true)}>
             Override &amp; approve
           </Button>
         ) : (
           <Button
-            block
+            className="flex-1"
             disabled={!online}
             loading={approve.pending}
             loadingLabel="Approving…"
@@ -163,6 +182,50 @@ export function ApprovalActions({
         >
           <Textarea
             id="reject-reason"
+            rows={4}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </Field>
+      </Sheet>
+
+      <Sheet
+        open={requestingChanges}
+        onClose={() => setRequestingChanges(false)}
+        title="Send this back to the residents?"
+        description="The offer is declined but the shift stays posted, so they can try again with a different pairing."
+        footer={
+          <div className="flex gap-2 pb-2">
+            <Button
+              variant="secondary"
+              block
+              onClick={() => setRequestingChanges(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              block
+              disabled={reason.trim().length < 3 || !online}
+              loading={requestChanges.pending}
+              loadingLabel="Sending…"
+              onClick={() => requestChanges.run()}
+            >
+              Request changes
+            </Button>
+          </div>
+        }
+      >
+        {requestChanges.error ? (
+          <Alert tone="error" className="mb-3">
+            {requestChanges.error}
+          </Alert>
+        ) : null}
+        <Field
+          label="What needs to change? (shared with both residents)"
+          htmlFor="changes-reason"
+        >
+          <Textarea
+            id="changes-reason"
             rows={4}
             value={reason}
             onChange={(event) => setReason(event.target.value)}

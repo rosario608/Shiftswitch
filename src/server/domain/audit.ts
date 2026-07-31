@@ -32,6 +32,7 @@ export type AuditAction =
   | "offer.invalidated"
   | "trade.approved"
   | "trade.rejected"
+  | "trade.changes_requested"
   | "trade.completed"
   | "trade.override"
   | "email.generated"

@@ -10,6 +10,7 @@ import {
   postShiftForTrade,
   rejectOffer,
   rejectTrade,
+  requestTradeChanges,
   runMaintenance,
   withdrawOffer,
 } from "@/server/domain/trades";
@@ -491,6 +492,53 @@ describe("approval workflow", () => {
     ).toBe(true);
   });
 
+  it("sends a trade back to the residents with a note", async () => {
+    const { offer, request, aliceShift } = await setupTrade({ approvalRequired: true });
+    await acceptOffer(alice.context, offer.id);
+    await requestTradeChanges(chief.context, request.id, "Swap with someone on nights instead.");
+
+    const updated = await queryOne<{ status: string }>(
+      "SELECT status FROM trade_requests WHERE id = $1",
+      [request.id],
+    );
+    expect(updated?.status).toBe("open");
+    const offerStatus = await queryOne<{ status: string }>(
+      "SELECT status FROM trade_offers WHERE id = $1",
+      [offer.id],
+    );
+    expect(offerStatus?.status).toBe("rejected");
+    const shiftStatus = await queryOne<{ status: string }>(
+      "SELECT status FROM shifts WHERE id = $1",
+      [aliceShift.id],
+    );
+    expect(shiftStatus?.status).toBe("posted");
+    expect(await activeAssignee(aliceShift.id)).toBe(alice.resident.id);
+
+    for (const user of [alice.user.id, bob.user.id]) {
+      const notifications = await notificationsFor(user);
+      expect(
+        notifications.some((n) => n.body.includes("Swap with someone on nights instead.")),
+      ).toBe(true);
+    }
+    expect(await auditActions()).toContain("trade.changes_requested");
+  });
+
+  it("requires a note when requesting changes", async () => {
+    const { offer, request } = await setupTrade({ approvalRequired: true });
+    await acceptOffer(alice.context, offer.id);
+    await expect(
+      requestTradeChanges(chief.context, request.id, "   "),
+    ).rejects.toMatchObject({ code: "validation_failed" });
+  });
+
+  it("only a chief or administrator may request changes", async () => {
+    const { offer, request } = await setupTrade({ approvalRequired: true });
+    await acceptOffer(alice.context, offer.id);
+    await expect(
+      requestTradeChanges(alice.context, request.id, "Please redo"),
+    ).rejects.toMatchObject({ code: "forbidden" });
+  });
+
   it("requires a reason to reject", async () => {
     const { offer, request } = await setupTrade({ approvalRequired: true });
     await acceptOffer(alice.context, offer.id);
@@ -631,6 +679,34 @@ describe("cancellation, expiry and schedule changes", () => {
     expect(offerStatus?.status).toBe("invalidated");
     expect(await activeAssignee(aliceShift.id)).toBe(carol.resident.id);
     expect(await countActiveAssignments(aliceShift.id)).toBe(1);
+  });
+});
+
+describe("residents leaving the program", () => {
+  it("a deactivated resident's pending trade cannot be finalised", async () => {
+    const { offer } = await setupTrade();
+    // An administrator deactivates the offering resident (records are never
+    // hard-deleted — foreign keys forbid it, which is what keeps history intact).
+    await query("UPDATE residents SET active = false WHERE id = $1", [bob.resident.id]);
+
+    await expect(acceptOffer(alice.context, offer.id)).rejects.toMatchObject({
+      code: "rule_violation",
+    });
+    const completed = await query<{ id: string }>("SELECT id FROM completed_trades");
+    expect(completed).toHaveLength(0);
+    const offerStatus = await queryOne<{ status: string }>(
+      "SELECT status FROM trade_offers WHERE id = $1",
+      [offer.id],
+    );
+    expect(offerStatus?.status).toBe("invalidated");
+  });
+
+  it("a resident with history cannot be deleted outright", async () => {
+    const { offer } = await setupTrade();
+    await acceptOffer(alice.context, offer.id);
+    await expect(
+      query("DELETE FROM residents WHERE id = $1", [bob.resident.id]),
+    ).rejects.toMatchObject({ code: "23503" });
   });
 });
 

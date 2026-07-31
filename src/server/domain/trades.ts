@@ -1239,6 +1239,87 @@ export async function rejectTrade(
   });
 }
 
+/**
+ * A middle course between approving and rejecting: the chief sends the trade
+ * back to the residents with a note. The accepted offer is declined, but the
+ * shift stays posted so a different — or corrected — offer can be made.
+ */
+export async function requestTradeChanges(
+  context: AuthedContext,
+  requestId: string,
+  message: string,
+): Promise<void> {
+  assertApprover(context);
+  if (!message.trim()) {
+    throw validationFailed("Say what needs to change.");
+  }
+  await withTransaction(async (client) => {
+    const request = await queryOne<TradeRequestRow>(
+      "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
+      [requestId],
+      client,
+    );
+    if (!request) throw notFound("That trade no longer exists.");
+    if (request.program_id !== context.program.id) throw forbidden();
+    if (request.status !== "pending_approval") {
+      throw conflict("This trade is not awaiting approval.");
+    }
+
+    const offers = await query<TradeOfferRow>(
+      `UPDATE trade_offers SET status = 'rejected', invalidation_reason = $2
+        WHERE trade_request_id = $1 AND status IN ('pending', 'accepted')
+      RETURNING *`,
+      [request.id, message],
+      client,
+    );
+    assertRequestTransition(request.status, "open");
+    await query(
+      "UPDATE trade_requests SET status = 'open' WHERE id = $1",
+      [request.id],
+      client,
+    );
+    await query(
+      "UPDATE shifts SET status = 'posted' WHERE id = $1 AND status IN ('offer_pending', 'pending_approval')",
+      [request.source_shift_id],
+      client,
+    );
+    for (const offer of offers) {
+      await releaseShiftIfIdle(client, offer.offered_shift_id);
+    }
+
+    const recipients = new Set<string>();
+    recipients.add(await userIdForResident(request.initiating_resident_id, client));
+    for (const offer of offers) {
+      recipients.add(await userIdForResident(offer.offering_resident_id, client));
+    }
+    await notify(
+      Array.from(recipients).map((userId) => ({
+        recipientUserId: userId,
+        type: "approval.rejected" as const,
+        title: "Changes requested before approval",
+        body: `${context.user.fullName}: ${message}`,
+        relatedEntityType: "trade_request",
+        relatedEntityId: request.id,
+      })),
+      client,
+    );
+    await recordAudit(
+      {
+        programId: context.program.id,
+        actorUserId: context.user.id,
+        actorLabel: context.user.email,
+        action: "trade.changes_requested",
+        entityType: "trade_request",
+        entityId: request.id,
+        previousState: { status: request.status },
+        newState: { status: "open" },
+        reason: message,
+      },
+      client,
+    );
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Maintenance: expiry and post-shift completion
 // ---------------------------------------------------------------------------

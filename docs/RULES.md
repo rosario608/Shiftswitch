@@ -137,6 +137,14 @@ A trade requires chief approval when any of these hold:
 
 The reasons are returned in `approvalReasons` and shown to the chief.
 
+### The chief's three options
+
+- **Approve** — the switch finalises immediately (revalidated first).
+- **Request changes** — the accepted offer is declined with a note, but the
+  shift stays posted so the residents can try a different pairing.
+- **Reject** — a reason is required; both residents keep their original shifts
+  and the post is closed.
+
 ### Overrides
 
 If a trade fails validation, a chief may still approve it — but only for rules
