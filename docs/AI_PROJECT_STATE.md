@@ -3,44 +3,39 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 31 July 2026, after the production database was provisioned.
+Last updated: 31 July 2026, after the first production deployment.
 
 ---
 
 ## Current phase
 
-`AWAITING_PRODUCTION_HOSTING`
+`AWAITING_GOOGLE_OAUTH_CLIENT`
 
 ## Current status
 
-The application and both mobile apps are built, tested and store-ready. The
-production **database exists and its schema is live**. There is still no web
-host, so nothing is deployed, submitted or published.
+The application is **deployed and publicly reachable** at
+`https://shiftswitch.vercel.app`, with the database schema live behind it. No
+environment variables are set yet, so nothing that touches the database works
+and nobody can sign in. Nothing is submitted or published.
 
 ## Current blocker
 
-**There is no web host.** The database is ready; the application has nowhere to
-run, so there is no public URL yet.
-
-A live https host is what the following all need to be configured *against*:
-
-- the Google OAuth redirect URI,
-- the mobile apps' compiled-in API address,
-- the deep-link association files (`assetlinks.json`, `apple-app-site-association`),
-- the privacy-policy and terms URLs both stores require,
-- the reviewer demo accounts.
+**No environment variables on Vercel, and no Google OAuth client.** Sign-in is
+the gate: until a Google OAuth client exists and the variables are set, the app
+serves only its public pages.
 
 ## User action required
 
-In priority order — the first unblocks everything:
-
-1. **A hosting account.** Vercel's free tier is the fewest moving parts for this
-   stack and needs no server administration. Connect the GitHub repo and paste
-   in the environment variables; the database is already provisioned.
-2. **A Google Cloud project with an OAuth client**, so residents can sign in.
-   Free.
+1. **Create a Google OAuth client** (free, needs the user's Google account).
+   In the Google Cloud console: a project, then *APIs & Services → Credentials →
+   OAuth client ID → Web application*, with authorised redirect URI exactly
+   `https://shiftswitch.vercel.app/api/auth/google/callback`. Send the client ID
+   and secret.
+2. **Either** create a Vercel API token so the agent can set the environment
+   variables, redeploy and verify — one action, and it covers every future
+   change — **or** paste the variables into the Vercel dashboard by hand.
 3. **A Google Play developer account.** One-off $25 plus identity verification,
-   which can take a few days.
+   which can take a few days. Worth starting now; it is the long pole.
 4. **An Apple Developer account.** $99/year plus identity verification. Only
    needed for the iOS app.
 
@@ -51,7 +46,24 @@ Do not ask the user for passwords or verification codes at any point.
 
 ## Next action
 
-Deploy the web application, then re-run setup to create the first program:
+Set the environment variables on Vercel, redeploy, then confirm sign-in works
+end to end against the real host. Required now:
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | the Neon **pooled** connection string |
+| `DATABASE_SSL` | `true` |
+| `AUTH_SECRET` | `openssl rand -base64 48` — generate, never reuse |
+| `APP_URL` | `https://shiftswitch.vercel.app` |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | from the OAuth client |
+| `NEXT_PUBLIC_APP_NAME` | `ShiftSwitch` |
+| `BOOTSTRAP_ADMIN_EMAILS` | the first administrator's Google address; clear it after the first sign-in |
+
+Needed later, for the mobile apps: `ANDROID_PACKAGE_NAME`,
+`ANDROID_CERT_FINGERPRINTS` (from the real upload key), `APPLE_TEAM_ID`,
+`IOS_BUNDLE_ID`, and the FCM credentials.
+
+Then create the first program:
 
 ```bash
 APP_URL=https://<host> DATABASE_URL=<neon url> AUTH_SECRET=<generated> \
@@ -91,6 +103,8 @@ create the reviewer accounts (`scripts/seed-demo.ts`) → Play internal testing.
 | Custom URL scheme | `shiftswitch://` (sign-in handoff only) |
 | Legal URLs | `/legal/privacy` and `/legal/terms`, public, no sign-in |
 | Dev signing key | `~/.shiftswitch-dev-keys/dev-upload.jks` — **outside the repo, never for release** |
+| Production URL | `https://shiftswitch.vercel.app` — public, no deployment protection |
+| Vercel project | `shiftswitch`, team `rosario608-2488s-projects`, builds from `main`, root directory. Preview deployments are SSO-protected; production is not |
 | Database | Neon, PostgreSQL 17.10, region us-east-1. Schema live: 25 tables, migrations 0001–0003 applied, 0 rows |
 | Connection pooling | The **pooled** Neon endpoint is safe — verified empirically, see docs/DEPLOYMENT.md |
 
@@ -137,6 +151,13 @@ Also verified by execution, not inspection:
   tables confirmed readable, and row locking verified correct through the
   pooled endpoint (a competing transaction blocked 1535 ms for a 1501 ms hold;
   ten concurrent read-modify-write transactions lost no updates).
+- **Against the live production deployment** (no env vars set): `/legal/privacy`
+  and `/legal/terms` return 200 publicly, which is what both stores require;
+  `/api/session` returns `{"authenticated":false}` without touching the
+  database; both `/.well-known` deep-link files are served; and all five
+  security headers are present, including HSTS with preload.
+- `next build` succeeds with no environment variables at all, so a fresh
+  deployment cannot fail at build time for want of configuration.
 
 The native end-to-end suite is the one that matters most: it serves the compiled
 client from its own origin, exactly as the Capacitor webview does, and drives it
