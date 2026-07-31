@@ -30,9 +30,12 @@ async function main() {
 
   const program = (await queryOne<{ id: string }>(
     `INSERT INTO programs (name, institution, timezone, approved_email_domains, default_trade_approval_required)
-     VALUES ('E2E Internal Medicine', 'Riverside University Hospital', $1, '{}', false)
+     VALUES ($2, 'Riverside University Hospital', $1, '{}', false)
      RETURNING id`,
-    [TZ],
+    // The program name is configurable so the store-screenshot run can use a
+    // presentable (still entirely fictional) one without the assertions in the
+    // functional suites having to change.
+    [TZ, process.env.E2E_PROGRAM_NAME ?? "E2E Internal Medicine"],
   ))!;
 
   const services: Record<string, string> = {};

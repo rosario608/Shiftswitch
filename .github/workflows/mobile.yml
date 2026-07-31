@@ -1,0 +1,187 @@
+name: Mobile
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mobile/**"
+      - "src/**"
+      - "tests/e2e-mobile/**"
+      - "playwright.mobile.config.ts"
+      - ".github/workflows/mobile.yml"
+  pull_request:
+    paths:
+      - "mobile/**"
+      - "src/**"
+      - "tests/e2e-mobile/**"
+      - "playwright.mobile.config.ts"
+      - ".github/workflows/mobile.yml"
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  client:
+    name: Client — typecheck, lint, tests, build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm ci --prefix mobile
+
+      - name: Versions agree across both platforms
+        run: node mobile/scripts/set-version.mjs --check
+
+      - name: Typecheck
+        run: npm run typecheck --prefix mobile
+
+      - name: Lint
+        run: npm run lint:mobile
+
+      - name: Unit tests
+        run: npm run test --prefix mobile
+
+      - name: Build (development configuration)
+        run: npm run build:dev --prefix mobile
+
+      - name: The bundle carries no development affordances
+        run: |
+          set -euo pipefail
+          if grep -rq "auth/test-login" mobile/dist/assets/*.js; then
+            echo "::error::The test-login path is present in the bundle."
+            exit 1
+          fi
+          if [ -n "$(ls mobile/dist/assets/*.map 2>/dev/null || true)" ]; then
+            echo "::notice::Source maps present — expected for a development build."
+          fi
+
+  native-e2e:
+    name: Native client — end-to-end
+    runs-on: ubuntu-latest
+    needs: client
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: shiftswitch_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/shiftswitch_e2e
+      AUTH_SECRET: ci-secret-ci-secret-ci-secret-ci-secret-ci
+      APP_URL: http://localhost:3100
+      NEXT_PUBLIC_APP_NAME: ShiftSwitch
+      ALLOW_TEST_LOGIN: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm ci --prefix mobile
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Apply migrations
+        run: npm run db:migrate
+
+      - name: Drive the compiled app against a real server
+        run: npx playwright test --config playwright.mobile.config.ts
+
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  android:
+    name: Android — signed release bundle
+    runs-on: ubuntu-latest
+    needs: client
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - run: npm ci
+      - run: npm ci --prefix mobile
+
+      - name: Build the client
+        # A development configuration on branches: a store build needs the
+        # production secrets, and those only exist in the release workflow.
+        run: npm run build:dev --prefix mobile
+
+      - name: Sync the native project
+        run: npx cap sync android --prefix mobile || npm run sync:android --prefix mobile
+
+      - name: Assemble a debug APK
+        working-directory: mobile/android
+        run: ./gradlew :app:assembleDebug --no-daemon
+
+      - name: The manifest requests only the permissions we declared
+        working-directory: mobile/android
+        run: |
+          set -euo pipefail
+          AAPT="$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort -r | head -1)"
+          # The Capacitor dynamic-receiver permission carries the application
+          # id, which differs between build types, so it is filtered out.
+          "$AAPT" dump badging app/build/outputs/apk/debug/app-debug.apk \
+            | grep "uses-permission" \
+            | sed "s/.*name='\([^']*\)'.*/\1/" \
+            | grep -v "DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" \
+            | sort > /tmp/actual-permissions.txt
+          cat /tmp/actual-permissions.txt
+
+          printf '%s\n' \
+            android.permission.ACCESS_NETWORK_STATE \
+            android.permission.INTERNET \
+            android.permission.POST_NOTIFICATIONS \
+            android.permission.VIBRATE \
+            android.permission.WAKE_LOCK \
+            com.google.android.c2dm.permission.RECEIVE \
+            | sort > /tmp/expected-permissions.txt
+
+          if ! diff -u /tmp/expected-permissions.txt /tmp/actual-permissions.txt; then
+            echo "::error::The permission set changed. Update GOOGLE_PLAY_DATA_SAFETY.md, APPLE_APP_PRIVACY_DECLARATION.md and this check together."
+            exit 1
+          fi
+
+      - name: Upload the debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7

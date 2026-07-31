@@ -11,8 +11,11 @@ export const ACCOUNTS = {
 };
 
 /** Rebuilds the deterministic fixture in the database the API server uses. */
-export function resetFixture(): void {
-  execFileSync("npx", ["tsx", "scripts/e2e-fixture.ts"], { stdio: "pipe" });
+export function resetFixture(env: Record<string, string> = {}): void {
+  execFileSync("npx", ["tsx", "scripts/e2e-fixture.ts"], {
+    stdio: "pipe",
+    env: { ...process.env, ...env },
+  });
 }
 
 /**
