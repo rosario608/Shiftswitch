@@ -18,9 +18,10 @@ interface ResidentOption {
 }
 
 /**
- * Administrative shift editing. Reassigning, cancelling, or removing
- * tradeability invalidates any live trade activity for the shift — the server
- * does that inside the same transaction and notifies the residents involved.
+ * Administrative shift editing. Reassigning, moving it in time, cancelling, or
+ * removing tradeability all invalidate any live trade activity for the shift —
+ * the server does that inside the same transaction and notifies the residents
+ * involved, because what they agreed to take is no longer what they looked at.
  */
 export function ShiftEditorButton({
   shift,
@@ -32,6 +33,9 @@ export function ShiftEditorButton({
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [residentId, setResidentId] = React.useState(shift.residentId ?? "");
+  const [date, setDate] = React.useState(shift.date);
+  const [startTime, setStartTime] = React.useState(shift.startTime);
+  const [endTime, setEndTime] = React.useState(shift.endTime);
   const [location, setLocation] = React.useState(shift.location);
   const [tradeable, setTradeable] = React.useState(shift.tradeable);
   const [approvalRequired, setApprovalRequired] = React.useState(shift.approvalRequired);
@@ -44,6 +48,13 @@ export function ShiftEditorButton({
         method: "PATCH",
         body: JSON.stringify({
           residentId: residentId || null,
+          date,
+          startTime,
+          endTime,
+          // Same rule as creating a shift: an end at or before the start means
+          // it runs past midnight. Derived rather than asked, because a
+          // forgotten checkbox produces a shift that ends before it begins.
+          endsNextDay: endTime <= startTime,
           location,
           tradeable,
           approvalRequired,
@@ -133,6 +144,41 @@ export function ShiftEditorButton({
               ))}
           </Select>
         </Field>
+
+        <Field label="Date" htmlFor={`date-${shift.id}`}>
+          <Input
+            id={`date-${shift.id}`}
+            type="date"
+            value={date}
+            onChange={(event) => setDate(event.target.value)}
+          />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Start" htmlFor={`start-${shift.id}`}>
+            <Input
+              id={`start-${shift.id}`}
+              type="time"
+              value={startTime}
+              onChange={(event) => setStartTime(event.target.value)}
+            />
+          </Field>
+          <Field label="End" htmlFor={`end-${shift.id}`}>
+            <Input
+              id={`end-${shift.id}`}
+              type="time"
+              value={endTime}
+              onChange={(event) => setEndTime(event.target.value)}
+            />
+          </Field>
+        </div>
+
+        {endTime <= startTime && (
+          <Alert tone="info">
+            This shift ends the next morning. It stays one overnight shift, not
+            two.
+          </Alert>
+        )}
 
         <Field label="Location" htmlFor={`location-${shift.id}`}>
           <Input

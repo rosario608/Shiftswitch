@@ -199,6 +199,17 @@ npm run dev
 For a real program you would invite residents rather than configure them one by
 one, then import the schedule: see `docs/ONBOARDING.md`.
 
+To explore a populated program instead, seed the demo:
+
+```bash
+npm run demo:seed      # ShiftSwitch Demo Residency: 21 people, 4 weeks, 4 posted switches
+npm run demo:status    # what is seeded
+npm run demo:reset     # remove it
+```
+
+It refuses to run against anything that looks like production. Accounts and
+scenarios are in `docs/DEMO_DATA.md`.
+
 ---
 
 ## 7. Running the test suites

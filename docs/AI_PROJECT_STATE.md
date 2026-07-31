@@ -3,8 +3,8 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 31 July 2026, after the onboarding features (invitations,
-schedule ingestion, Google-only sign-in) were built and tested.
+Last updated: 31 July 2026, after the synthetic demo program, the
+provider-agnostic schedule ingestion seam and manual schedule editing.
 
 ---
 
@@ -80,6 +80,38 @@ From a network that blocks outbound TCP 5432, add `DATABASE_DRIVER=neon-ws`.
   column set, manual shift create/edit/delete, and the Google-only sign-in
   wording audit. Migration `0004_invitations.sql`, applied locally **and to the
   production Neon database**.
+  PR #3, merged.
+- **Demo program and schedule architecture** — `ShiftSwitch Demo Residency`
+  (21 people, ~370 shifts over four weeks, four posted switches, three
+  invitations in three states) with idempotent, deterministic seed/reset
+  commands and a three-gate production interlock; the `ScheduleSource` seam so
+  MedHub can become a source later without touching the scheduling model; and
+  shift editing extended to move a shift in time.
+
+## Demo data
+
+`npm run demo:seed` · `npm run demo:reset` · `npm run demo:status`
+
+Builds **ShiftSwitch Demo Residency**: 18 residents, 2 chiefs, 1 administrator,
+six services, four weeks of shifts including overnights and 24-hour weekend
+call, four posted switches, and invitations in pending, expired and revoked
+states. Everything is invented and every address is under `.invalid`, which can
+never be delivered to.
+
+Refuses to run unless `NODE_ENV` is not production, the database is local (or
+`ALLOW_REMOTE_DEMO_DATA=true` is set deliberately), and neither the database
+name nor `APP_URL` looks like production. Every destructive statement is scoped
+to the demo program's name.
+
+Deterministic: the same anchor Monday always produces byte-identical data.
+Idempotent: a seed removes and rebuilds rather than merging.
+
+Accounts, the four trade scenarios and the three invitation scenarios are
+documented in `docs/DEMO_DATA.md` and asserted in
+`tests/integration/demo-data.test.ts`.
+
+**Multi-person swaps are not supported** — every switch is between exactly two
+residents. `trade_legs.leg_index` would accommodate more; the domain does not.
 
 ## Important configuration
 
@@ -103,6 +135,34 @@ From a network that blocks outbound TCP 5432, add `DATABASE_DRIVER=neon-ws`.
 Secrets are never in the repository. `.env.production`, `key.properties`,
 `*.jks`, `*.p8`, `*.p12` and `google-services.json` are all git-ignored.
 
+## Defects found and fixed this session
+
+All found by tests that did not exist before, and all fixed:
+
+1. **`scripts/seed-demo.ts` configured four rule types that do not exist**
+   (`max_consecutive_days`, `min_rest_between_shifts`, `pgy_level_match`,
+   `max_hours_per_week`). `rules.rule_type` is plain text with no foreign key, so
+   the rows inserted happily and were then never evaluated — the App Review demo
+   program looked governed and was not, which is the one thing that seeder exists
+   to avoid. Corrected to the real identifiers, and **both** seeders now refuse
+   to insert a rule type with no registered handler.
+2. **`scripts/seed-demo.ts` could be run once but not twice.** It deleted users
+   before shifts, and `shift_assignments.resident_id` is ON DELETE RESTRICT, so
+   the second run failed on a foreign key despite the file claiming re-running
+   was safe. Fixed by deleting in dependency order.
+3. **Editing a shift into a daylight-saving gap returned a 500.**
+   `zonedWallTimeToInstant` correctly refuses a wall-clock time that does not
+   exist, but `updateShift` let the error escape untranslated. It is now a 422
+   carrying the explanation.
+4. **The first version of the demo schedule violated the program's own
+   `max_consecutive_shifts` rule** — a Sunday ward shift chained into the
+   following Monday, giving seven days in a row before any trade. Every candidate
+   in the demo was therefore ineligible for a reason unrelated to the trade being
+   demonstrated. Patterns now stop at six days and Sunday is covered by the
+   weekend call shift, which is asserted directly.
+5. **The import's "unknown resident" message told administrators to add people
+   under Users**, which predates invitations. It now says to invite them.
+
 ## Known issues
 
 - **iOS has never been compiled.** Building it needs Xcode, so macOS. The
@@ -118,6 +178,14 @@ Secrets are never in the repository. `.env.production`, `key.properties`,
   production data. Previews are SSO-protected, so this is not urgent, but a
   separate Neon branch for preview should be configured before anyone else
   works on the repository.
+- **Multi-person swaps are not implemented.** Every switch is between exactly
+  two residents; `finaliseTrade` writes two legs. The schema would carry more.
+  Nothing in the product claims otherwise.
+- **No invitation has been accepted through a real Google account.** The
+  redemption logic is tested directly with the identity the OAuth callback
+  supplies, and the callback's signature verification is tested against a local
+  OpenID provider, but the two halves have not met on the live host because
+  nobody has signed in yet.
 - **App Links / Universal Links are unverified.** The route-parsing logic is
   unit-tested, including that it refuses foreign origins, but verification needs
   a real host and a real device.
@@ -126,9 +194,9 @@ Secrets are never in the repository. `.env.production`, `key.properties`,
 
 | Suite | Command | Result |
 |---|---|---|
-| Server unit + integration | `npx vitest run` | 238 passed |
+| Server unit + integration | `npx vitest run` | 276 passed |
 | Native client unit | `npm --prefix mobile run test` | 34 passed |
-| Web end-to-end | `npx playwright test` | 56 passed (mobile + desktop projects) |
+| Web end-to-end | `npx playwright test` | 72 passed (mobile + desktop projects) |
 | Native client end-to-end | `npx playwright test --config playwright.mobile.config.ts` | 16 passed (including the 9 screenshot specs) |
 | Screenshots | `… --config playwright.mobile.config.ts screenshots` | 9 passed, 10 images |
 | Typecheck / lint | `npx tsc --noEmit`, `npm run lint`, `npm run lint:mobile` | clean |
@@ -165,6 +233,16 @@ Also verified by execution, not inspection:
 - **The Google OAuth client is valid**: Google's authorisation endpoint
   returned 302 to its sign-in page for this client ID and the production
   redirect URI, so the client exists and the URI is registered.
+- **The whole lifecycle over real HTTP** (`tests/e2e/lifecycle.spec.ts`, 8
+  tests): an administrator signs in, invites, watches a superseded link die and
+  the current one work, is refused when inviting an existing member, downloads
+  the template, previews an import (writing nothing), commits it, re-imports it
+  idempotently, is refused a PDF renamed `.xlsx` and a file with the wrong
+  columns, then moves a shift in time, reassigns it, is refused an impossible
+  edit, creates one by hand and deletes it — after which a resident posts a
+  shift, a colleague sees ranked candidates and offers, the wrong person is
+  refused the acceptance, the right one completes it, both schedules move, and
+  the same offer cannot be accepted twice.
 - **The onboarding path end to end** (`tests/integration/onboarding.test.ts`):
   an empty program, two residents invited, both accepting with the Google
   identity the OAuth callback would supply, a CSV block imported, each resident
@@ -179,6 +257,22 @@ Also verified by execution, not inspection:
   but 200 on the import template; an invitation link shows nothing but the
   program and the invited address, and an unissued or revoked token renders the
   same neutral message as an expired one.
+- **The demo seeder** (`tests/integration/demo-data.test.ts`, 24 tests): the
+  interlock refuses production, a remote database without explicit opt-in, a
+  production-looking database name and a production-looking `APP_URL`; the
+  seeded program has the documented shape, uses only `.invalid` addresses, gives
+  nobody a sign-in identity, stores overnight shifts as 12 hours and call as 24,
+  puts weekday sessions on weekdays, and does not violate its own rules; all
+  four trade scenarios behave as documented; seeding twice from nothing produces
+  byte-identical data; and a reset after a completed switch removes everything.
+  The CLI was also run for real: seed, seed again, status, reset, and refusals
+  with a non-zero exit for `NODE_ENV=production` and a remote database.
+- **Manual schedule management** (`tests/integration/schedule-admin.test.ts`,
+  14 tests): moving a shift in date and time together, moving only the date,
+  turning a day shift into an overnight one without splitting it, refusing an
+  end before the start, the DST gap and the repeated hour, invalidating live
+  offers with a notification, reassigning and unassigning, and the schedule
+  source seam.
 - **The mobile production bundle builds against the real host**
   (`https://shiftswitch.vercel.app`): no test-login path, no source maps, no
   local URL, and the production host present in the bundle.
@@ -207,6 +301,7 @@ token. It has already caught three real defects.
 | Why Capacitor | `docs/MOBILE_ARCHITECTURE.md` |
 | Server deployment | `docs/DEPLOYMENT.md` |
 | Inviting residents and importing a schedule | `docs/ONBOARDING.md` |
+| The synthetic demo program and its scenarios | `docs/DEMO_DATA.md` |
 
 ## Rules for this project
 

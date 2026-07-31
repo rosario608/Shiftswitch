@@ -25,7 +25,10 @@
     "mobile:test": "npm --prefix mobile run test",
     "mobile:version": "node mobile/scripts/set-version.mjs",
     "lint:mobile": "eslint --config mobile/eslint.config.mjs mobile/src mobile/scripts",
-    "setup:production": "tsx scripts/setup-production.ts"
+    "setup:production": "tsx scripts/setup-production.ts",
+    "demo:seed": "tsx scripts/demo.ts seed",
+    "demo:reset": "tsx scripts/demo.ts reset",
+    "demo:status": "tsx scripts/demo.ts status"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.5.7",

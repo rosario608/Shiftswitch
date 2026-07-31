@@ -139,11 +139,41 @@ another system usually imports without being rewritten.
   until they are — invite them first. Duplicate rows *within* the file are
   flagged with their row numbers.
 
+### Where the rows come from
+
+The importer does not know what a file is. A **schedule source** produces flat
+records; `validateImport` and `commitImport` do everything that matters —
+matching residents, resolving services, timezone conversion, overnight shifts,
+duplicate detection, the all-or-nothing transaction — and know nothing about
+where the records came from.
+
+Today there is one source, the uploaded spreadsheet, and it needs no
+configuration at all. A future integration (MedHub is the obvious candidate)
+would be a second implementation of `ScheduleSource` in
+`src/server/domain/schedule-sources/` and nothing else: no change to the
+schedule model, no change to validation, no vendor-specific branch inside the
+domain, and no source trusted more than a file somebody typed by hand.
+
+**MedHub is deliberately not implemented.** It is not a launch dependency,
+nothing scrapes it, and no MedHub credential is collected or stored anywhere in
+this repository.
+
+`GET /api/admin/import` lists the sources this deployment can use, including any
+that are present but unconfigured — a source that needs a credential it does not
+have says so rather than failing when somebody tries it.
+
 ### After the import
 
 Everything stays editable: **Admin → Schedule** creates a single shift by hand
-(**New shift**), edits times, service, location, type and assignment, and
-deletes a shift that should not exist.
+(**New shift**), and the editor changes its date, start and end times, service,
+location, type and assignment, or deletes it.
+
+Moving a shift in time behaves like reassigning it: any live post or offer on
+that shift is invalidated and the residents involved are told why, because what
+they agreed to take is no longer what they looked at. An end time at or before
+the start means the shift runs past midnight and stays one shift. A wall-clock
+time that does not exist — 02:30 on the night the clocks go forward — is refused
+with that explanation rather than silently moved by an hour.
 
 Deleting refuses when the shift carries history — it is posted for switching,
 has live offers, or was part of a completed switch. Those are conflicts with an
@@ -182,5 +212,9 @@ Adding a different email provider means implementing `InvitationTransport` in
 6. Residents see their shifts, post one for switching, and offer on each
    other's.
 
-Steps 3–6 are exercised end to end in `tests/integration/onboarding.test.ts`;
-the authorization boundaries around them are in `tests/e2e/security.spec.ts`.
+Steps 3–6 are exercised end to end in `tests/integration/onboarding.test.ts` and
+over real HTTP in `tests/e2e/lifecycle.spec.ts`; the authorization boundaries
+around them are in `tests/e2e/security.spec.ts`.
+
+To try all of this against a populated program without touching anyone's real
+schedule, seed the demo: `npm run demo:seed`. See `docs/DEMO_DATA.md`.

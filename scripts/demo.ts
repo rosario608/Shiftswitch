@@ -1,0 +1,129 @@
+#!/usr/bin/env tsx
+/**
+ * The demo program: seed it, reset it, or ask what is there.
+ *
+ *   npm run demo:seed     rebuild "ShiftSwitch Demo Residency" from scratch
+ *   npm run demo:reset    remove it and leave nothing behind
+ *   npm run demo:status   report what is currently seeded
+ *
+ * Development and staging only. See `scripts/demo/guard.ts` for the interlock
+ * and `docs/DEMO_DATA.md` for the accounts and scenarios it creates.
+ */
+import { loadEnv } from "./load-env";
+import { checkDemoAllowed } from "./demo/guard";
+import {
+  DEMO_EXISTING_MEMBER_EMAIL,
+  DEMO_INVITATIONS,
+  DEMO_PEOPLE,
+  DEMO_PROGRAM_NAME,
+} from "./demo/plan";
+
+loadEnv();
+
+async function main() {
+  const command = process.argv[2] ?? "seed";
+  const guard = checkDemoAllowed();
+
+  if (command !== "status" && !guard.allowed) {
+    console.error(`[demo] refusing to touch ${guard.target}:`);
+    for (const reason of guard.reasons) console.error(`  - ${reason}`);
+    process.exit(1);
+  }
+
+  const { closePool, queryOne } = await import("@/server/db/pool");
+
+  if (command === "status") {
+    const program = await queryOne<{ id: string; created_at: Date }>(
+      "SELECT id, created_at FROM programs WHERE name = $1",
+      [DEMO_PROGRAM_NAME],
+    );
+    if (!program) {
+      console.log(`[demo] "${DEMO_PROGRAM_NAME}" is not seeded on ${guard.target}.`);
+    } else {
+      const counts = await queryOne<{
+        users: string;
+        shifts: string;
+        posted: string;
+        invitations: string;
+      }>(
+        `SELECT (SELECT count(*) FROM users WHERE program_id = $1)::text          AS users,
+                (SELECT count(*) FROM shifts WHERE program_id = $1)::text         AS shifts,
+                (SELECT count(*) FROM trade_requests WHERE program_id = $1)::text AS posted,
+                (SELECT count(*) FROM invitations WHERE program_id = $1)::text    AS invitations`,
+        [program.id],
+      );
+      console.log(
+        `[demo] "${DEMO_PROGRAM_NAME}" on ${guard.target}\n` +
+          `  seeded      ${program.created_at.toISOString()}\n` +
+          `  users       ${counts!.users}\n` +
+          `  shifts      ${counts!.shifts}\n` +
+          `  posted      ${counts!.posted}\n` +
+          `  invitations ${counts!.invitations}`,
+      );
+    }
+    if (!guard.allowed) {
+      console.log(
+        "\n[demo] Seeding and resetting are blocked here:\n" +
+          guard.reasons.map((reason) => `  - ${reason}`).join("\n"),
+      );
+    }
+    await closePool();
+    return;
+  }
+
+  if (command === "reset") {
+    const { resetDemoProgram } = await import("./demo/seed");
+    const removed = await resetDemoProgram();
+    console.log(
+      removed
+        ? `[demo] removed "${DEMO_PROGRAM_NAME}" from ${guard.target}.`
+        : `[demo] nothing to remove — "${DEMO_PROGRAM_NAME}" was not there.`,
+    );
+    await closePool();
+    return;
+  }
+
+  if (command !== "seed") {
+    console.error(`[demo] unknown command "${command}". Use seed, reset or status.`);
+    process.exit(1);
+  }
+
+  const { seedDemoProgram } = await import("./demo/seed");
+  const result = await seedDemoProgram();
+
+  const admin = DEMO_PEOPLE.find((p) => p.role === "admin")!;
+  const chief = DEMO_PEOPLE.find((p) => p.role === "chief")!;
+  const scenarioPeople = DEMO_PEOPLE.filter((p) => p.note);
+
+  console.log(`
+[demo] "${DEMO_PROGRAM_NAME}" rebuilt on ${guard.target}.
+
+  Week starting   ${result.anchor} (America/New_York)
+  Users           ${result.users}  (${result.residents} with resident records)
+  Services        ${result.services}   Rotations ${result.rotations}
+  Shifts          ${result.shifts}
+  Posted          ${result.posts}
+  Invitations     ${result.invitations}
+
+  Administrator   ${admin.email}
+  Chief resident  ${chief.email}
+
+  Scenario accounts:
+${scenarioPeople.map((p) => `    ${p.email.padEnd(34)} ${p.note}`).join("\n")}
+
+  Invitation scenarios:
+${DEMO_INVITATIONS.map((i) => `    ${i.email.padEnd(34)} ${i.scenario}`).join("\n")}
+    ${DEMO_EXISTING_MEMBER_EMAIL.padEnd(34)} inviting this address must be refused
+
+  Everything above is invented, and every address is under .invalid, which can
+  never be delivered to. Sign in as any of them with ALLOW_TEST_LOGIN=true.
+  Full documentation: docs/DEMO_DATA.md
+`);
+
+  await closePool();
+}
+
+main().catch((error) => {
+  console.error("[demo] failed:", error instanceof Error ? error.message : error);
+  process.exit(1);
+});

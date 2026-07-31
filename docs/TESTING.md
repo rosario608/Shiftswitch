@@ -90,6 +90,16 @@ never grants a role.
 | Whole onboarding path: invite → accept → import → see shifts → trade | `tests/integration/onboarding.test.ts` |
 | Residents and chiefs cannot import or invite | `tests/e2e/security.spec.ts` |
 | Invitations are scoped to one program | `tests/integration/onboarding.test.ts` |
+| Whole lifecycle over HTTP: admin invites, imports, edits, reassigns, deletes; resident posts, offers, accepts | `tests/e2e/lifecycle.spec.ts` |
+| Moving a shift in time, including DST gap and repeated hour | `tests/integration/schedule-admin.test.ts` |
+| Moving a shift invalidates live offers | `tests/integration/schedule-admin.test.ts` |
+| Reassigning to another resident, to nobody, and across programs | `tests/integration/schedule-admin.test.ts` |
+| Schedule source seam produces records the core validation accepts | `tests/integration/schedule-admin.test.ts` |
+| Demo seed is deterministic, idempotent and fully removable | `tests/integration/demo-data.test.ts` |
+| Demo seed refuses production, remote and production-named targets | `tests/integration/demo-data.test.ts` |
+| Seeded schedule does not violate the program's own rules | `tests/integration/demo-data.test.ts` |
+| Every seeded rule type has a handler | `tests/integration/demo-data.test.ts` |
+| Demo scenarios: valid swap, invalid swap, no match, overlapping schedule | `tests/integration/demo-data.test.ts` |
 
 ---
 
