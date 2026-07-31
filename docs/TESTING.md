@@ -63,6 +63,7 @@ never grants a role.
 
 | Case | Where |
 | ---- | ----- |
+| Google sign-in: PKCE, state, nonce, signature, audience, issuer, expiry, unverified email, workspace domain | `tests/integration/oidc.test.ts` — driven against a local OpenID provider with a real key pair |
 | Concurrent trade — only one succeeds | `tests/integration/concurrency.test.ts` |
 | Already-traded / obsolete offer rejected | `tests/integration/trade-workflow.test.ts`, `tests/e2e/edge-cases.spec.ts` |
 | Schedule changed under a pending trade | `tests/integration/trade-workflow.test.ts` ("administrator reassigned a shift underneath") |
