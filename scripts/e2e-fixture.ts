@@ -17,9 +17,15 @@
  * resident and shift, so cross-program access can be attacked for real.
  */
 import { DateTime } from "luxon";
+import { assertDestructiveAllowed } from "./db-guard";
 import { loadEnv } from "./load-env";
 
 loadEnv();
+
+/* The fixture truncates every table before rebuilding. Every end-to-end spec
+   calls it in `beforeAll`, so it runs constantly — which makes an unguarded
+   TRUNCATE against a mistyped DATABASE_URL a matter of time. */
+assertDestructiveAllowed("truncate every table", "ALLOW_REMOTE_E2E_FIXTURE");
 
 const TZ = "America/New_York";
 
