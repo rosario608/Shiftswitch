@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:usesCleartextTraffic="false"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!--
+                Android App Links. Verified against
+                https://<host>/.well-known/assetlinks.json, which the server
+                generates from its configuration. Once verified, a link to a
+                switch or a shift opens the app directly with no chooser.
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="${appLinkHost}" android:pathPrefix="/trades" />
+                <data android:scheme="https" android:host="${appLinkHost}" android:pathPrefix="/switches" />
+                <data android:scheme="https" android:host="${appLinkHost}" android:pathPrefix="/schedule" />
+                <data android:scheme="https" android:host="${appLinkHost}" android:pathPrefix="/notifications" />
+            </intent-filter>
+
+            <!--
+                The custom scheme carries the sign-in handoff only. The code it
+                delivers is single-use and useless without the PKCE verifier
+                held inside this app, so another application registering the
+                same scheme gains nothing.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="${appScheme}" />
+            </intent-filter>
+        </activity>
+
+        <!-- Notifications land in this channel; see src/native/push.ts. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="shiftswitch-trades" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!--
+        Permissions.
+
+        This is the complete list, and each entry is required by a feature the
+        app actually has. There is deliberately no location, camera, microphone,
+        contacts, storage, calendar or Bluetooth permission: nothing in
+        ShiftSwitch uses them, and a scheduling app asking for them would be
+        both a privacy problem and an App Review problem.
+    -->
+
+    <!-- Talking to the API. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Showing the offline banner instead of failing silently. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Notifying you about offers and approvals (Android 13+ runtime prompt). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+        Opening the resident's own mail app for the program notification, and
+        a browser for sign-in. Declared so those intents resolve under Android
+        11+ package visibility rules; it grants no access to the mailbox.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="mailto" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+</manifest>

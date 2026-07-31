@@ -1,0 +1,30 @@
+node_modules/
+dist/
+.env.production
+.env.local
+
+# Capacitor generates these from capacitor.config.ts on `cap sync`.
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/src/main/res/xml/config.xml
+android/capacitor-cordova-android-plugins/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/App/config.xml
+ios/App/Pods/
+ios/capacitor-cordova-ios-plugins/
+ios/DerivedData/
+
+# Never commit signing material.
+*.keystore
+*.jks
+*.p12
+*.p8
+*.mobileprovision
+*.cer
+key.properties

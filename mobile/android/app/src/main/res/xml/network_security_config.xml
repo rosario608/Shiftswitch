@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The app talks to exactly one thing: its own API, over TLS.
+
+    Cleartext is off everywhere. User-installed certificate authorities are not
+    trusted in release builds, so a proxy on the device cannot read a resident's
+    session token or schedule. Debug builds do trust them, because that is how
+    the app is inspected during development — and that block is compiled only
+    into the debug variant.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

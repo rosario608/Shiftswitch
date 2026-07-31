@@ -1,0 +1,5 @@
+{
+  "version": "1.0.0",
+  "versionCode": 1,
+  "_comment": "Single source of truth for the app version on both platforms. `version` is the marketing version shown to users (CFBundleShortVersionString / versionName). `versionCode` is the Android build number and must increase on every Play upload; scripts/set-version.mjs keeps the iOS CFBundleVersion in step with it."
+}
