@@ -9,6 +9,7 @@ import { requirePageUser } from "@/server/auth/page-guards";
 import { queryOne } from "@/server/db/pool";
 import { getShiftDetail } from "@/server/domain/schedule";
 import { listOfferableForPosting } from "@/server/domain/schedule-actions";
+import { isUuid } from "@/lib/cn";
 import { toShiftView } from "@/lib/views";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,7 @@ export default async function ShiftDetailPage({
 }) {
   const context = await requirePageUser();
   const { shiftId } = await params;
+  if (!isUuid(shiftId)) notFound();
   const shift = await getShiftDetail(shiftId);
 
   if (!shift || shift.program_id !== context.program.id) notFound();

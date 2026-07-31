@@ -13,6 +13,7 @@ import { requirePageUser } from "@/server/auth/page-guards";
 import { getTradeRequestDetail } from "@/server/domain/trades";
 import { REQUEST_STATUS_LABELS } from "@/server/domain/status";
 import { queryOne } from "@/server/db/pool";
+import { isUuid } from "@/lib/cn";
 import { toShiftView } from "@/lib/views";
 import { fmtRelative, fmtTimestamp } from "@/lib/format";
 import type { TradeRequestStatus } from "@/server/db/types";
@@ -26,6 +27,7 @@ export default async function TradeDetailPage({
 }) {
   const context = await requirePageUser();
   const { tradeId } = await params;
+  if (!isUuid(tradeId)) notFound();
   const trade = await getTradeRequestDetail(tradeId, context.program.id);
   if (!trade) notFound();
 

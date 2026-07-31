@@ -7,6 +7,7 @@ import { NotifyProgramPanel } from "@/components/app/notify-program";
 import { requirePageUser } from "@/server/auth/page-guards";
 import { getCompletedTrade } from "@/server/domain/trades";
 import { buildMailtoUrl, listEmailRecords } from "@/server/domain/email";
+import { isUuid } from "@/lib/cn";
 import { toShiftView } from "@/lib/views";
 import { fmtTimestamp } from "@/lib/format";
 
@@ -20,6 +21,7 @@ export default async function SwitchPage({
 }) {
   const context = await requirePageUser();
   const { tradeId } = await params;
+  if (!isUuid(tradeId)) notFound();
   const trade = await getCompletedTrade(tradeId, context.program.id);
   if (!trade) notFound();
 

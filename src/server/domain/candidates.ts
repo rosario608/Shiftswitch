@@ -1,15 +1,25 @@
 import type { AuthedContext } from "@/server/auth/guards";
-import type { ShiftDetail } from "@/server/db/types";
+import type { ProgramRow, ShiftDetail } from "@/server/db/types";
+import { queryOne } from "@/server/db/pool";
 import { notFound } from "@/server/http/errors";
 import { rankCandidates, type MatchScore } from "./matching";
-import { listOfferableShifts } from "./schedule";
-import { buildTradeContextByShiftIds } from "./trade-context";
+import {
+  countCompletedTradesThisMonth,
+  countOpenOffers,
+  getResidentInfo,
+  listOfferableShifts,
+  listScheduleRange,
+  toShiftInfo,
+} from "./schedule";
+import { listActiveRules } from "./trade-context";
 import { getTradeRequestDetail } from "./trades";
-import { validateTrade } from "./validation";
-import type { TradeValidationResult } from "./rules/types";
+import { buildProposedSchedule, validateTrade } from "./validation";
+import type { TradeContext, TradeValidationResult } from "./rules/types";
 
 /** How many top-ranked shifts get a full rules evaluation. */
 const VALIDATE_LIMIT = 12;
+/** Rule windows never look further than 28 days; 45 gives comfortable margin. */
+const WINDOW_MS = 45 * 86_400_000;
 
 export interface OfferCandidate {
   shift: ShiftDetail;
@@ -26,6 +36,10 @@ export interface OfferCandidate {
  *
  * The UI uses `eligible` to stop a resident from ever selecting a shift that
  * would be rejected — and `blockingReason` to explain why it cannot be picked.
+ *
+ * Both residents' schedules, the program rules and the trade counters are
+ * fetched once and reused for every candidate; only the pure rule evaluation
+ * runs per candidate.
  */
 export async function getOfferCandidates(
   context: AuthedContext & { resident: { id: string } },
@@ -38,45 +52,45 @@ export async function getOfferCandidates(
     context.resident.id,
     request.source_shift_id,
   );
-  const viewerPgy = request.shift.resident_pgy ?? 1;
-  const residentPgy = await residentPgyLevel(context.resident.id, viewerPgy);
+  const viewer = await getResidentInfo(context.resident.id);
+  if (!viewer) throw notFound("Your resident record is no longer available.");
 
   const ranked = rankCandidates(
     request,
     request.shift,
     offerable,
-    residentPgy,
+    viewer.pgyLevel,
     context.program,
   );
 
-  const candidates: OfferCandidate[] = [];
-  for (const [index, entry] of ranked.entries()) {
-    if (index >= VALIDATE_LIMIT) {
-      candidates.push({
+  const evaluate = await prepareEvaluator(
+    context.program,
+    request.shift,
+    viewer.id,
+    ranked.slice(0, VALIDATE_LIMIT).map((entry) => entry.shift),
+  );
+
+  const candidates: OfferCandidate[] = ranked.map((entry, index) => {
+    if (index >= VALIDATE_LIMIT || !evaluate) {
+      return {
         shift: entry.shift,
         match: entry.match,
         validation: null,
         eligible: true,
         blockingReason: null,
         requiresApproval: false,
-      });
-      continue;
+      };
     }
-    const tradeContext = await buildTradeContextByShiftIds(
-      context.program,
-      request.source_shift_id,
-      entry.shift.id,
-    );
-    const validation = validateTrade(tradeContext);
-    candidates.push({
+    const validation = validateTrade(evaluate(entry.shift));
+    return {
       shift: entry.shift,
       match: entry.match,
       validation,
       eligible: validation.valid,
       blockingReason: validation.valid ? null : validation.failures[0].message,
       requiresApproval: validation.requiresApproval,
-    });
-  }
+    };
+  });
 
   // Eligible shifts always sort above blocked ones, then by match score.
   candidates.sort((a, b) => {
@@ -87,13 +101,78 @@ export async function getOfferCandidates(
   return { candidates, sourceShift: request.shift };
 }
 
-async function residentPgyLevel(residentId: string, fallback: number): Promise<number> {
-  const { queryOne } = await import("@/server/db/pool");
-  const row = await queryOne<{ pgy_level: number }>(
-    "SELECT pgy_level FROM residents WHERE id = $1",
-    [residentId],
+/**
+ * Loads everything the rules engine needs once, and returns a pure function
+ * that produces the `TradeContext` for a given candidate shift.
+ */
+async function prepareEvaluator(
+  program: ProgramRow,
+  sourceShift: ShiftDetail,
+  viewerResidentId: string,
+  candidateShifts: ShiftDetail[],
+): Promise<((candidate: ShiftDetail) => TradeContext) | null> {
+  if (candidateShifts.length === 0) return null;
+  if (!sourceShift.resident_id) return null;
+
+  const poster = await getResidentInfo(sourceShift.resident_id);
+  const viewer = await getResidentInfo(viewerResidentId);
+  if (!poster || !viewer) return null;
+
+  const instants = [
+    sourceShift.start_datetime,
+    ...candidateShifts.map((shift) => shift.start_datetime),
+  ].map((date) => date.getTime());
+  const from = new Date(Math.min(...instants) - WINDOW_MS);
+  const to = new Date(Math.max(...instants) + WINDOW_MS);
+
+  const posterSchedule = (await listScheduleRange(poster.id, from, to)).map(toShiftInfo);
+  const viewerSchedule = (await listScheduleRange(viewer.id, from, to)).map(toShiftInfo);
+  const posterTrades = await countCompletedTradesThisMonth(
+    poster.id,
+    new Date(),
+    program.timezone,
   );
-  return row?.pgy_level ?? fallback;
+  const viewerTrades = await countCompletedTradesThisMonth(
+    viewer.id,
+    new Date(),
+    program.timezone,
+  );
+  const posterOffers = await countOpenOffers(poster.id);
+  const viewerOffers = await countOpenOffers(viewer.id);
+  const rules = await listActiveRules(program.id);
+  const source = toShiftInfo(sourceShift);
+
+  return (candidateShift: ShiftDetail): TradeContext => {
+    const candidate = toShiftInfo(candidateShift);
+    return {
+      program: {
+        id: program.id,
+        name: program.name,
+        timezone: program.timezone,
+        defaultTradeApprovalRequired: program.default_trade_approval_required,
+      },
+      now: new Date(),
+      legs: [
+        buildProposedSchedule({
+          resident: poster,
+          gives: source,
+          receives: candidate,
+          currentSchedule: posterSchedule,
+          completedTradesThisMonth: posterTrades,
+          openOffers: posterOffers,
+        }),
+        buildProposedSchedule({
+          resident: viewer,
+          gives: candidate,
+          receives: source,
+          currentSchedule: viewerSchedule,
+          completedTradesThisMonth: viewerTrades,
+          openOffers: viewerOffers,
+        }),
+      ],
+      rules,
+    };
+  };
 }
 
 export interface TradeMatchSummary {
@@ -110,12 +189,16 @@ export interface TradeMatchSummary {
  */
 export async function summariseMatches(
   context: AuthedContext & { resident: { id: string } },
-  trades: Array<{ id: string; source_shift_id: string; preferences: unknown; shift: ShiftDetail }>,
+  trades: Array<{
+    id: string;
+    source_shift_id: string;
+    preferences: unknown;
+    shift: ShiftDetail;
+  }>,
 ): Promise<Map<string, TradeMatchSummary>> {
   const summaries = new Map<string, TradeMatchSummary>();
   if (trades.length === 0) return summaries;
 
-  const { queryOne } = await import("@/server/db/pool");
   const residentRow = await queryOne<{ pgy_level: number }>(
     "SELECT pgy_level FROM residents WHERE id = $1",
     [context.resident.id],
@@ -123,7 +206,10 @@ export async function summariseMatches(
   const pgy = residentRow?.pgy_level ?? 1;
 
   for (const trade of trades) {
-    const offerable = await listOfferableShifts(context.resident.id, trade.source_shift_id);
+    const offerable = await listOfferableShifts(
+      context.resident.id,
+      trade.source_shift_id,
+    );
     const ranked = rankCandidates(
       { preferences: (trade.preferences ?? {}) as never },
       trade.shift,

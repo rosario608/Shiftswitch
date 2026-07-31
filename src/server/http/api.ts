@@ -122,6 +122,20 @@ export function parseQuery<T>(request: Request, schema: ZodType<T>): T {
   return schema.parse(params);
 }
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Validates a path parameter before it reaches the database. A malformed id is
+ * a "not found", not a server error.
+ */
+export function requireUuid(value: string, label = "item"): string {
+  if (!UUID_PATTERN.test(value)) {
+    throw new AppError("not_found", `We couldn't find that ${label}.`);
+  }
+  return value;
+}
+
 export function ok<T>(data: T, init?: ResponseInit): NextResponse<T> {
   return NextResponse.json(data, {
     ...init,

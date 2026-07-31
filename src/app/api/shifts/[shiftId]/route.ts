@@ -1,5 +1,5 @@
 import { assertSameProgram, requireUser, roleAtLeast } from "@/server/auth/guards";
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, ok, requireUuid } from "@/server/http/api";
 import { forbidden, notFound } from "@/server/http/errors";
 import { getShiftDetail } from "@/server/domain/schedule";
 import { queryOne } from "@/server/db/pool";
@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
 export const GET = apiHandler(
   async (_request: Request, ctx: { params: Promise<{ shiftId: string }> }) => {
     const context = await requireUser();
-    const { shiftId } = await ctx.params;
+    const { shiftId: rawId } = await ctx.params;
+    const shiftId = requireUuid(rawId, "shift");
     const shift = await getShiftDetail(shiftId);
     if (!shift) throw notFound("That shift no longer exists.");
     assertSameProgram(context, shift.program_id);

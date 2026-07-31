@@ -1,5 +1,5 @@
 import { requireResident } from "@/server/auth/guards";
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, ok, requireUuid } from "@/server/http/api";
 import { getOfferCandidates } from "@/server/domain/candidates";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 export const GET = apiHandler(
   async (_request: Request, ctx: { params: Promise<{ tradeId: string }> }) => {
     const context = await requireResident();
-    const { tradeId } = await ctx.params;
+    const { tradeId: rawId } = await ctx.params;
+    const tradeId = requireUuid(rawId, "trade");
     const result = await getOfferCandidates(context, tradeId);
     return ok(result);
   },

@@ -20,15 +20,21 @@ interface CandidateShift {
   shift_type: string;
 }
 
+interface ValidationCheckView {
+  key: string;
+  status: string;
+  message: string;
+  label: string;
+  residentName?: string;
+}
+
 interface Candidate {
   shift: CandidateShift;
   match: { score: number; reasons: string[]; caveats: string[] };
   eligible: boolean;
   blockingReason: string | null;
   requiresApproval: boolean;
-  validation: {
-    checks: Array<{ key: string; status: string; message: string; label: string }>;
-  } | null;
+  validation: { checks: ValidationCheckView[] } | null;
 }
 
 /**
@@ -238,7 +244,14 @@ export function OfferShiftSheet({
                       aria-hidden="true"
                     />
                   )}
-                  <span className="text-ink-muted">{check.message}</span>
+                  <span className="text-ink-muted">
+                    {check.residentName ? (
+                      <span className="font-medium text-ink">
+                        {check.residentName}:{" "}
+                      </span>
+                    ) : null}
+                    {check.message}
+                  </span>
                 </li>
               ))}
             </ul>

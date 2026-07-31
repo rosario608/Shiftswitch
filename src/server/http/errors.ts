@@ -91,6 +91,8 @@ export function translateDatabaseError(error: unknown): AppError {
         "not_found",
         "One of the records involved no longer exists.",
       );
+    case "22P02": // invalid_text_representation (e.g. a malformed uuid)
+      return new AppError("not_found", "We couldn't find that item.");
     case "23514": // check_violation
       return validationFailed("That change is not allowed.");
     case "40001": // serialization_failure

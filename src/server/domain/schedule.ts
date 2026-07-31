@@ -139,6 +139,26 @@ export async function listScheduleWindow(
   );
 }
 
+/** All active assignments for a resident between two instants. */
+export async function listScheduleRange(
+  residentId: string,
+  from: Date,
+  to: Date,
+  executor: Queryable = getPool(),
+): Promise<ShiftDetail[]> {
+  return query<ShiftDetail>(
+    `${SHIFT_DETAIL_SELECT}
+      WHERE sa.resident_id = $1
+        AND sa.assignment_status = 'active'
+        AND s.status <> 'cancelled'
+        AND s.end_datetime >= $2
+        AND s.start_datetime <= $3
+      ORDER BY s.start_datetime ASC`,
+    [residentId, from, to],
+    executor,
+  );
+}
+
 export interface ResidentRecord extends ResidentInfo {
   programId: string;
 }

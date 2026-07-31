@@ -146,6 +146,11 @@ export default async function ApprovalsPage() {
                                   ? "Failed: "
                                   : "Warning: "}
                             </span>
+                            {check.residentName ? (
+                              <span className="font-medium text-ink">
+                                {check.residentName}:{" "}
+                              </span>
+                            ) : null}
                             {check.message}
                             {check.detail ? (
                               <span className="block text-xs text-ink-subtle">
