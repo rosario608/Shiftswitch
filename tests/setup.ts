@@ -6,7 +6,9 @@ import dotenv from "dotenv";
 (process.env as Record<string, string>).NODE_ENV = "test";
 for (const file of [".env.test", ".env.test.local"]) {
   const full = path.join(process.cwd(), file);
-  if (existsSync(full)) dotenv.config({ path: full, override: true, quiet: true });
+  // No override: values already in the environment (CI, or an explicit export)
+  // win over the checked-in defaults.
+  if (existsSync(full)) dotenv.config({ path: full, quiet: true });
 }
 if (process.env.TEST_DATABASE_URL) {
   process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
