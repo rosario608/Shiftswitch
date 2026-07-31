@@ -280,6 +280,27 @@ deliberately not the same one:
 Every administrative screen shows a badge naming the environment whenever it is
 not production-with-email.
 
+### Irreversible scripts
+
+Three of them: `migrate.ts --reset` (DROP SCHEMA), `e2e-fixture.ts` (TRUNCATE
+every table, run by every end-to-end spec) and the demo seeder. Only the third
+was guarded until this session — the other two executed against whatever
+`DATABASE_URL` happened to be exported, and `npm run verify` now runs both on
+every invocation.
+
+All three refuse a target that is not demonstrably local, **before opening a
+connection**, naming the host and every reason at once. The detection is shared
+(`scripts/db-guard.ts`, asserted by `tests/unit/db-guard.test.ts`) so "does this
+look like production" has one answer. Each caller opts in to a remote target
+under its own variable — `ALLOW_REMOTE_DB_RESET`, `ALLOW_REMOTE_E2E_FIXTURE`,
+`ALLOW_REMOTE_DEMO_DATA` — so unlocking one does not unlock the others, and no
+override defeats a production-looking database name.
+
+Consolidating it fixed a real gap in the original pattern, which matched the raw
+URL: `postgresql://[::1]:5432/db` was treated as remote, pushing somebody toward
+setting an override, while `localhost.evil.com` matched as local — which fails
+in the dangerous direction. The hostname is now parsed and compared.
+
 ## Important configuration
 
 | Thing | Value |
