@@ -11,6 +11,18 @@ const patchSchema = z.object({
   abbreviation: z.string().max(16).optional(),
   tradeable: z.boolean().optional(),
   active: z.boolean().optional(),
+  /* Scheduling configuration. Every one optional, because the two screens that
+     write here send different subsets: the services list edits the name and
+     tradeability, the configuration screen edits the rest. */
+  siteId: z.string().uuid().nullable().optional(),
+  pgyMin: z.number().int().min(1).max(10).optional(),
+  pgyMax: z.number().int().min(1).max(10).optional(),
+  typicalShiftHours: z.number().min(0.5).max(48).nullable().optional(),
+  coverageMandatory: z.boolean().optional(),
+  notes: z.string().max(2000).optional(),
+  contactName: z.string().max(120).optional(),
+  contactEmail: z.string().max(200).optional(),
+  contactPhone: z.string().max(40).optional(),
 });
 
 /**
@@ -30,6 +42,15 @@ export const PATCH = apiHandler(
       abbreviation: input.abbreviation,
       tradeable: input.tradeable,
       active: input.active,
+      siteId: input.siteId,
+      pgyMin: input.pgyMin,
+      pgyMax: input.pgyMax,
+      typicalShiftHours: input.typicalShiftHours,
+      coverageMandatory: input.coverageMandatory,
+      notes: input.notes,
+      contactName: input.contactName,
+      contactEmail: input.contactEmail,
+      contactPhone: input.contactPhone,
     });
     return ok({ record });
   },

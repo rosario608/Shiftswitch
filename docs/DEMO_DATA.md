@@ -226,3 +226,30 @@ Distinguishing them would only help somebody guessing tokens.
 The separate, much smaller `scripts/seed-demo.ts` builds the isolated
 **App Review** program on the production database for store reviewers. That one
 is not this; see `release/REVIEWER_NOTES.md`.
+
+---
+
+## The scheduling foundation
+
+`npm run demo:seed` also configures the programme as a scheduler would, through
+the same domain functions the scheduler screens call:
+
+| | |
+|---|---|
+| Sites | Demo University Hospital and Demo VA Medical Center |
+| Service configuration | Site, PGY eligibility and typical shift length on every service |
+| Coverage | Six requirements exercising all three scopes — an ordinary week, a weekend, Thanksgiving as a named date, and the winter holiday block as a period |
+| Cohorts | Two per PGY class, paired so they alternate, with all 20 residents distributed between them |
+| Block year | Thirteen four-week blocks alternating Inpatient and Ambulatory — generated from `weeks: 4` and two kinds, not from anything that knows what "4+4" means |
+| Block assignments | Every cohort in every block, with the paired alternation visible in the grid |
+| Phone numbers | All 20, validated and normalised. Visible to a chief, absent from a resident's payload entirely |
+| Not schedulable | Varga, on parental leave — active on the roster but off the schedule |
+| Site eligibility | Abiodun and Sorensen not credentialed for the VA |
+| Draft schedule | A fortnight copied from the published one, so the diff has something to show |
+
+Sign in as **demo.whitfield@demo.invalid** (chief resident) and open
+**Admin → Scheduler** to meet it.
+
+To see a programme with a *different* shape, build a second block year from the
+cohorts screen with a different block length. Nothing in the schema or the code
+knows how long a block is.

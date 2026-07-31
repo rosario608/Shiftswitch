@@ -286,8 +286,13 @@ test("a chief sees the schedule and the approvals queue, and nothing else", asyn
   // The navigation reflects it: schedule yes, users no.
   await page.goto("/admin");
   const nav = page.getByRole("navigation", { name: "Administration" });
-  await expect(nav.getByRole("link", { name: "Schedule" })).toBeVisible();
+  // Exact, because "Scheduler" contains "Schedule" and they are two links to
+  // two different screens: the shift editor and the planning dashboard.
+  await expect(nav.getByRole("link", { name: "Schedule", exact: true })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Approvals" })).toBeVisible();
+  // A chief plans the schedule, so the scheduler and the cohort grid are theirs.
+  await expect(nav.getByRole("link", { name: "Scheduler", exact: true })).toBeVisible();
+  await expect(nav.getByRole("link", { name: "Cohorts & blocks" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Users & roles" })).toHaveCount(0);
   await expect(nav.getByRole("link", { name: "Services" })).toHaveCount(0);
   await expect(nav.getByRole("link", { name: "Program settings" })).toHaveCount(0);

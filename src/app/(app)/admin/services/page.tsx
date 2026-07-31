@@ -1,4 +1,5 @@
 import { ServicesManager } from "@/components/app/services-manager";
+import { TemplatePicker } from "@/components/app/template-picker";
 import { requirePageCapability } from "@/server/auth/page-guards";
 import { listServices } from "@/server/domain/services";
 
@@ -24,10 +25,14 @@ export default async function ServicesPage() {
         </p>
       </header>
 
+      {services.length === 0 ? <TemplatePicker /> : null}
+
       <ServicesManager
         services={services.map(toRow)}
         rotations={rotations.map(toRow)}
       />
+
+      {services.length > 0 ? <TemplatePicker /> : null}
     </div>
   );
 }
@@ -41,5 +46,8 @@ function toRow(record: Awaited<ReturnType<typeof listServices>>[number]) {
     tradeable: record.tradeable,
     shift_count: Number(record.shift_count),
     upcoming_shift_count: Number(record.upcoming_shift_count),
+    site_name: record.site_name,
+    coverage_count: Number(record.coverage_count),
+    coverage_mandatory: record.coverage_mandatory,
   };
 }

@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Check, Pencil, Plus, X } from "lucide-react";
+import Link from "next/link";
+import { Check, Pencil, Plus, Settings, X } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,10 @@ export interface ServiceRow {
   tradeable: boolean;
   shift_count: number;
   upcoming_shift_count: number;
+  /** Services only: the scheduling configuration summary. */
+  site_name?: string | null;
+  coverage_count?: number;
+  coverage_mandatory?: boolean;
 }
 
 type Kind = "service" | "rotation";
@@ -153,8 +158,23 @@ function Row({ kind, row }: { kind: Kind; row: ServiceRow }) {
                       ? ` · ${row.upcoming_shift_count} upcoming`
                       : "")}
               </p>
+              {kind === "service" ? (
+                <p className="mt-0.5 text-sm text-ink-subtle">
+                  {row.site_name ?? "No site"}
+                  {" · "}
+                  {row.coverage_count
+                    ? `${row.coverage_count} coverage rule${row.coverage_count === 1 ? "" : "s"}`
+                    : "no coverage set"}
+                </p>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
+              {kind === "service" && row.coverage_mandatory && !row.coverage_count ? (
+                /* The state worth surfacing on the list rather than one level
+                   in: a service that must be covered, with nothing saying by
+                   how many people, will never warn anybody that it is short. */
+                <Badge tone="critical">No coverage set</Badge>
+              ) : null}
               {kind === "service" && !row.tradeable && (
                 <Badge tone="neutral">Not swappable</Badge>
               )}
@@ -166,11 +186,20 @@ function Row({ kind, row }: { kind: Kind; row: ServiceRow }) {
 
           {toggle.error && <Alert tone="error">{toggle.error}</Alert>}
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
               <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
               Edit
             </Button>
+            {kind === "service" ? (
+              <Link
+                href={`/admin/services/${row.id}`}
+                className="inline-flex min-h-[2.25rem] items-center gap-1.5 rounded-lg border border-border-strong px-3 text-sm font-semibold text-ink-muted hover:bg-surface-muted"
+              >
+                <Settings className="h-3.5 w-3.5" aria-hidden="true" />
+                Configure
+              </Link>
+            ) : null}
             <Button
               size="sm"
               variant="ghost"

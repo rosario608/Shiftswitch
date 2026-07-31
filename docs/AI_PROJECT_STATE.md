@@ -3,7 +3,11 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 31 July 2026, after making the repository runnable unattended:
+Last updated: 31 July 2026, after building the scheduler foundation: sites,
+service configuration, coverage requirements, cohorts, configurable block
+years, resident scheduling data, a scheduler dashboard and draft schedules.
+
+Before that, making the repository runnable unattended:
 `/CLAUDE.md`, a single `npm run verify`, guards on every irreversible script,
 and this document reconciled against the code by inspection.
 
@@ -31,13 +35,16 @@ full — see **Tested**.
 
 | | |
 |---|---|
-| In the repository | `0001` – `0007` |
-| Applied locally, and proven to apply to an **empty** database in order | `0001` – `0007` |
+| In the repository | `0001` – `0008` |
+| Applied locally, and proven to apply to an **empty** database in order | `0001` – `0008` |
 | Reported applied to production by the session of 31 July 2026 | `0001` – `0006` |
-| **Not applied to production** | **`0007_notification_route.sql`** |
+| **Not applied to production** | **`0007_notification_route.sql`**, **`0008_scheduler_foundation.sql`** |
 
-**`0007_notification_route.sql` must be applied to production before the code on
-`main` is deployed.** `notify()` now inserts a `route` column; against a database
+**`0007_notification_route.sql` and `0008_scheduler_foundation.sql` must both be
+applied to production before the code on `main` is deployed.** `0008` adds the
+scheduling tables and `shifts.schedule_version_id`; without it every schedule
+query fails, because that column is now part of the definition of a live shift.
+`0007`: `notify()` now inserts a `route` column; against a database
 without it, every trade action that produces a notification fails. Nothing
 applies migrations automatically — there is no build hook, only
 `npm run db:migrate` against the production `DATABASE_URL`. Production has no
@@ -67,8 +74,9 @@ institution's real roster and real block schedule. Nothing technical is blocked.
 
 ## User action required
 
-0. **Apply `db/migrations/0007_notification_route.sql` to production**, before
-   the code on `main` is deployed. `npm run db:migrate` against the production
+0. **Apply `db/migrations/0007_notification_route.sql` and
+   `0008_scheduler_foundation.sql` to production**, in that order, before the
+   code on `main` is deployed. `npm run db:migrate` against the production
    `DATABASE_URL`. Without it, every trade action that produces a notification
    fails, because `notify()` writes a `route` column the production schema does
    not yet have. Sessions do not do this — see `/CLAUDE.md`.
@@ -497,6 +505,54 @@ All found by tests that did not exist before, and all fixed:
 5. **The import's "unknown resident" message told administrators to add people
    under Users**, which predates invitations. It now says to invite them.
 
+## The scheduler foundation
+
+Migration `0008`. Everything additive: the trade lifecycle, shifts, assignments
+and services all behave exactly as before, and a programme that never opens the
+scheduler screens sees no change.
+
+The idea running through all of it: **a programme's shape is data.** Block
+length, pairing, coverage patterns, PGY mix and the service list are rows, not
+constants.
+
+| | |
+|---|---|
+| **Sites** | Where a service happens. Site eligibility per resident is a real constraint with credentialing behind it, not a note in a location string |
+| **Service configuration** | Site, PGY eligibility, typical shift length, mandatory coverage, tradeability, notes and contact |
+| **Coverage requirements** | How many people, when. One table with a `scope` discriminator — weekday, date range, one named day — because a scheduler reads them as one list. Most specific wins, resolved in `requirementsFor` so nobody has to remember the order |
+| **Block structures** | An ordered list of named date spans. `generateBlocks({weeks, count, kinds})` produces them; **4+4 is `weeks: 4` with two kinds**, a fortnightly programme is `weeks: 2`, a thirteen-block year passes no kinds at all |
+| **Cohorts** | Groups within a PGY class, paired reciprocally so they alternate. Membership is a table because it carries dates: a resident who moves cohort in January must still be findable in September's schedule |
+| **Resident scheduling data** | Phone (validated, normalised, capability-gated), schedulability separate from account status, preferences, constraints, site eligibility |
+| **Schedule versions** | Draft and published. `shifts.schedule_version_id` is null for a live shift, so **null means published** and nothing needed backfilling |
+
+**"Weekend" is not a scope.** Programmes disagree about whether Friday night
+counts, so `days_of_week` says exactly which days and "weekend" is a preset in
+the interface.
+
+**Publishing replaces the live schedule within the draft's window only**, which
+is what makes it safe to publish one block without disturbing the year. It
+refuses when a live shift in the window is entangled in a trade, and names who
+is involved — cancelling two residents' agreed switch as a side effect of
+publishing is not something to do silently. The override is a second explicit
+confirmation and is audited.
+
+A **database trigger** refuses a trade request against a versioned shift. A
+query filter is something a future query can forget; a trigger is not.
+
+### The default service library
+
+`src/server/domain/service-templates.ts`. Duke Internal Medicine as a starting
+point: wards, MICU, CICU, cardiology, malignant haematology, neurology, ED,
+night medicine, day float, ambulatory, consults, electives, and VA and community
+sites. Applying it is `createService` plus `createCoverage` in a loop — the same
+calls the Services screen makes — so a service added by hand is
+indistinguishable afterwards and **a new local service needs no code change**.
+
+It skips what already exists rather than overwriting, and says what it skipped.
+The interface presents it as one programme's answers rather than as correct,
+because a template accepted as authoritative at eleven at night is how a
+programme ends up with the wrong MICU staffing all year.
+
 ## Concurrency
 
 `tests/integration/concurrency.test.ts` races accept against every other verb —
@@ -546,22 +602,22 @@ Three of the defects above were found this way and by nothing else.
 
 **`npm run verify` exits 0.** That is the whole answer, and the only one worth
 quoting — it runs every row below in one command with one exit code. Last full
-run: 10 steps, 588 seconds.
+run: 10 steps, 560 seconds.
 
 | Step | Result |
 |---|---|
 | Typecheck (`tsc --noEmit`) | clean |
 | Lint, server + web | clean |
 | Lint, native client | clean |
-| Server unit + integration (`vitest run`) | **391 passed**, 21 files |
+| Server unit + integration (`vitest run`) | **459 passed**, 23 files |
 | Native client unit (`npm --prefix mobile run test`) | **37 passed**, 6 files |
 | Production build (`next build`) | succeeds |
-| Web end-to-end (`playwright test`) | **122 passed**, mobile + desktop projects |
+| Web end-to-end (`playwright test`) | **130 passed**, mobile + desktop projects |
 | Native end-to-end (`--config playwright.mobile.config.ts`) | **16 passed**, including the 9 screenshot specs |
-| Migrations from scratch (`migrate.ts --reset`) | **0001–0007 apply to an empty database** |
-| Integration suite against the rebuilt schema | **270 passed**, 13 files |
+| Migrations from scratch (`migrate.ts --reset`) | **0001–0008 apply to an empty database** |
+| Integration suite against the rebuilt schema | **306 passed**, 14 files |
 
-566 distinct tests. The final 270 is the integration subset re-run against the
+642 distinct tests. The final 270 is the integration subset re-run against the
 freshly rebuilt schema, which is why it is not added again.
 
 Also verified by execution, not inspection:
