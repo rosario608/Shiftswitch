@@ -129,7 +129,8 @@ async function preflight(): Promise<boolean> {
   const url = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
   if (!url) {
     process.stdout.write(
-      "[verify] No DATABASE_URL or TEST_DATABASE_URL. Copy .env.example to .env.local.\n",
+      "[verify] No DATABASE_URL or TEST_DATABASE_URL.\n" +
+        "[verify] Run `npm run setup:local` — it creates the databases and writes .env.local.\n",
     );
     return false;
   }
@@ -143,7 +144,8 @@ async function preflight(): Promise<boolean> {
     const message = error instanceof Error ? error.message : String(error);
     process.stdout.write(
       `[verify] Cannot reach PostgreSQL at ${new URL(url).host}: ${message}\n` +
-        "[verify] Start it first — on Debian/Ubuntu: service postgresql start\n",
+        "[verify] Start it first — on Debian/Ubuntu: service postgresql start\n" +
+        "[verify] Then `npm run setup:local` if this is a fresh checkout.\n",
     );
     return false;
   }

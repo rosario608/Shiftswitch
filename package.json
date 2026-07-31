@@ -17,6 +17,7 @@
     "test:integration": "vitest run tests/integration",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "setup:local": "tsx scripts/setup-local.ts",
     "verify": "tsx scripts/verify.ts",
     "verify:fast": "tsx scripts/verify.ts --fast",
     "e2e:fixture": "tsx scripts/e2e-fixture.ts",
