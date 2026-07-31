@@ -3,8 +3,8 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 31 July 2026, after the first administrator signed in and the
-live invitation path was verified against production.
+Last updated: 31 July 2026, after the five-role permission model, service
+management, the rebuilt invite field and the development invitation sandbox.
 
 ---
 
@@ -14,59 +14,57 @@ live invitation path was verified against production.
 
 ## Current status
 
-The web application is **live, configured and in use** at
-`https://shiftswitch.vercel.app`. The first administrator has signed in with
-Google, the account is linked, and the program has been renamed from the
-placeholders to **Internal Medicine / DUH / America/New_York**.
+Live and in use at `https://shiftswitch.vercel.app`, with one administrator and
+the program named **Internal Medicine / DUH / America/New_York**. Still no
+residents, services or shifts in production.
 
-The program is otherwise empty: no residents, no services, no shifts. Nothing is
-submitted to either app store.
+Since the last checkpoint the product gained the five-role model, a Services
+screen, a conventional multi-address invite field, and a development-only
+invitation sandbox so one person can test the whole onboarding flow alone.
+**Migration 0005 has not yet been applied to production** — see Next action.
 
 ## Current blocker
 
-**The program has no people and no schedule in it**, and neither can be invented
-— they are the institution's real roster and real block schedule. Every
-remaining product step (residents seeing shifts, posting, switching, the chief
-approval queue) needs at least a few real accounts to exist.
+The program has no people and no schedule. Neither can be invented: they are the
+institution's real roster and real block schedule.
 
 ## User action required
 
-1. **The residents' email addresses.** Invitations go out from
-   **Admin → Users → Invite**; the import then matches shifts to people by that
-   same address, so the accounts have to exist first. Their Google Workspace
-   addresses are the ones to use.
-2. **The block schedule**, as a CSV or XLSX. Download the template from
-   **Admin → Import** — it always carries near-future example dates and the
-   canonical column names. Common aliases from other systems are accepted.
-3. **A Google Play developer account.** One-off $25 plus identity verification,
-   which can take days. The long pole for shipping the Android app.
-4. **An Apple Developer account.** $99/year plus identity verification. Only
-   needed for iOS.
-5. **A bundle id on a domain the institution controls**, replacing the
-   `org.shiftswitch.app` placeholder. It can never be changed after the first
-   store upload.
+1. **The residents' email addresses**, for **Admin → Users & roles → Invite
+   people**. Paste them in any format — commas, semicolons, one per line, or a
+   spreadsheet column.
+2. **The block schedule**, as CSV or XLSX, for **Admin → Import**. Download the
+   template there first.
+3. **A Google Play developer account.** $25 plus identity verification; the long
+   pole for Android.
+4. **An Apple Developer account.** $99/year plus identity verification.
+5. **A bundle id on a domain the institution controls**, replacing
+   `org.shiftswitch.app`. It can never be changed after the first store upload.
 
-Also, eventually: **a Mac** for the iOS build, and **12 real testers for 14
-days** if Play requires closed testing for this account type.
+Also eventually: a Mac for the iOS build, and 12 real testers for 14 days if
+Play requires closed testing.
 
 Do not ask the user for passwords or verification codes at any point.
 
 ## Next action
 
-Nothing on the server side is blocked. Once residents exist, the sequence is
-**Admin → Users → Invite** → residents accept → **Admin → Import** → review the
-preview → commit. See `docs/ONBOARDING.md`.
+**Apply migration 0005 to the production Neon database** before or with the next
+deploy — it adds the `apd` and `pd` enum values, the service/rotation
+abbreviation column, and case-insensitive uniqueness. Nothing in the running app
+uses them until it is applied, and the deploy will fail closed rather than
+corrupt anything, but it must not be forgotten:
 
-To demonstrate or explore the product before real data exists, seed the demo
-program locally (`npm run demo:seed`) — it refuses to touch anything that looks
-like production. See `docs/DEMO_DATA.md`.
+```bash
+DATABASE_DRIVER=neon-ws DATABASE_URL=<pooled neon url> npx tsx scripts/migrate.ts
+```
 
-For the mobile apps: `mobile/.env.production` already points at the live host.
-Still needed later: `ANDROID_PACKAGE_NAME`, `ANDROID_CERT_FINGERPRINTS` (from
-the real upload key), `APPLE_TEAM_ID`, `IOS_BUNDLE_ID`, and FCM credentials.
+Then the program setup sequence: **Admin → Program settings** → **Admin →
+Services** → **Admin → Users & roles → Invite people** → **Admin → Import**.
+See `docs/ONBOARDING.md`.
 
-`npm run setup:production` is safe to re-run; it skips what is already done.
-From a network that blocks outbound TCP 5432, add `DATABASE_DRIVER=neon-ws`.
+For the mobile apps, `mobile/.env.production` already points at the live host.
+Still needed later: `ANDROID_PACKAGE_NAME`, `ANDROID_CERT_FINGERPRINTS`,
+`APPLE_TEAM_ID`, `IOS_BUNDLE_ID`, and FCM credentials.
 
 ## Completed
 
@@ -86,6 +84,12 @@ From a network that blocks outbound TCP 5432, add `DATABASE_DRIVER=neon-ws`.
   wording audit. Migration `0004_invitations.sql`, applied locally **and to the
   production Neon database**.
   PR #3, merged.
+- **Roles, services and the invitation sandbox** — the five-role model
+  (Resident, Chief, APD, PD, Administrator) as an explicit capability matrix
+  replacing the old three-tier rank; a Services screen; a conventional
+  multi-address invite field; role management with assignment rules; and a
+  development-only invitation sandbox. Migration `0005_roles_and_services.sql`,
+  applied locally, **not yet applied to production**.
 - **Demo program and schedule architecture** — `ShiftSwitch Demo Residency`
   (21 people, ~370 shifts over four weeks, four posted switches, three
   invitations in three states) with idempotent, deterministic seed/reset
@@ -118,6 +122,33 @@ documented in `docs/DEMO_DATA.md` and asserted in
 **Multi-person swaps are not supported** — every switch is between exactly two
 residents. `trade_legs.leg_index` would accommodate more; the domain does not.
 
+## Roles
+
+Five, in seniority order: **Resident → Chief resident → APD → PD →
+Administrator**. Permissions are an explicit capability matrix, not a rank —
+`src/server/auth/roles.ts` is the source of truth and `docs/ROLES.md` describes
+it.
+
+Guards name a capability (`requireCapability("services.manage")`), the admin
+navigation is generated from the same matrix, and a role may only ever be
+assigned to somebody strictly junior to the assigner. Nobody may change their
+own role.
+
+## Environment safety
+
+`src/server/config/environment.ts` answers two separate questions, and they are
+deliberately not the same one:
+
+- **Can email reach a real person from here?** Only in a production build *and*
+  with `RESEND_API_KEY` set. A staging deployment holding production's
+  credentials still sends nothing.
+- **Is the invitation sandbox available?** Only outside production *and* with
+  `ALLOW_TEST_LOGIN=true`. Two independent locks; a production build cannot
+  reach it whatever the flag says.
+
+Every administrative screen shows a badge naming the environment whenever it is
+not production-with-email.
+
 ## Important configuration
 
 | Thing | Value |
@@ -136,11 +167,40 @@ residents. `trade_legs.leg_index` would accommodate more; the domain does not.
 | First program | **Internal Medicine / DUH / America/New_York** — corrected from the placeholders by the administrator. The timezone governs every shift time, so it is worth a second look before the first import |
 | Administrator | One, the repository owner's Google account: role `admin`, identity linked, first sign-in 31 July 2026 17:29 UTC |
 | Vercel project | `shiftswitch`, team `rosario608-2488s-projects`, builds from `main`, root directory. Preview deployments are SSO-protected; production is not |
-| Database | Neon, PostgreSQL 17.10, region us-east-1. Schema live: 26 tables, migrations 0001–0004 applied. Contents: 1 program, 1 user, 0 residents, 0 services, 0 shifts |
+| Database | Neon, PostgreSQL 17.10, region us-east-1. Migrations 0001–0004 applied in production; **0005 applied locally only**. Contents: 1 program, 1 user, 0 residents, 0 services, 0 shifts |
 | Connection pooling | The **pooled** Neon endpoint is safe — verified empirically, see docs/DEPLOYMENT.md |
 
 Secrets are never in the repository. `.env.production`, `key.properties`,
 `*.jks`, `*.p8`, `*.p12` and `google-services.json` are all git-ignored.
+
+## Defects found and fixed (roles/services session)
+
+Reported from hands-on use, plus two the new tests surfaced:
+
+1. **The invite field could not be typed in.** Root cause was not the field —
+   `Sheet`'s focus effect depended on `onClose`, which every caller passes as an
+   inline arrow, so its identity changed on every render. The effect re-ran on
+   every keystroke and pulled focus back to the sheet's close button. Every
+   sheet in the app was affected: shift editor, offer sheet, service sheet. The
+   effect is now keyed on `open` alone, with `onClose` held in a ref.
+2. **The invite field was a textarea with parsing rules you had to know.**
+   Replaced with a conventional chip input: Enter/comma/semicolon commit,
+   pasting a list or a spreadsheet column works, each address is a removable
+   chip, invalid ones are flagged red and duplicates amber, individually.
+   Separators are detected from the value rather than the keystroke, because
+   Android soft keyboards report punctuation as keyCode 229.
+3. **There was no way to add a service.** They only existed as a side effect of
+   importing. Added **Admin → Services** with create, rename, short name,
+   swappable flag, deactivate/reactivate, and case-insensitive duplicate
+   prevention.
+4. **Accepting a *chief* invitation created no resident record.**
+   `acceptInvitation` checked `role === "resident"` literally, so every invited
+   chief got an account that could not hold a shift or trade — the exact failure
+   the surrounding comment warned about. Now uses the shared
+   `expectsResidentRecord` predicate.
+5. **Roles were a three-tier rank** (`resident < chief < admin`) with
+   permissions expressed as `rank >= n`. Replaced with five roles and an
+   explicit capability matrix.
 
 ## Defects found and fixed this session
 
@@ -202,12 +262,13 @@ All found by tests that did not exist before, and all fixed:
 
 | Suite | Command | Result |
 |---|---|---|
-| Server unit + integration | `npx vitest run` | 276 passed |
+| Server unit + integration | `npx vitest run` | 342 passed |
 | Native client unit | `npm --prefix mobile run test` | 34 passed |
-| Web end-to-end | `npx playwright test` | 72 passed (mobile + desktop projects) |
+| Web end-to-end | `npx playwright test` | 100 passed (mobile + desktop projects) |
 | Native client end-to-end | `npx playwright test --config playwright.mobile.config.ts` | 16 passed (including the 9 screenshot specs) |
 | Screenshots | `… --config playwright.mobile.config.ts screenshots` | 9 passed, 10 images |
 | Typecheck / lint | `npx tsc --noEmit`, `npm run lint`, `npm run lint:mobile` | clean |
+| Production build | `npm run build` | succeeds |
 
 Also verified by execution, not inspection:
 
@@ -241,6 +302,19 @@ Also verified by execution, not inspection:
 - **The Google OAuth client is valid**: Google's authorisation endpoint
   returned 302 to its sign-in page for this client ID and the production
   redirect URI, so the client exists and the URI is registered.
+- **The self-test path** (`tests/e2e/roles-and-onboarding.spec.ts`, 13 tests):
+  an administrator finds Services in the navigation and creates one, is refused
+  a case-insensitive duplicate and a deactivation that would strand upcoming
+  shifts; the invite field is driven the way a person drives it (Enter, comma,
+  semicolon, an invalid address, a duplicate, Backspace-to-edit, per-chip
+  removal); a synthetic resident and a synthetic chief are invited, accepted
+  through the sandbox, and land with the right role, program and resident
+  record; a resident is refused every administrative route; a chief gets the
+  schedule and approvals but not users, services or settings; an APD gets people
+  and services but not program settings or maintenance; a PD can rename the
+  program but cannot appoint a peer or touch an administrator; nobody can change
+  their own role; and a revoked invitation cannot be accepted even in the
+  sandbox.
 - **The whole lifecycle over real HTTP** (`tests/e2e/lifecycle.spec.ts`, 8
   tests): an administrator signs in, invites, watches a superseded link die and
   the current one work, is refused when inviting an existing member, downloads
@@ -323,6 +397,7 @@ token. It has already caught three real defects.
 | Server deployment | `docs/DEPLOYMENT.md` |
 | Inviting residents and importing a schedule | `docs/ONBOARDING.md` |
 | The synthetic demo program and its scenarios | `docs/DEMO_DATA.md` |
+| Roles and the permission matrix | `docs/ROLES.md` |
 
 ## Rules for this project
 

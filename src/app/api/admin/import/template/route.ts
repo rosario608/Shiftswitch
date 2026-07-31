@@ -1,4 +1,4 @@
-import { requireChief } from "@/server/auth/guards";
+import { requireCapability } from "@/server/auth/guards";
 import { apiHandler } from "@/server/http/api";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
  * unhandled exception and a resident poking at this URL would get a 500.
  */
 export const GET = apiHandler(async (): Promise<Response> => {
-  const context = await requireChief();
+  const context = await requireCapability("schedule.manage");
 
   const day = (offset: number) =>
     new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);

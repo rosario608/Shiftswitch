@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import type { UserRole } from "@/server/db/types";
 import { AppError } from "@/server/http/errors";
-import { requireRole, requireUser, type AuthedContext } from "./guards";
+import { requireCapability, requireUser, type AuthedContext } from "./guards";
+import type { Capability } from "./roles";
 
 /**
  * Page-level equivalents of the API guards. They translate an authorization
@@ -28,12 +28,17 @@ export async function requirePageUser(returnTo?: string): Promise<AuthedContext>
   }
 }
 
-export async function requirePageRole(
-  minimum: UserRole,
+/**
+ * The page equivalent of `requireCapability`. A person who lands on a screen
+ * they may not use is redirected home with an explanation rather than shown a
+ * refusal they cannot act on.
+ */
+export async function requirePageCapability(
+  capability: Capability,
   returnTo?: string,
 ): Promise<AuthedContext> {
   try {
-    return await requireRole(minimum);
+    return await requireCapability(capability);
   } catch (error) {
     handle(error, returnTo);
   }

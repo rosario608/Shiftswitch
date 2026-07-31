@@ -6,6 +6,8 @@ export const ACCOUNTS = {
   bob: "e2e.bob@hospital.org",
   carol: "e2e.carol@hospital.org",
   chief: "e2e.chief@hospital.org",
+  pd: "e2e.pd@hospital.org",
+  apd: "e2e.apd@hospital.org",
   admin: "e2e.admin@hospital.org",
   pending: "e2e.pending@hospital.org",
 };

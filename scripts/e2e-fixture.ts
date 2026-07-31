@@ -7,6 +7,8 @@
  *   e2e.bob@hospital.org     PGY-2, three upcoming tradeable shifts
  *   e2e.carol@hospital.org   PGY-2, one shift that requires chief approval
  *   e2e.chief@hospital.org   chief resident
+ *   e2e.pd@hospital.org      program director
+ *   e2e.apd@hospital.org     associate program director
  *   e2e.admin@hospital.org   program administrator
  *   e2e.pending@hospital.org authenticated but not configured
  */
@@ -69,7 +71,7 @@ async function main() {
   async function createUser(
     email: string,
     name: string,
-    role: "resident" | "chief" | "admin" | null,
+    role: import("@/server/db/types").UserRole | null,
   ) {
     return (await queryOne<{ id: string }>(
       `INSERT INTO users (auth_user_id, email, full_name, role, program_id)
@@ -99,6 +101,9 @@ async function main() {
     [chiefUser.id, program.id],
   );
   await createUser("e2e.admin@hospital.org", "Dana Admin", "admin");
+  // Program leadership, so the role boundaries can be exercised end to end.
+  await createUser("e2e.pd@hospital.org", "Priya Director", "pd");
+  await createUser("e2e.apd@hospital.org", "Amir Deputy", "apd");
   await createUser("e2e.pending@hospital.org", "Pat Pending", null);
 
   async function createShift(options: {

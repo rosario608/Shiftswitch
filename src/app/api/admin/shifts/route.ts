@@ -1,4 +1,4 @@
-import { requireChief } from "@/server/auth/guards";
+import { requireCapability } from "@/server/auth/guards";
 import { apiHandler, ok, parseJson } from "@/server/http/api";
 import { shiftCreateSchema } from "@/lib/schemas";
 import { createShift, listProgramSchedule } from "@/server/domain/admin";
@@ -6,7 +6,7 @@ import { createShift, listProgramSchedule } from "@/server/domain/admin";
 export const dynamic = "force-dynamic";
 
 export const GET = apiHandler(async (request: Request) => {
-  const context = await requireChief();
+  const context = await requireCapability("schedule.manage");
   const url = new URL(request.url);
   const shifts = await listProgramSchedule(context.program.id, {
     from: url.searchParams.get("from") ?? undefined,
@@ -23,7 +23,7 @@ export const GET = apiHandler(async (request: Request) => {
 });
 
 export const POST = apiHandler(async (request: Request) => {
-  const context = await requireChief();
+  const context = await requireCapability("schedule.manage");
   const input = await parseJson(request, shiftCreateSchema);
   const shift = await createShift(context, input);
   return ok({ shift }, { status: 201 });

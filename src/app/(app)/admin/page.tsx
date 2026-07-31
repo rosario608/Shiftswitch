@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Card, CardBody } from "@/components/ui/card";
-import { requirePageRole } from "@/server/auth/page-guards";
+import { requirePageCapability } from "@/server/auth/page-guards";
 import { getProgramAnalytics } from "@/server/domain/admin";
 import { MaintenanceButton } from "@/components/app/admin-actions";
 
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Administration" };
 
 export default async function AdminHomePage() {
-  const context = await requirePageRole("chief");
+  const context = await requirePageCapability("audit.view");
   const analytics = await getProgramAnalytics(context.program.id);
 
   const tiles = [

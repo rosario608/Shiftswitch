@@ -13,15 +13,43 @@ reported and nothing is written — but it means importing twice.
 
 ---
 
+## 0. Services first
+
+**Admin → Services.** Add the services your program runs — MICU, Wards, Night
+Float — before importing anything. Each has a name, an optional short name for
+compact views, and a switch for whether residents may swap shifts on it at all
+(turn that off for continuity clinic).
+
+You can skip this: the import creates any service it meets. But then the names
+are whatever the spreadsheet spelled, and this screen is where you tidy them
+afterwards. Renaming a service moves nothing.
+
+Names are compared without case, so "MICU" and "micu" cannot both exist.
+Services are deactivated rather than deleted — shifts reference them, and an
+inactive service keeps its history while disappearing from new work. A service
+with upcoming shifts refuses to be deactivated until they are moved.
+
+Rotations work the same way and are optional.
+
+---
+
 ## 1. Invitations
 
-**Admin → Users → Invite.** Administrator only: inviting somebody creates an
-account, which is user management, not schedule management. A chief resident
-runs the schedule and the approvals queue and cannot invite.
+**Admin → Users & roles → Invite people.** Requires `invitations.manage`, which
+means APD, PD or Administrator — see `docs/ROLES.md`. Inviting somebody creates
+an account, which is user management; a chief resident runs the schedule and the
+approvals queue, not the roster.
 
-Paste addresses one per line (commas and semicolons work too), choose the role,
-optionally set a training level for the whole batch, and create. You get one
-link per address.
+The address field behaves the way every mail client's does. Type an address and
+press Enter, or a comma, or a semicolon. Paste a whole list — commas,
+semicolons, one-per-line, or a column straight out of a spreadsheet all work.
+Each address becomes a chip you can remove on its own; anything that does not
+look like an address is marked in red, and duplicates in amber. Backspace on an
+empty field puts the previous address back for editing rather than deleting it.
+
+Choose the role for the batch. **You can only offer roles junior to your own**,
+so an APD never sees "Program Director" in the list — and the server refuses it
+even if the request is made directly.
 
 ### What the link is
 
@@ -40,6 +68,17 @@ Accepting requires two independent things:
 That combination is what makes a forwarded link harmless. Somebody who receives
 an invitation meant for a colleague cannot accept it, and the mismatch does not
 consume the invitation, so the real invitee can still use it.
+
+### Nothing is emailed outside production
+
+Email delivery is gated on **two** things: the deployment must be a production
+build, *and* `RESEND_API_KEY` must be set. A staging deployment that inherited
+production's credentials still sends nothing — that mistake is silent and cannot
+be undone.
+
+Every administrative screen carries a badge naming the environment when it is
+not production-with-email, so you cannot invite a real resident while believing
+you are testing.
 
 ### Sending it
 
@@ -182,6 +221,35 @@ through.
 
 ---
 
+## 2b. Testing an invitation on your own
+
+Accepting an invitation needs a Google account whose verified address matches
+the invited one. That is the whole security model, and it means one person
+cannot normally test the flow end to end.
+
+In **development or staging** — never in a production build — the invitation
+sandbox closes that gap. With `ALLOW_TEST_LOGIN=true` and a non-production
+`NODE_ENV`, each created invitation gains an **"Accept as …"** button.
+
+What it substitutes is *Google*, not the invitation:
+
+- the invitation, its token, its hashing and its expiry are the production ones;
+- acceptance runs through `acceptInvitation`, the identical function the real
+  OAuth callback calls;
+- expiry, revocation and single-use are enforced by that same code;
+- the email match still has to hold — the identity is derived from the
+  invitation, never supplied by the caller, so it cannot be used to attach an
+  arbitrary identity to somebody else's invitation.
+
+It is disabled by two independent locks. A production build cannot reach it even
+with the flag set. See `tests/unit/environment.test.ts`.
+
+The whole self-test path — create a service, invite a synthetic resident, accept
+it, land in the resident experience, switch back, invite a chief, confirm the
+role boundaries — is exercised in `tests/e2e/roles-and-onboarding.spec.ts`.
+
+---
+
 ## 3. Configuration
 
 | Variable                   | Required | Purpose                                                        |
@@ -204,12 +272,15 @@ Adding a different email provider means implementing `InvitationTransport` in
 
 1. Administrator signs in with Google (see `docs/SETUP.md` §4.3 for the very
    first one).
-2. **Admin → Program**: name, institution, timezone, approved email domains.
-3. **Admin → Users → Invite**: paste the residents' addresses, send the links.
-4. Residents open their link, continue with Google, and land in the app.
-5. **Admin → Import**: download the template, fill it in, upload, review the
+2. **Admin → Program settings**: name, institution, timezone, approved email
+   domains.
+3. **Admin → Services**: the services your program runs.
+4. **Admin → Users & roles → Invite people**: paste the residents' addresses,
+   choose the role, send the links.
+5. Residents open their link, continue with Google, and land in the app.
+6. **Admin → Import**: download the template, fill it in, upload, review the
    preview, commit.
-6. Residents see their shifts, post one for switching, and offer on each
+7. Residents see their shifts, post one for switching, and offer on each
    other's.
 
 Steps 3–6 are exercised end to end in `tests/integration/onboarding.test.ts` and

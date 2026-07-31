@@ -1,12 +1,12 @@
 import { ContactsManager } from "@/components/app/contacts-manager";
-import { requirePageRole } from "@/server/auth/page-guards";
+import { requirePageCapability } from "@/server/auth/page-guards";
 import { listProgramContacts } from "@/server/domain/email";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Program contacts" };
 
 export default async function ContactsPage() {
-  const context = await requirePageRole("admin");
+  const context = await requirePageCapability("contacts.manage");
   const contacts = await listProgramContacts(context.program.id);
 
   return (

@@ -5,10 +5,19 @@ import type {
   ResidentRow,
   RuleRow,
   ShiftDetail,
+  UserRole,
   UserRow,
 } from "@/server/db/types";
 import type { AuthedContext } from "@/server/auth/guards";
 import { conflict, forbidden, notFound, validationFailed } from "@/server/http/errors";
+import {
+  assignableRoles,
+  canAssignRole,
+  expectsResidentRecord,
+  isProgramLeadership,
+  ROLE_LABEL,
+  ROLE_ORDER,
+} from "@/server/auth/roles";
 import { recordAudit } from "./audit";
 import { notify } from "./notifications";
 import { RULE_HANDLERS, RULE_HANDLERS_BY_TYPE } from "./rules/handlers";
@@ -64,8 +73,11 @@ export async function listManagedUsers(
   );
 }
 
+/** The roles that can administer a program's people, for the SQL check below. */
+const LEADERSHIP_ROLES = ROLE_ORDER.filter(isProgramLeadership);
+
 export interface UserPatch {
-  role?: "resident" | "chief" | "admin" | null;
+  role?: UserRole | null;
   programId?: string | null;
   active?: boolean;
   pgyLevel?: number;
@@ -96,15 +108,71 @@ export async function updateManagedUser(
     if (targetProgramId && targetProgramId !== context.program.id) {
       throw forbidden("You can only assign users to your own program.");
     }
-    if (existing.id === context.user.id && patch.role && patch.role !== "admin") {
-      throw validationFailed("You cannot remove your own administrator role.");
-    }
-    if (existing.id === context.user.id && patch.active === false) {
-      throw validationFailed("You cannot deactivate your own account.");
-    }
     const role = patch.role === undefined ? existing.role : patch.role;
+    const changingRole = patch.role !== undefined && patch.role !== existing.role;
+
+    /* Nobody edits their own role or their own account's activity. Not because
+       the rules below would necessarily allow it, but because "I locked myself
+       out" is the one mistake with no in-app recovery. */
+    if (existing.id === context.user.id) {
+      if (changingRole) {
+        throw validationFailed(
+          "You cannot change your own role. Ask another administrator or the Program Director.",
+        );
+      }
+      if (patch.active === false) {
+        throw validationFailed("You cannot deactivate your own account.");
+      }
+    }
+
+    if (changingRole) {
+      /* Two separate checks, and both matter.
+
+         The first stops privilege escalation: you may only grant a role junior
+         to your own, so an APD cannot mint a PD and only an administrator can
+         create another administrator.
+
+         The second stops a *lateral* attack that the first misses — demoting or
+         replacing somebody at or above your own level. Without it an APD could
+         quietly demote the Program Director and then be the most senior person
+         left. */
+      if (patch.role && !canAssignRole(context.user.role, patch.role)) {
+        throw forbidden(
+          `As ${ROLE_LABEL[context.user.role]} you can assign ${assignableRoles(context.user.role)
+            .map((assignable) => ROLE_LABEL[assignable])
+            .join(", ")} — not ${ROLE_LABEL[patch.role]}.`,
+        );
+      }
+      if (existing.role && !canAssignRole(context.user.role, existing.role)) {
+        throw forbidden(
+          `${ROLE_LABEL[existing.role]} is at or above your own level, so you cannot change their role.`,
+        );
+      }
+    }
+
     if (role && !targetProgramId) {
       throw validationFailed("Assign the user to a program before giving them a role.");
+    }
+
+    /* A program with nobody who can manage its people is unrecoverable from
+       inside the application: no one left can invite, promote or fix anything.
+       Refuse the last such change rather than let somebody walk into it. */
+    const losingLeadership =
+      (existing.role && isProgramLeadership(existing.role) && existing.active) &&
+      ((changingRole && (!role || !isProgramLeadership(role))) || patch.active === false);
+    if (losingLeadership) {
+      const others = await queryOne<{ count: string }>(
+        `SELECT count(*)::text AS count FROM users
+          WHERE program_id = $1 AND id <> $2 AND active = true
+            AND role = ANY($3::user_role[])`,
+        [context.program.id, existing.id, LEADERSHIP_ROLES],
+        client,
+      );
+      if (Number(others?.count ?? 0) === 0) {
+        throw conflict(
+          `${existing.full_name || existing.email} is the only person left who can manage this program. Give somebody else a leadership role first.`,
+        );
+      }
     }
 
     const updated = await queryOne<UserRow>(
@@ -131,7 +199,7 @@ export async function updateManagedUser(
       [userId, targetProgramId],
       client,
     );
-    if ((role === "resident" || role === "chief") && targetProgramId) {
+    if (role && expectsResidentRecord(role) && targetProgramId) {
       if (resident) {
         resident = await queryOne<ResidentRow>(
           `UPDATE residents

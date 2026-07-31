@@ -53,8 +53,11 @@ export const emailStatusSchema = z.object({
   status: z.enum(["opened", "marked_sent"]),
 });
 
+/** The five program roles. Kept in one place so no schema can drift. */
+export const userRole = z.enum(["resident", "chief", "apd", "pd", "admin"]);
+
 export const userPatchSchema = z.object({
-  role: z.enum(["resident", "chief", "admin"]).nullable().optional(),
+  role: userRole.nullable().optional(),
   programId: uuid.nullable().optional(),
   active: z.boolean().optional(),
   pgyLevel: z.number().int().min(1).max(10).optional(),

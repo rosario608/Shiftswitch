@@ -275,18 +275,33 @@ export function ApprovalActions({
 }
 
 /** Inline user role/PGY editor on the admin users screen. */
+/**
+ * Changing one person's role, training level and account status.
+ *
+ * The role list is supplied by the server and contains only what this
+ * particular signer-in is allowed to hand out — an APD never sees "Program
+ * Director" in the list. That is a convenience, not the control: the server
+ * re-checks it, refuses a role at or above the caller's own, and refuses the
+ * change that would leave the program with nobody able to manage it.
+ */
 export function UserRoleForm({
   userId,
   initialRole,
   initialPgy,
   initialActive,
   programId,
+  roleOptions,
+  editable,
+  lockedReason,
 }: {
   userId: string;
   initialRole: string | null;
   initialPgy: number | null;
   initialActive: boolean;
   programId: string;
+  roleOptions: Array<{ value: string; label: string; description: string }>;
+  editable: boolean;
+  lockedReason?: string;
 }) {
   const router = useRouter();
   const [role, setRole] = React.useState(initialRole ?? "");
@@ -307,6 +322,21 @@ export function UserRoleForm({
     { onSuccess: () => router.refresh() },
   );
 
+  const dirty =
+    role !== (initialRole ?? "") ||
+    active !== initialActive ||
+    Number(pgy) !== (initialPgy ?? 1);
+
+  if (!editable) {
+    return (
+      <p className="mt-3 border-t border-border-base pt-3 text-xs text-ink-subtle">
+        {lockedReason ?? "You cannot change this person's role."}
+      </p>
+    );
+  }
+
+  const holdsSchedule = role === "resident" || role === "chief";
+
   return (
     <div className="mt-3 space-y-3 border-t border-border-base pt-3">
       <div className="grid gap-2 sm:grid-cols-2">
@@ -323,9 +353,11 @@ export function UserRoleForm({
             onChange={(event) => setRole(event.target.value)}
           >
             <option value="">Not configured</option>
-            <option value="resident">Resident</option>
-            <option value="chief">Chief resident</option>
-            <option value="admin">Program administrator</option>
+            {roleOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </Select>
         </div>
         <div>
@@ -342,10 +374,15 @@ export function UserRoleForm({
             max={10}
             value={pgy}
             onChange={(event) => setPgy(event.target.value)}
-            disabled={role !== "resident" && role !== "chief"}
+            disabled={!holdsSchedule}
           />
         </div>
       </div>
+      {role !== "" && (
+        <p className="text-xs text-ink-subtle">
+          {roleOptions.find((option) => option.value === role)?.description}
+        </p>
+      )}
       <label className="flex items-center gap-2 text-sm text-ink">
         <input
           type="checkbox"
@@ -360,6 +397,7 @@ export function UserRoleForm({
         size="sm"
         loading={save.pending}
         loadingLabel="Saving…"
+        disabled={!dirty}
         onClick={() => save.run()}
       >
         Save changes

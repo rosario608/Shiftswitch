@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardBody } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ApprovalActions } from "@/components/app/admin-actions";
-import { requirePageRole } from "@/server/auth/page-guards";
+import { requirePageCapability } from "@/server/auth/page-guards";
 import { buildTradeContextByShiftIds } from "@/server/domain/trade-context";
 import { listPendingApprovals } from "@/server/domain/trades";
 import { validateTrade } from "@/server/domain/validation";
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Approvals" };
 
 export default async function ApprovalsPage() {
-  const context = await requirePageRole("chief");
+  const context = await requirePageCapability("approvals.decide");
   const approvals = await listPendingApprovals(context.program.id);
   const timezone = context.program.timezone;
 

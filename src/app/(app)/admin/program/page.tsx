@@ -1,12 +1,12 @@
 import { Card, CardBody } from "@/components/ui/card";
 import { ProgramForm } from "@/components/app/program-form";
-import { requirePageRole } from "@/server/auth/page-guards";
+import { requirePageCapability } from "@/server/auth/page-guards";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Program settings" };
 
 export default async function ProgramSettingsPage() {
-  const context = await requirePageRole("admin");
+  const context = await requirePageCapability("program.manage");
   return (
     <div className="space-y-5">
       <header>

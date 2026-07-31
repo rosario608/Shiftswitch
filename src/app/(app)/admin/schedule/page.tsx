@@ -4,7 +4,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ShiftCard } from "@/components/app/shift-card";
 import { ShiftEditorButton } from "@/components/app/shift-editor";
 import { ShiftCreateButton } from "@/components/app/shift-create";
-import { requirePageRole } from "@/server/auth/page-guards";
+import { requirePageCapability } from "@/server/auth/page-guards";
 import { listProgramSchedule } from "@/server/domain/admin";
 import { listProgramResidents, listServices } from "@/server/domain/schedule-actions";
 import { toShiftView } from "@/lib/views";
@@ -25,7 +25,7 @@ export default async function AdminSchedulePage({
     search?: string;
   }>;
 }) {
-  const context = await requirePageRole("chief");
+  const context = await requirePageCapability("schedule.manage");
   const params = await searchParams;
   const [residents, services] = await Promise.all([
     listProgramResidents(context.program.id),

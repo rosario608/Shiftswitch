@@ -1,4 +1,4 @@
-import { requireChief } from "@/server/auth/guards";
+import { requireCapability } from "@/server/auth/guards";
 import { apiHandler, ok, parseJson, requireUuid } from "@/server/http/api";
 import { shiftPatchSchema } from "@/lib/schemas";
 import { deleteShift, updateShift } from "@/server/domain/admin";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export const PATCH = apiHandler(
   async (request: Request, ctx: { params: Promise<{ shiftId: string }> }) => {
-    const context = await requireChief();
+    const context = await requireCapability("schedule.manage");
     const { shiftId: rawId } = await ctx.params;
     const shiftId = requireUuid(rawId, "shift");
     const patch = await parseJson(request, shiftPatchSchema);
@@ -22,7 +22,7 @@ export const PATCH = apiHandler(
  */
 export const DELETE = apiHandler(
   async (_request: Request, ctx: { params: Promise<{ shiftId: string }> }) => {
-    const context = await requireChief();
+    const context = await requireCapability("schedule.manage");
     const { shiftId: rawId } = await ctx.params;
     const shiftId = requireUuid(rawId, "shift");
     await deleteShift(context, shiftId);

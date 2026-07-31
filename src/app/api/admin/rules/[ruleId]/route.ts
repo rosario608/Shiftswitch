@@ -1,4 +1,4 @@
-import { requireAdmin } from "@/server/auth/guards";
+import { requireCapability } from "@/server/auth/guards";
 import { apiHandler, ok, parseJson, requireUuid } from "@/server/http/api";
 import { rulePatchSchema } from "@/lib/schemas";
 import { deleteRule, updateRule } from "@/server/domain/admin";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export const PATCH = apiHandler(
   async (request: Request, ctx: { params: Promise<{ ruleId: string }> }) => {
-    const context = await requireAdmin();
+    const context = await requireCapability("rules.manage");
     const { ruleId: rawId } = await ctx.params;
     const ruleId = requireUuid(rawId, "rule");
     const patch = await parseJson(request, rulePatchSchema);
@@ -18,7 +18,7 @@ export const PATCH = apiHandler(
 
 export const DELETE = apiHandler(
   async (_request: Request, ctx: { params: Promise<{ ruleId: string }> }) => {
-    const context = await requireAdmin();
+    const context = await requireCapability("rules.manage");
     const { ruleId: rawId } = await ctx.params;
     const ruleId = requireUuid(rawId, "rule");
     await deleteRule(context, ruleId);

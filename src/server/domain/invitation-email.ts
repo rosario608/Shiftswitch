@@ -2,6 +2,7 @@ import type { AuthedContext } from "@/server/auth/guards";
 import type { CreatedInvitation } from "./invitations";
 import { APP_NAME } from "./email";
 import { logger } from "@/server/observability/logger";
+import { describeEnvironment } from "@/server/config/environment";
 
 /**
  * Delivering an invitation.
@@ -24,6 +25,9 @@ import { logger } from "@/server/observability/logger";
  *
  * With it unset — the default — `NoopInvitationTransport` is used and the UI
  * tells the administrator to send the link themselves.
+ *
+ * **And it only applies in production.** Outside a production build nothing is
+ * ever sent, credential or not: see `getInvitationTransport`.
  */
 
 export interface InvitationMessage {
@@ -48,12 +52,13 @@ export interface InvitationTransport {
  */
 export class NoopInvitationTransport implements InvitationTransport {
   readonly name = "noop";
+
+  constructor(
+    private readonly reason = "No email service is configured, so the invitation was not sent automatically. Copy the link and send it yourself.",
+  ) {}
+
   async send(): Promise<DeliveryOutcome> {
-    return {
-      delivered: false,
-      reason:
-        "No email service is configured, so the invitation was not sent automatically. Copy the link and send it yourself.",
-    };
+    return { delivered: false, reason: this.reason };
   }
 }
 
@@ -106,14 +111,27 @@ export class ResendInvitationTransport implements InvitationTransport {
 
 let transport: InvitationTransport | null = null;
 
+/**
+ * Picks the transport for this environment.
+ *
+ * The decision is not "is there an API key" — it is `describeEnvironment()`,
+ * which says whether a message could reach a real person *here*. Outside
+ * production the answer is always no, even if a real credential is sitting in
+ * the environment, because a staging deployment that inherited production's
+ * secrets must not be able to email a resident who has no idea the system
+ * exists yet. That is the single mistake this whole seam is guarding against,
+ * and it is not recoverable once made.
+ */
 export function getInvitationTransport(): InvitationTransport {
   if (transport) return transport;
-  const key = process.env.RESEND_API_KEY;
+  const environment = describeEnvironment();
+  if (!environment.emailDeliveryEnabled) {
+    transport = new NoopInvitationTransport(environment.emailDeliveryReason);
+    return transport;
+  }
   const from =
     process.env.INVITATION_FROM_ADDRESS ?? "ShiftSwitch <onboarding@resend.dev>";
-  transport = key
-    ? new ResendInvitationTransport(key, from)
-    : new NoopInvitationTransport();
+  transport = new ResendInvitationTransport(process.env.RESEND_API_KEY!, from);
   return transport;
 }
 

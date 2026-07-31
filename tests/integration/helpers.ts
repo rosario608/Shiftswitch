@@ -6,6 +6,7 @@ import type {
   ResidentRow,
   ServiceRow,
   ShiftDetail,
+  UserRole,
   UserRow,
 } from "@/server/db/types";
 import type { AuthedContext } from "@/server/auth/guards";
@@ -87,7 +88,7 @@ export async function createResident(
     email: string;
     name?: string;
     pgy?: number;
-    role?: "resident" | "chief" | "admin";
+    role?: UserRole;
     credentials?: string[];
     active?: boolean;
   },
@@ -121,7 +122,7 @@ export async function createResident(
 
 export async function createStaff(
   program: ProgramRow,
-  options: { email: string; role: "chief" | "admin"; name?: string },
+  options: { email: string; role: UserRole; name?: string },
 ): Promise<{ user: UserRow; context: AuthedContext }> {
   const user = (await queryOne<UserRow>(
     `INSERT INTO users (auth_user_id, email, full_name, role, program_id)

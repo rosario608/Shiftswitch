@@ -33,6 +33,25 @@ export function Sheet({
   const previouslyFocused = React.useRef<HTMLElement | null>(null);
   const titleId = React.useId();
 
+  /* `onClose` is nearly always an inline arrow, so its identity changes on
+     every render of the parent. Holding it in a ref keeps the effects below
+     keyed on `open` alone — see the focus effect for why that matters. */
+  const onCloseRef = React.useRef(onClose);
+  React.useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
+  /**
+   * Move focus into the sheet — **once**, when it opens.
+   *
+   * This effect used to depend on `onClose` as well. Because callers pass an
+   * inline arrow, that identity changed on every render, so the effect re-ran
+   * on every keystroke in any field inside the sheet and pulled focus back to
+   * the first focusable element — the close button. Typing a second character
+   * was impossible; so was typing an email address and pressing Enter, because
+   * the caret was no longer where the person was looking. The sheet appeared
+   * to reject input at random.
+   */
   React.useEffect(() => {
     if (!open) return;
     previouslyFocused.current = document.activeElement as HTMLElement | null;
@@ -46,10 +65,19 @@ export function Sheet({
       ) ?? panelRef.current;
     focusTarget?.focus();
 
+    return () => {
+      body.style.overflow = previousOverflow;
+      previouslyFocused.current?.focus?.();
+    };
+  }, [open]);
+
+  React.useEffect(() => {
+    if (!open) return;
+
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab" || !panelRef.current) return;
@@ -71,12 +99,8 @@ export function Sheet({
     }
 
     document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      body.style.overflow = previousOverflow;
-      previouslyFocused.current?.focus?.();
-    };
-  }, [open, onClose]);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
 
   // A sheet is only ever opened by user interaction, so it never renders during
   // server rendering or hydration.

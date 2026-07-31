@@ -1,11 +1,11 @@
-import { requireChief } from "@/server/auth/guards";
+import { requireCapability } from "@/server/auth/guards";
 import { apiHandler, ok } from "@/server/http/api";
 import { listAuditLogs } from "@/server/domain/audit";
 
 export const dynamic = "force-dynamic";
 
 export const GET = apiHandler(async (request: Request) => {
-  const context = await requireChief();
+  const context = await requireCapability("audit.view");
   const url = new URL(request.url);
   const logs = await listAuditLogs({
     programId: context.program.id,

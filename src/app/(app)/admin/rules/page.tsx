@@ -1,6 +1,6 @@
 import { Alert } from "@/components/ui/alert";
 import { RulesManager, type RuleRecord } from "@/components/app/rules-manager";
-import { requirePageRole } from "@/server/auth/page-guards";
+import { requirePageCapability } from "@/server/auth/page-guards";
 import { listRuleTypes, listRules } from "@/server/domain/admin";
 import { summariseRule } from "@/server/domain/rules/handlers";
 import { listServices } from "@/server/domain/schedule-actions";
@@ -17,7 +17,7 @@ const CATEGORY_LABEL: Record<number, string> = {
 };
 
 export default async function RulesPage() {
-  const context = await requirePageRole("admin");
+  const context = await requirePageCapability("rules.manage");
   const [rules, services] = await Promise.all([
     listRules(context.program.id),
     listServices(context.program.id),
