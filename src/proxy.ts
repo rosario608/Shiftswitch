@@ -7,7 +7,7 @@ import { corsHeaders, isAllowedOrigin } from "@/server/http/cors";
  * Only `/api/*` is in scope: the pages are same-origin for the browser app and
  * are never fetched by the native client.
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const origin = request.headers.get("origin");
   if (!isAllowedOrigin(origin)) {
     // Not a native request. Leave it exactly as it was — a missing

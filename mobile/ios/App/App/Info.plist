@@ -2,12 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CAPACITOR_DEBUG</key>
+	<key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>ShiftSwitch</string>
+	<string>ShiftSwitch</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -22,8 +22,62 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+
+	<!--
+		The sign-in handoff. The callback carries a single-use, PKCE-bound code
+		rather than a token, so another app claiming this scheme gains nothing.
+		Universal Links (the App.entitlements associated-domains entry) are the
+		route used for real content links.
+	-->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>shiftswitch</string>
+			</array>
+		</dict>
+	</array>
+
+	<!--
+		Sign-in opens Safari and a completed switch opens the resident's own
+		mail app. Declared so those hand-offs resolve; it grants no access to
+		either app's data.
+	-->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>https</string>
+		<string>mailto</string>
+	</array>
+
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+
+	<!--
+		App Transport Security is left at its strict default — TLS 1.2 or
+		better, no arbitrary loads, no per-domain exceptions. The app talks to
+		exactly one origin, over HTTPS.
+
+		There are deliberately no usage-description keys (NSCameraUsageDescription,
+		NSLocationWhenInUseUsageDescription, NSContactsUsageDescription and the
+		rest): the app uses none of those capabilities, so it must not declare
+		them. The only permission it asks for is notifications, which is
+		requested at runtime after the app has explained why.
+	-->
+
+	<key>UIBackgroundModes</key>
+	<array>
+		<!--
+			Required to receive remote notifications. The app does no background
+			fetch and no background processing; it refreshes when it is opened.
+		-->
+		<string>remote-notification</string>
+	</array>
+
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
@@ -32,19 +86,22 @@
 	<array>
 		<string>armv7</string>
 	</array>
+
+	<!--
+		Portrait only. Every screen is a single column meant for a phone held
+		one-handed on a ward. An unconsidered landscape layout would be worse
+		than not offering one.
+	-->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 </dict>

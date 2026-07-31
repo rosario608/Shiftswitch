@@ -269,11 +269,11 @@ export interface AppNotification {
 
 export type PushCategory = "offers" | "approvals" | "schedule" | "switches";
 
-export interface NotificationPreference {
-  category: PushCategory;
-  push: boolean;
-  inApp: boolean;
-}
+/** Keyed by category, with every category always present. */
+export type NotificationPreferences = Record<
+  string,
+  { push: boolean; inApp: boolean }
+>;
 
 export type AcceptOutcome =
   | { status: "completed"; completedTradeId: string; validation: ValidationResult }

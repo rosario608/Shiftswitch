@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+		Push notifications. `development` is correct for debug builds and for
+		TestFlight; Xcode rewrites it to `production` when the archive is
+		exported for the App Store.
+	-->
+	<key>aps-environment</key>
+	<string>development</string>
+
+	<!--
+		Universal Links. The host must serve
+		/.well-known/apple-app-site-association (the server generates it) and
+		must match VITE_API_URL. Replace app.example.org with the real host
+		before the first TestFlight build — see docs/MOBILE_RELEASE.md.
+	-->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:app.example.org</string>
+	</array>
+</dict>
+</plist>

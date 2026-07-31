@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated or foreign to this package: the native projects are produced
+    // by `cap add`, and the mobile client is linted by its own config.
+    "mobile/**",
+    "release/**",
+    "test-results/**",
+    "playwright-report/**",
   ]),
 ]);
 

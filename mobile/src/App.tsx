@@ -14,8 +14,13 @@ import { AuthProvider, useAuth } from "@/auth/AuthProvider";
 import { isAuthCallback } from "@/auth/session";
 import { routeFromUrl } from "@/native/deeplinks";
 import { initPush, setPushRouteHandler } from "@/native/push";
-import { applyStatusBarStyle, configureShell, hideSplash } from "@/native/shell";
+import {
+  applyStatusBarStyle,
+  configureShell,
+  hideSplash,
+} from "@/native/shell";
 import { TabBar } from "@/components/TabBar";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Spinner } from "@/components/ui";
 import { LoginScreen } from "@/screens/Login";
 import { PendingScreen } from "@/screens/Pending";
@@ -103,9 +108,14 @@ function Shell() {
   useEffect(() => {
     if (Capacitor.getPlatform() !== "android") return;
     const handle = CapacitorApp.addListener("backButton", ({ canGoBack }) => {
-      const atRoot = ["/", "/schedule", "/trades", "/approvals", "/notifications", "/profile"].includes(
-        globalThis.location.pathname,
-      );
+      const atRoot = [
+        "/",
+        "/schedule",
+        "/trades",
+        "/approvals",
+        "/notifications",
+        "/profile",
+      ].includes(globalThis.location.pathname);
       if (atRoot || !canGoBack) void CapacitorApp.exitApp();
       else navigate(-1);
     });
@@ -118,12 +128,15 @@ function Shell() {
   // notification expects the screen to be current, not to show what it showed
   // an hour ago.
   useEffect(() => {
-    const handle = CapacitorApp.addListener("appStateChange", ({ isActive }) => {
-      if (isActive) {
-        void refresh();
-        void applyStatusBarStyle();
-      }
-    });
+    const handle = CapacitorApp.addListener(
+      "appStateChange",
+      ({ isActive }) => {
+        if (isActive) {
+          void refresh();
+          void applyStatusBarStyle();
+        }
+      },
+    );
     return () => {
       void handle.then((listener) => listener.remove());
     };
@@ -175,9 +188,25 @@ function Shell() {
   }
 
   if (status === "signed_out") return <LoginScreen />;
-  if (status === "not_configured") return <PendingScreen />;
+  if (status === "not_configured") {
+    // An account with no program can do nothing except wait — except leave.
+    // Account deletion has to be reachable for every account that exists, so
+    // this state gets its own two-route router rather than a dead end.
+    return (
+      <ErrorBoundary key={location.pathname}>
+        <Routes>
+          <Route
+            path="/settings/delete-account"
+            element={<DeleteAccountScreen />}
+          />
+          <Route path="*" element={<PendingScreen />} />
+        </Routes>
+      </ErrorBoundary>
+    );
+  }
 
-  const elevated = session?.user?.role === "chief" || session?.user?.role === "admin";
+  const elevated =
+    session?.user?.role === "chief" || session?.user?.role === "admin";
 
   return (
     <div className="flex h-full flex-col">
@@ -190,27 +219,35 @@ function Shell() {
         </div>
       )}
 
+      {/*
+        Keyed on the path so navigating away from a screen that failed clears
+        the error and the next screen renders normally.
+      */}
       <div className="min-h-0 flex-1">
-        <Routes>
-          <Route path="/" element={<HomeScreen />} />
-          <Route path="/schedule" element={<ScheduleScreen />} />
-          <Route path="/schedule/:shiftId" element={<ShiftDetailScreen />} />
-          <Route path="/trades" element={<TradesScreen />} />
-          <Route path="/trades/:tradeId" element={<TradeDetailScreen />} />
-          <Route path="/switches/:tradeId" element={<SwitchDetailScreen />} />
-          {elevated && <Route path="/approvals" element={<ApprovalsScreen />} />}
-          <Route
-            path="/notifications"
-            element={<NotificationsScreen onRead={() => setUnread(0)} />}
-          />
-          <Route path="/profile" element={<ProfileScreen />} />
-          <Route path="/settings" element={<ProfileScreen />} />
-          <Route
-            path="/settings/delete-account"
-            element={<DeleteAccountScreen />}
-          />
-          <Route path="*" element={<HomeScreen />} />
-        </Routes>
+        <ErrorBoundary key={location.pathname}>
+          <Routes>
+            <Route path="/" element={<HomeScreen />} />
+            <Route path="/schedule" element={<ScheduleScreen />} />
+            <Route path="/schedule/:shiftId" element={<ShiftDetailScreen />} />
+            <Route path="/trades" element={<TradesScreen />} />
+            <Route path="/trades/:tradeId" element={<TradeDetailScreen />} />
+            <Route path="/switches/:tradeId" element={<SwitchDetailScreen />} />
+            {elevated && (
+              <Route path="/approvals" element={<ApprovalsScreen />} />
+            )}
+            <Route
+              path="/notifications"
+              element={<NotificationsScreen onRead={() => setUnread(0)} />}
+            />
+            <Route path="/profile" element={<ProfileScreen />} />
+            <Route path="/settings" element={<ProfileScreen />} />
+            <Route
+              path="/settings/delete-account"
+              element={<DeleteAccountScreen />}
+            />
+            <Route path="*" element={<HomeScreen />} />
+          </Routes>
+        </ErrorBoundary>
       </div>
 
       <TabBar unread={unread} showApprovals={Boolean(elevated)} />

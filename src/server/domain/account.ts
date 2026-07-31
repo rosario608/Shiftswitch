@@ -105,8 +105,28 @@ export interface DeletionPreview {
   blockers: string[];
 }
 
+/**
+ * Deletion has to work for *any* account that exists, including one an
+ * administrator has not yet attached to a program. Such an account is still a
+ * real account with a real email address, so it takes a looser context than the
+ * rest of the domain: no role, no program, no resident record.
+ */
+export interface DeletionContext {
+  user: { id: string; email: string };
+  program: { id: string } | null;
+  resident: { id: string } | null;
+}
+
+export function deletionContext(context: AuthedContext): DeletionContext {
+  return {
+    user: { id: context.user.id, email: context.user.email },
+    program: { id: context.program.id },
+    resident: context.resident ? { id: context.resident.id } : null,
+  };
+}
+
 export async function previewAccountDeletion(
-  context: AuthedContext,
+  context: DeletionContext,
 ): Promise<DeletionPreview> {
   const residentId = context.resident?.id ?? null;
 
@@ -182,7 +202,7 @@ export interface DeletionResult {
  * access, and leaves the operational record intact.
  */
 export async function deleteOwnAccount(
-  context: AuthedContext,
+  context: DeletionContext,
   options: { reason?: string; confirm: string },
 ): Promise<DeletionResult> {
   if (options.confirm.trim().toUpperCase() !== "DELETE") {
@@ -243,7 +263,8 @@ export async function deleteOwnAccount(
 
     await recordAudit(
       {
-        programId: context.program.id,
+        // Null for an account that never got a program; audit_logs allows it.
+        programId: context.program?.id ?? null,
         actorUserId: context.user.id,
         actorLabel: "account deletion",
         action: "user.deactivated",

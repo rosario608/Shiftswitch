@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router";
 import { useAuth } from "@/auth/AuthProvider";
 import { Button, Card } from "@/components/ui";
 import { SUPPORT_EMAIL } from "@/config";
@@ -11,6 +12,7 @@ import { SUPPORT_EMAIL } from "@/config";
  */
 export function PendingScreen() {
   const { session, signOut, refresh } = useAuth();
+  const navigate = useNavigate();
 
   return (
     <div className="safe-top safe-bottom safe-x flex h-full flex-col justify-center bg-canvas px-6">
@@ -45,6 +47,14 @@ export function PendingScreen() {
           </Button>
           <Button block variant="ghost" onClick={() => void signOut()}>
             Sign out
+          </Button>
+          <Button
+            block
+            variant="ghost"
+            className="text-critical"
+            onClick={() => navigate("/settings/delete-account")}
+          >
+            Delete my account
           </Button>
         </div>
       </Card>

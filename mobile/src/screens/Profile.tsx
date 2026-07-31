@@ -187,8 +187,12 @@ export function ProfileScreen() {
 // Notification preferences
 // ---------------------------------------------------------------------------
 
+/**
+ * The server returns preferences keyed by category, with every category always
+ * present, so the screen never has to invent a default.
+ */
 interface PreferencesResponse {
-  preferences: Array<{ category: string; push: boolean; inApp: boolean }>;
+  preferences: Record<string, { push: boolean; inApp: boolean }>;
   labels: Record<string, string>;
 }
 
@@ -264,31 +268,27 @@ function NotificationSettings() {
         )}
 
         <ul className="divide-y divide-border-base">
-          {resource.data?.preferences.map((preference) => (
-            <li
-              key={preference.category}
-              className="flex items-center justify-between gap-4 py-3"
-            >
-              <label
-                htmlFor={`push-${preference.category}`}
-                className="text-sm text-ink"
+          {Object.entries(resource.data?.preferences ?? {}).map(
+            ([category, preference]) => (
+              <li
+                key={category}
+                className="flex items-center justify-between gap-4 py-3"
               >
-                {resource.data?.labels[preference.category] ??
-                  preference.category}
-              </label>
-              <input
-                id={`push-${preference.category}`}
-                type="checkbox"
-                role="switch"
-                checked={preference.push}
-                disabled={saving === preference.category}
-                onChange={(event) =>
-                  void toggle(preference.category, event.target.checked)
-                }
-                className="h-6 w-6 accent-[var(--brand)]"
-              />
-            </li>
-          ))}
+                <label htmlFor={`push-${category}`} className="text-sm text-ink">
+                  {resource.data?.labels[category] ?? category}
+                </label>
+                <input
+                  id={`push-${category}`}
+                  type="checkbox"
+                  role="switch"
+                  checked={preference.push}
+                  disabled={saving === category}
+                  onChange={(event) => void toggle(category, event.target.checked)}
+                  className="h-6 w-6 accent-[var(--brand)]"
+                />
+              </li>
+            ),
+          )}
         </ul>
         {!resource.data && !resource.error && (
           <p className="text-sm text-ink-muted">Loading your preferences…</p>
