@@ -278,9 +278,126 @@ export async function auditActions(): Promise<string[]> {
   return rows.map((row) => row.action);
 }
 
-export async function notificationsFor(userId: string) {
-  return query<{ type: string; title: string; body: string }>(
-    "SELECT type, title, body FROM notifications WHERE recipient_user_id = $1 ORDER BY created_at",
-    [userId],
+/** A user's notifications, optionally narrowed to one type. */
+export async function notificationsFor(userId: string, type?: string) {
+  const values: unknown[] = [userId];
+  let where = "recipient_user_id = $1";
+  if (type) {
+    values.push(type);
+    where += " AND type = $2";
+  }
+  return query<{ type: string; title: string; body: string; route: string }>(
+    `SELECT type, title, body, route FROM notifications
+      WHERE ${where} ORDER BY created_at`,
+    values,
   );
+}
+
+/**
+ * The invariants that must hold after *any* sequence of trade operations,
+ * whatever order they interleaved in.
+ *
+ * Concurrency tests that only count successes miss the failure that matters.
+ * "One accept won and one lost" is compatible with a database in which a shift
+ * has two holders, or a completed switch has one leg, or a resident's shift was
+ * given away without them receiving anything. This asserts the state itself, so
+ * a torn switch is caught even when every call returned the expected verdict.
+ *
+ * Throws with a description of what is wrong rather than returning a boolean —
+ * a failing invariant should read like a bug report.
+ */
+export async function assertDatabaseConsistent(): Promise<void> {
+  const problems: string[] = [];
+
+  // 1. No shift has two people on it, and none has been left with nobody.
+  const assignments = await query<{ shift_id: string; holders: string }>(
+    `SELECT s.id AS shift_id,
+            (SELECT count(*)::text FROM shift_assignments a
+              WHERE a.shift_id = s.id AND a.assignment_status = 'active') AS holders
+       FROM shifts s WHERE s.status <> 'cancelled'`,
+  );
+  for (const row of assignments) {
+    if (row.holders !== "1") {
+      problems.push(`shift ${row.shift_id} has ${row.holders} active assignments`);
+    }
+  }
+
+  // 2. Every completed switch moved exactly two shifts.
+  const legs = await query<{ id: string; legs: string }>(
+    `SELECT c.id, (SELECT count(*)::text FROM trade_legs l
+                    WHERE l.completed_trade_id = c.id) AS legs
+       FROM completed_trades c`,
+  );
+  for (const row of legs) {
+    if (row.legs !== "2") {
+      problems.push(`completed trade ${row.id} has ${row.legs} legs, not 2`);
+    }
+  }
+
+  // 3. A completed switch actually swapped the two residents. This is the
+  //    torn-write check: half-applied means one shift moved and the other did
+  //    not, which counting rows above cannot see.
+  const swaps = await query<{
+    id: string;
+    source_holder: string | null;
+    destination_holder: string | null;
+    resident_a: string;
+    resident_b: string;
+  }>(
+    `SELECT c.id, c.resident_a, c.resident_b,
+            (SELECT a.resident_id FROM shift_assignments a
+              WHERE a.shift_id = c.source_shift_id AND a.assignment_status = 'active') AS source_holder,
+            (SELECT a.resident_id FROM shift_assignments a
+              WHERE a.shift_id = c.destination_shift_id AND a.assignment_status = 'active')
+              AS destination_holder
+       FROM completed_trades c`,
+  );
+  for (const row of swaps) {
+    const swapped =
+      row.source_holder === row.resident_b && row.destination_holder === row.resident_a;
+    const reverted =
+      row.source_holder === row.resident_a && row.destination_holder === row.resident_b;
+    if (!swapped && !reverted) {
+      problems.push(
+        `completed trade ${row.id} is half applied: source held by ${row.source_holder}, destination by ${row.destination_holder}`,
+      );
+    }
+    if (reverted) {
+      problems.push(`completed trade ${row.id} was recorded but never applied`);
+    }
+  }
+
+  // 4. No offer is left accepted with nothing having happened to it, and no
+  //    request claims a live state while its shift is back to normal.
+  const stranded = await query<{ id: string; status: string }>(
+    `SELECT o.id, o.status::text AS status FROM trade_offers o
+       JOIN trade_requests r ON r.id = o.trade_request_id
+      WHERE o.status = 'accepted'
+        AND r.status IN ('completed', 'cancelled', 'expired')`,
+  );
+  for (const row of stranded) {
+    problems.push(`offer ${row.id} is still 'accepted' on a finished request`);
+  }
+
+  // 5. A shift may not be marked as being traded when no trade references it.
+  const orphaned = await query<{ id: string; status: string }>(
+    `SELECT s.id, s.status::text AS status FROM shifts s
+      WHERE s.status IN ('posted', 'offer_pending', 'pending_approval')
+        AND NOT EXISTS (
+          SELECT 1 FROM trade_requests r
+           WHERE r.source_shift_id = s.id
+             AND r.status IN ('open', 'offer_pending', 'accepted', 'pending_approval', 'approved')
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM trade_offers o
+           WHERE o.offered_shift_id = s.id AND o.status IN ('pending', 'accepted')
+        )`,
+  );
+  for (const row of orphaned) {
+    problems.push(`shift ${row.id} is '${row.status}' but no live trade references it`);
+  }
+
+  if (problems.length > 0) {
+    throw new Error(`Database is inconsistent:\n  - ${problems.join("\n  - ")}`);
+  }
 }

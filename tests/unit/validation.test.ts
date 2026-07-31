@@ -115,7 +115,10 @@ describe("validateTrade — safety rules", () => {
     );
     expect(result.valid).toBe(false);
     const failure = result.failures.find((f) => f.ruleType === "min_rest_hours");
-    expect(failure?.message).toContain("insufficient rest");
+    // The numbers are in the sentence, because the resident's own screen does
+    // not render `detail` — only the chief's approvals queue does.
+    expect(failure?.message).toContain("0 hours");
+    expect(failure?.message).toContain("10 hours");
     expect(failure?.detail).toEqual({ required: "10 hours", available: "0 hours" });
   });
 
@@ -187,7 +190,9 @@ describe("validateTrade — safety rules", () => {
       }),
     );
     expect(result.valid).toBe(false);
-    expect(result.failures[0].message).toContain("overlapping shift");
+    expect(result.failures[0].message).toContain("overlaps");
+    // Names the shift it clashes with, so the resident knows what to move.
+    expect(result.failures[0].message).toContain("MICU");
   });
 
   it("rejects exceeding the rolling shift cap", () => {
@@ -223,7 +228,8 @@ describe("validateTrade — program and service rules", () => {
       }),
     );
     expect(result.valid).toBe(false);
-    expect(result.failures[0].message).toContain("too soon");
+    expect(result.failures[0].message).toContain("6 hours");
+    expect(result.failures[0].message).toContain("24 hours");
   });
 
   it("rejects a blackout date", () => {
@@ -312,7 +318,8 @@ describe("validateTrade — program and service rules", () => {
       }),
     );
     expect(result.valid).toBe(false);
-    expect(result.failures[0].message).toContain("missing required credentials");
+    // Names the credential, not just the fact that one is missing.
+    expect(result.failures[0].message).toContain("Critical Care");
   });
 
   it("rejects a resident whose PGY is outside the shift's range", () => {
@@ -359,7 +366,7 @@ describe("validateTrade — program and service rules", () => {
       }),
     );
     expect(result.valid).toBe(false);
-    expect(result.failures[0].message).toContain("monthly trade limit");
+    expect(result.failures[0].message).toContain("6 switches");
   });
 
   it("treats a warning-severity rule as a warning, not a failure", () => {
@@ -481,6 +488,132 @@ describe("validateTrade — approval and precedence", () => {
     for (const check of result.checks) {
       expect(check.message.length).toBeGreaterThan(5);
       expect(check.label.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+/**
+ * Properties every message must hold, asserted across all of them at once.
+ *
+ * These are the two mistakes that kept recurring one handler at a time. Pinning
+ * exact prose per rule does not catch them — a new rule added next year starts
+ * clean and then someone interpolates `shift.date` again. Asserting the shape
+ * of every message the engine can produce does.
+ */
+describe("what a rule failure reads like", () => {
+  /** Every rule, each configured so it fails, against one deliberately awful trade. */
+  function everyFailure() {
+    const resident = makeResident({
+      name: "Jordan Rivera",
+      pgyLevel: 2,
+      credentials: ["BLS"],
+    });
+    const partner = makeResident({ name: "Sam Okafor", pgyLevel: 5 });
+    const crowded = Array.from({ length: 10 }, (_, index) =>
+      makeShift({
+        date: `2026-07-${String(10 + index).padStart(2, "0")}`,
+        shiftType: "night",
+      }),
+    );
+    // A day shift on the same day as the one being received, so the overlap
+    // rule has something to catch. The nights above run 19:00–07:00 and do not
+    // collide with a 07:00–19:00 day.
+    crowded.push(makeShift({ date: "2026-07-15", serviceName: "MICU" }));
+    const configured = [
+      makeRule({ rule_type: "min_rest_hours", params: { hours: 48 } }),
+      makeRule({ rule_type: "max_consecutive_shifts", params: { days: 1 } }),
+      makeRule({ rule_type: "max_consecutive_nights", params: { nights: 1 } }),
+      makeRule({
+        rule_type: "max_shifts_in_period",
+        params: { maxShifts: 1, windowDays: 28 },
+      }),
+      makeRule({ rule_type: "no_overlapping_shifts" }),
+      makeRule({ rule_type: "min_notice_hours", params: { hours: 500 } }),
+      makeRule({ rule_type: "blackout_dates", params: { dates: ["2026-07-15"] } }),
+      makeRule({
+        rule_type: "holiday_restriction",
+        params: { dates: ["2026-07-15"], mode: "block" },
+      }),
+      makeRule({
+        rule_type: "weekend_limit",
+        params: { maxWeekendShifts: 0, windowDays: 28 },
+      }),
+      makeRule({ rule_type: "max_trades_per_month", params: { maxTrades: 0 } }),
+      makeRule({ rule_type: "max_open_pickups", params: { maxOpenOffers: 0 } }),
+      makeRule({
+        rule_type: "credential_requirement",
+        params: { credentials: ["ACLS", "Critical Care"] },
+      }),
+      makeRule({ rule_type: "pgy_requirement", params: { maxPgyDifference: 0 } }),
+    ];
+    const result = validateTrade(
+      makeContext({
+        residentA: resident,
+        residentB: partner,
+        shiftA: makeShift({ date: "2026-07-15", requiredPgyMin: 4, requiredPgyMax: 5 }),
+        shiftB: makeShift({ date: "2026-07-15", requiredPgyMin: 4, requiredPgyMax: 5 }),
+        scheduleA: crowded,
+        scheduleB: crowded,
+        tradesA: 9,
+        offersA: 9,
+        rules: configured,
+      }),
+    );
+    return result.checks.filter((check) => check.status !== "pass");
+  }
+
+  it("actually exercises most of the engine", () => {
+    const covered = new Set(everyFailure().map((check) => check.ruleType));
+    // Named explicitly: a fixture that quietly stopped tripping most rules
+    // would leave the properties below asserting almost nothing.
+    for (const type of [
+      "min_rest_hours",
+      "max_consecutive_shifts",
+      "max_consecutive_nights",
+      "max_shifts_in_period",
+      "no_overlapping_shifts",
+      "min_notice_hours",
+      "blackout_dates",
+      "holiday_restriction",
+      "weekend_limit",
+      "max_trades_per_month",
+      "max_open_pickups",
+      "credential_requirement",
+      "pgy_requirement",
+    ]) {
+      expect(covered, `${type} did not fire`).toContain(type);
+    }
+  });
+
+  it("never shows a resident an ISO date", () => {
+    for (const check of everyFailure()) {
+      expect(
+        check.message,
+        `${check.ruleType}: "${check.message}"`,
+      ).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    }
+  });
+
+  it("never opens with the resident's name, which both screens print already", () => {
+    for (const check of everyFailure()) {
+      expect(
+        check.message.startsWith("Jordan Rivera"),
+        `${check.ruleType} stutters: "Jordan Rivera: ${check.message}"`,
+      ).toBe(false);
+      expect(check.message.startsWith("Sam Okafor"), check.ruleType).toBe(false);
+    }
+  });
+
+  it("writes whole sentences, not fragments or identifiers", () => {
+    for (const check of everyFailure()) {
+      const message = check.message;
+      expect(message, check.ruleType).toMatch(/[.!]$/);
+      expect(message[0], `${check.ruleType}: "${message}"`).toBe(
+        message[0].toUpperCase(),
+      );
+      // No raw identifiers leaking through: uuids, snake_case rule types.
+      expect(message, check.ruleType).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
+      expect(message, check.ruleType).not.toMatch(/\b[a-z]+_[a-z_]+\b/);
     }
   });
 });

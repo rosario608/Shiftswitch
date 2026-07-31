@@ -41,6 +41,11 @@ export interface SeedResult {
   shifts: number;
   posts: number;
   invitations: number;
+  completedSwitches: number;
+  pendingApprovals: number;
+  liveOffers: number;
+  declinedOffers: number;
+  notifications: number;
   /** Plan ref -> shift id, so tests and tooling can address one exact shift. */
   shiftRefs: Record<string, string>;
 }
@@ -252,6 +257,97 @@ export async function seedDemoProgram(
     posts += 1;
   }
 
+  /* The trade lifecycle, driven through the real domain functions.
+   *
+   * Every state an evaluator needs to see — an offer waiting on a decision, a
+   * switch that completed, one waiting on a chief, one that was declined — is
+   * produced by the same code a resident's taps would run. Nothing is inserted
+   * directly, so the notifications, the audit entries, the assignment swaps and
+   * the generated program email are all the real ones. A demo assembled by
+   * INSERT would show the right rows and none of the behaviour.
+   */
+  const { createOffer, acceptOffer, rejectOffer } = await import(
+    "@/server/domain/trades"
+  );
+
+  async function post(ref: string, notes: string) {
+    const planned = plan.shifts.find((shift) => shift.ref === ref)!;
+    const request = await postShiftForTrade(
+      contextFor(program, users, residents, planned.residentKey),
+      { shiftId: shiftIdByRef.get(ref)!, notes },
+    );
+    posts += 1;
+    return request;
+  }
+
+  async function offer(requestId: string, ref: string) {
+    const planned = plan.shifts.find((shift) => shift.ref === ref)!;
+    return createOffer(contextFor(program, users, residents, planned.residentKey), {
+      tradeRequestId: requestId,
+      offeredShiftId: shiftIdByRef.get(ref)!,
+    });
+  }
+
+  let completedSwitches = 0;
+  let pendingApprovals = 0;
+  let liveOffers = 0;
+  let declinedOffers = 0;
+
+  // 1. An offer sitting on a posting, waiting for the poster to decide.
+  {
+    const request = plan.posts.find((entry) => entry.ref === "sc-offered-source")!;
+    const posted = await queryOne<{ id: string }>(
+      "SELECT id FROM trade_requests WHERE source_shift_id = $1",
+      [shiftIdByRef.get(request.ref)!],
+    );
+    await offer(posted!.id, "sc-offered-offer");
+    liveOffers += 1;
+  }
+
+  // 2. A switch that completed, so History and the program email are populated.
+  {
+    const posted = await post(
+      "sc-done-source",
+      "Swapped last week — leaving this here as an example.",
+    );
+    const made = await offer(posted.id, "sc-done-offer");
+    const result = await acceptOffer(
+      contextFor(program, users, residents, "brennan"),
+      made.offer.id,
+    );
+    if (result.status === "completed") completedSwitches += 1;
+    else pendingApprovals += 1;
+  }
+
+  // 3. A switch waiting on a chief. The two residents are at different training
+  //    levels, and this program's approval rule fires on exactly that.
+  {
+    const posted = await post("sc-approval-source", "Family event — any help appreciated.");
+    const made = await offer(posted.id, "sc-approval-offer");
+    const result = await acceptOffer(
+      contextFor(program, users, residents, "duong"),
+      made.offer.id,
+    );
+    if (result.status === "pending_approval") pendingApprovals += 1;
+    else completedSwitches += 1;
+  }
+
+  // 4. An offer the poster turned down, so the declined state is visible.
+  {
+    const request = plan.posts.find((entry) => entry.ref === "sc-rejected-source")!;
+    const posted = await queryOne<{ id: string }>(
+      "SELECT id FROM trade_requests WHERE source_shift_id = $1",
+      [shiftIdByRef.get(request.ref)!],
+    );
+    const made = await offer(posted!.id, "sc-rejected-offer");
+    await rejectOffer(
+      contextFor(program, users, residents, "mbeki"),
+      made.offer.id,
+      "Thanks — I need something earlier in the week.",
+    );
+    declinedOffers += 1;
+  }
+
   // Invitations likewise: created through `createInvitation`, so the tokens are
   // real, hashed and expiring exactly as a live one would be.
   const adminContext = contextFor(program, users, residents, "admin");
@@ -279,6 +375,19 @@ export async function seedDemoProgram(
     shifts: plan.shifts.length,
     posts,
     invitations,
+    completedSwitches,
+    pendingApprovals,
+    liveOffers,
+    declinedOffers,
+    notifications: Number(
+      (
+        await queryOne<{ count: string }>(
+          `SELECT count(*)::text AS count FROM notifications
+            WHERE recipient_user_id IN (SELECT id FROM users WHERE program_id = $1)`,
+          [program.id],
+        )
+      )?.count ?? 0,
+    ),
     shiftRefs: Object.fromEntries(shiftIdByRef),
   };
 }

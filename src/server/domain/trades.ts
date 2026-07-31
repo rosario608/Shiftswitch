@@ -9,6 +9,7 @@ import type {
   TradeRequestRow,
 } from "@/server/db/types";
 import type { AuthedContext } from "@/server/auth/guards";
+import { can } from "@/server/auth/roles";
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/server/http/errors";
 import { recordAudit } from "./audit";
 import { listProgramApprovers, notify } from "./notifications";
@@ -189,7 +190,7 @@ export async function cancelTradeRequest(
     if (!request) throw notFound("That trade post no longer exists.");
     if (request.program_id !== context.program.id) throw forbidden();
     const isOwner = context.resident?.id === request.initiating_resident_id;
-    const isElevated = context.user.role === "chief" || context.user.role === "admin";
+    const isElevated = can(context.user.role, "approvals.decide");
     if (!isOwner && !isElevated) {
       throw forbidden("You can only cancel your own trade posts.");
     }
@@ -209,12 +210,14 @@ export async function cancelTradeRequest(
       [request.id, "The resident cancelled this trade post."],
       client,
     );
-    await query(
-      `UPDATE shifts SET status = 'scheduled'
-        WHERE id = $1 AND status IN ('posted', 'offer_pending', 'pending_approval')`,
-      [request.source_shift_id],
-      client,
-    );
+    /* `releaseShiftIfIdle`, not a flat reset to 'scheduled'.
+     *
+     * A resident may offer the same shift on several postings — that is
+     * allowed, and only one can win. A flat reset here handed the shift back as
+     * "scheduled" the moment *any* one of those postings was cancelled, while
+     * the resident's other offers were still live against it. The shift then
+     * looked free while a pending offer could still trade it away. */
+    await releaseShiftIfIdle(client, request.source_shift_id);
 
     for (const offer of affectedOffers) {
       const userId = await userIdForResident(offer.offering_resident_id, client);
@@ -226,15 +229,11 @@ export async function cancelTradeRequest(
           body: "This offer is no longer available because the resident cancelled the trade post.",
           relatedEntityType: "trade_offer",
           relatedEntityId: offer.id,
+          route: `/trades/${request.id}`,
         },
         client,
       );
-      await query(
-        `UPDATE shifts SET status = 'scheduled'
-          WHERE id = $1 AND status IN ('offer_pending', 'pending_approval')`,
-        [offer.offered_shift_id],
-        client,
-      );
+      await releaseShiftIfIdle(client, offer.offered_shift_id);
     }
 
     await recordAudit(
@@ -480,6 +479,14 @@ export async function rejectOffer(
       );
     }
 
+    /* The body names the shift. It used to be the decline reason and nothing
+       else — so a resident with two offers out read "I need something earlier
+       in the week" on their phone with no way to tell which of the two it was
+       about. The reason still comes through; it is now attributed. */
+    const declinedShift = await getShiftDetail(request.source_shift_id, client);
+    const declinedLabel = declinedShift
+      ? shiftLabel(declinedShift, context.program.timezone)
+      : "a posted shift";
     const offeringUserId = await userIdForResident(offer.offering_resident_id, client);
     await notify(
       {
@@ -488,8 +495,8 @@ export async function rejectOffer(
         title: "Your offer was declined",
         route: `/trades/${request.id}`,
         body: reason?.trim()
-          ? reason.trim()
-          : "The resident declined your offer. The shift may still be available to other residents.",
+          ? `Your offer for ${declinedLabel} was declined: "${reason.trim()}" The shift may still be available.`
+          : `Your offer for ${declinedLabel} was declined. The shift may still be available to other residents.`,
         relatedEntityType: "trade_offer",
         relatedEntityId: offer.id,
       },
@@ -513,8 +520,27 @@ export async function rejectOffer(
   });
 }
 
-/** Returns a shift to `scheduled`/`posted` when nothing live references it. */
+/**
+ * Returns a shift to `scheduled`/`posted` when nothing live references it.
+ *
+ * The lock is the whole correctness argument, and it was missing.
+ *
+ * This is read-modify-write: count what still references the shift, then decide
+ * its status. Under READ COMMITTED two transactions closing two different
+ * offers on the *same* shift each ran their count before the other committed,
+ * so each still saw one live offer and each declined to release. Both were
+ * individually right and the shift was left `offer_pending` with nothing
+ * referencing it — permanently, because nothing revisits it, and
+ * `postShiftForTrade` refuses anything that is not `scheduled`. The resident
+ * simply lost the ability to trade that shift, with no error and nothing on any
+ * screen to explain it.
+ *
+ * It needed real concurrency to produce: running the same sequence one call at
+ * a time never reaches it. Taking the shift row first serialises the two, and
+ * the loser re-counts after the winner has committed and sees the truth.
+ */
 async function releaseShiftIfIdle(client: PoolClient, shiftId: string): Promise<void> {
+  await query("SELECT id FROM shifts WHERE id = $1 FOR UPDATE", [shiftId], client);
   const live = await queryOne<{ count: string }>(
     `SELECT count(*)::text AS count
        FROM trade_offers o
@@ -604,6 +630,40 @@ export async function acceptOffer(
     }
     if (request.status !== "open" && request.status !== "offer_pending") {
       throw conflict("This trade is no longer active.");
+    }
+    /* The posting's own expiry, not just the offer's.
+     *
+     * `createOffer` refuses to make an offer on an expired posting, and
+     * accepting one is the more consequential half — but only the offer's
+     * expiry was checked here. The two are normally the same, because an offer
+     * is created with `min(default TTL, request.expires_at)`. They come apart
+     * whenever the posting's deadline moves after the offer exists: an
+     * administrator pulling the shift's start time earlier shortens the
+     * posting, and the offer keeps the deadline it was born with. The expiry
+     * sweep would eventually close the posting, but "eventually" is a race —
+     * between the sweep and a resident's tap, the tap could still complete a
+     * switch on a posting the program considered closed. */
+    if (request.expires_at.getTime() <= Date.now()) {
+      throw new RollbackWithFollowUp(
+        new AppError("expired", "This trade post has expired and can no longer be completed."),
+        async () => {
+          /* The same cleanup the sweep does, not just a status flip: whichever
+             of the two gets here first must leave the posting fully closed, or
+             the other finds nothing to expire and the offered shifts leak. The
+             UPDATE is guarded on the previous status, so exactly one of them
+             matches a row and does the work. */
+          await withTransaction(async (followUpClient) => {
+            const expired = await queryOne<TradeRequestRow>(
+              `UPDATE trade_requests SET status = 'expired'
+                WHERE id = $1 AND status IN ('open', 'offer_pending')
+              RETURNING *`,
+              [request.id],
+              followUpClient,
+            );
+            if (expired) await closeExpiredRequest(followUpClient, expired);
+          });
+        },
+      );
     }
 
     const program = await getProgram(context.program.id, client);
@@ -771,15 +831,30 @@ async function invalidateOffer(
     [offer.id, reason],
     client,
   );
+  /* Hand the shift back.
+   *
+   * This is the single place an offer stops being live for a reason other than
+   * the resident's own choice, and it did not touch the shift's status. The
+   * offer went to 'invalidated' and the shift stayed 'offer_pending' — a state
+   * `postShiftForTrade` refuses ("This shift is already involved in a trade"),
+   * with no trade left to point at. Every caller leaked: an administrator
+   * reassigning a shift, a cancelled posting, and the competing offers closed
+   * out by a completed switch. */
+  await releaseShiftIfIdle(client, offer.offered_shift_id);
   const offeringUserId = await userIdForResident(offer.offering_resident_id, client);
   await notify(
     {
       recipientUserId: offeringUserId,
       type: "offer.invalidated",
-      title: "An offer is no longer available",
+      title: "Your offer is no longer available",
       body: reason,
       relatedEntityType: "trade_offer",
       relatedEntityId: offer.id,
+      /* The posting, not the offer. This is the notification a resident is
+         least able to act on — they did nothing, somebody else's offer was
+         accepted first — so it has to land somewhere that explains itself.
+         Without an explicit route it fell through to a generic list. */
+      route: `/trades/${offer.trade_request_id}`,
     },
     client,
   );
@@ -1045,9 +1120,18 @@ async function finaliseTrade(
  * chief role; this is the second, authoritative check so the rule holds no
  * matter which caller reaches the service.
  */
+/**
+ * Who may decide a switch. The capability, not a literal pair of roles.
+ *
+ * The literal version — `role !== "chief" && role !== "admin"` — was written
+ * before APD and PD existed, and the two halves of the approvals feature then
+ * disagreed: the queue is guarded by `requireCapability("approvals.decide")`,
+ * so an APD could open it, see the switches waiting, press Approve, and be told
+ * they were not allowed. Both halves now read the same matrix.
+ */
 function assertApprover(context: AuthedContext): void {
-  if (context.user.role !== "chief" && context.user.role !== "admin") {
-    throw forbidden("Only chief residents and administrators can decide on a switch.");
+  if (!can(context.user.role, "approvals.decide")) {
+    throw forbidden("Only chief residents and program leadership can decide on a switch.");
   }
 }
 
@@ -1333,6 +1417,88 @@ export interface MaintenanceResult {
 }
 
 /**
+ * Everything that must happen when a posting expires.
+ *
+ * Extracted because there are two ways in. The sweep finds postings past their
+ * deadline; `acceptOffer` also discovers one the moment a resident taps Accept
+ * on a posting that has just lapsed, and closes it there rather than leaving it
+ * for the next sweep. When those two paths did different amounts of work, which
+ * of them got there first decided whether the cleanup happened at all — and the
+ * accept path, which only flipped the status, would leave every shift offered
+ * on that posting stuck in `offer_pending` with nothing referencing it.
+ *
+ * The caller is responsible for having flipped the request to `expired` with an
+ * UPDATE guarded on its previous status, which is what makes this safe to race:
+ * only the transaction whose UPDATE actually matched a row gets here, so the
+ * cleanup runs exactly once.
+ */
+async function closeExpiredRequest(
+  client: PoolClient,
+  request: TradeRequestRow,
+): Promise<void> {
+  const userId = await userIdForResident(request.initiating_resident_id, client);
+  await notify(
+    {
+      recipientUserId: userId,
+      type: "trade.expired",
+      title: "Your trade post expired",
+      body: "Nobody completed a switch before the post expired. You can post it again.",
+      relatedEntityType: "trade_request",
+      relatedEntityId: request.id,
+      route: `/trades/${request.id}`,
+    },
+    client,
+  );
+
+  /* Close the offers that were sitting on it, and release their shifts.
+   *
+   * Expiring the posting alone left them `pending` against an `expired`
+   * request, and every shift somebody had offered stayed `offer_pending` —
+   * permanently, because nothing else ever looks at them. `postShiftForTrade`
+   * refuses a shift that is not `scheduled`, so the resident who offered was
+   * left holding a shift they could never post again, with no offer, no posting
+   * and nothing on any screen to explain it. An offer's own expiry did not save
+   * them: an offer inherits the posting's deadline only at the moment it is
+   * created, and a posting whose shift was moved earlier expires first. */
+  const strandedOffers = await query<TradeOfferRow>(
+    `UPDATE trade_offers SET status = 'expired'
+      WHERE trade_request_id = $1 AND status IN ('pending', 'accepted')
+    RETURNING *`,
+    [request.id],
+    client,
+  );
+  for (const offer of strandedOffers) {
+    const offeringUserId = await userIdForResident(offer.offering_resident_id, client);
+    await notify(
+      {
+        recipientUserId: offeringUserId,
+        type: "trade.expired",
+        title: "A posting you offered on expired",
+        body: "The posting closed before your offer was decided. You still work your own shift.",
+        relatedEntityType: "trade_offer",
+        relatedEntityId: offer.id,
+        route: `/trades/${request.id}`,
+      },
+      client,
+    );
+    await releaseShiftIfIdle(client, offer.offered_shift_id);
+  }
+  await releaseShiftIfIdle(client, request.source_shift_id);
+
+  await recordAudit(
+    {
+      programId: request.program_id,
+      actorLabel: "system",
+      action: "trade.expired",
+      entityType: "trade_request",
+      entityId: request.id,
+      newState: { status: "expired" },
+    },
+    client,
+  );
+}
+
+/**
  * Idempotent housekeeping. Safe to run on a schedule or on demand:
  *  - expires trade posts and offers past their deadline,
  *  - marks shifts whose end time has passed as completed.
@@ -1377,35 +1543,7 @@ export async function runMaintenance(programId?: string): Promise<MaintenanceRes
       client,
     );
     for (const request of expiredRequests) {
-      const userId = await userIdForResident(request.initiating_resident_id, client);
-      await notify(
-        {
-          recipientUserId: userId,
-          type: "trade.expired",
-          title: "Your trade post expired",
-          body: "Nobody completed a switch before the post expired. You can post it again.",
-          relatedEntityType: "trade_request",
-          relatedEntityId: request.id,
-        },
-        client,
-      );
-      await query(
-        `UPDATE shifts SET status = 'scheduled'
-          WHERE id = $1 AND status IN ('posted', 'offer_pending')`,
-        [request.source_shift_id],
-        client,
-      );
-      await recordAudit(
-        {
-          programId: request.program_id,
-          actorLabel: "system",
-          action: "trade.expired",
-          entityType: "trade_request",
-          entityId: request.id,
-          newState: { status: "expired" },
-        },
-        client,
-      );
+      await closeExpiredRequest(client, request);
     }
 
     const completedShifts = await query<{ id: string }>(
@@ -1471,6 +1609,9 @@ export async function invalidateTradesForShift(
       },
       client,
     );
+    // The posted shift goes back to being an ordinary shift. Cancelling the
+    // request alone left it 'posted' with nothing posting it.
+    await releaseShiftIfIdle(client, request.source_shift_id);
   }
   return offers.length + requests.length;
 }
@@ -1699,12 +1840,45 @@ export async function listCompletedTradesForResident(
   return details.filter((detail): detail is CompletedTradeDetail => Boolean(detail));
 }
 
+/**
+ * How long a finished-but-not-completed trade stays on "My trades".
+ *
+ * A switch that completed lives in History forever. Everything else — declined,
+ * withdrawn, invalidated, expired, cancelled — has no permanent home, and used
+ * to have no home at all: the query asked only for live rows, so the moment an
+ * offer was declined it disappeared from the resident's screen entirely. They
+ * got a notification saying it had happened and then found nothing anywhere in
+ * the app that agreed. That is the dead end.
+ *
+ * Two weeks is long enough to answer "what happened to the offer I made?" and
+ * short enough that the screen does not become an archive of dead ends.
+ */
+const RESOLVED_TRADE_WINDOW_DAYS = 14;
+
+export type ResolvedOutcome =
+  | "declined"
+  | "withdrawn"
+  | "unavailable"
+  | "expired"
+  | "cancelled";
+
 export async function listMyTradeActivity(
   residentId: string,
   programId: string,
 ): Promise<{
   posted: TradeRequestDetail[];
   offersMade: Array<TradeOfferRow & { request: TradeRequestDetail }>;
+  /** Recently finished postings and offers, so nothing silently vanishes. */
+  recentlyClosed: Array<{
+    kind: "post" | "offer";
+    id: string;
+    requestId: string;
+    shift: ShiftDetail;
+    counterpartName: string;
+    outcome: ResolvedOutcome;
+    detail: string;
+    at: Date;
+  }>;
 }> {
   const postedRows = await query<{ id: string }>(
     `SELECT id FROM trade_requests
@@ -1734,7 +1908,133 @@ export async function listMyTradeActivity(
     )
   ).filter((row): row is TradeOfferRow & { request: TradeRequestDetail } => Boolean(row));
 
-  return { posted, offersMade };
+  const recentlyClosed = await listRecentlyClosed(residentId, programId);
+
+  return { posted, offersMade, recentlyClosed };
+}
+
+/**
+ * Offers this resident made that ended without a switch, and postings of theirs
+ * that ended without one either. Completed switches are excluded — those are
+ * History's job, and showing them twice would make "recently closed" read like
+ * something went wrong.
+ */
+async function listRecentlyClosed(
+  residentId: string,
+  programId: string,
+): Promise<
+  Array<{
+    kind: "post" | "offer";
+    id: string;
+    requestId: string;
+    shift: ShiftDetail;
+    counterpartName: string;
+    outcome: ResolvedOutcome;
+    detail: string;
+    at: Date;
+  }>
+> {
+  const rows = await query<{
+    kind: "post" | "offer";
+    id: string;
+    request_id: string;
+    shift_id: string;
+    counterpart_name: string;
+    status: string;
+    invalidation_reason: string | null;
+    at: Date;
+  }>(
+    `SELECT 'offer'::text AS kind, o.id, o.trade_request_id AS request_id,
+            r.source_shift_id AS shift_id, u.full_name AS counterpart_name,
+            o.status::text AS status, o.invalidation_reason,
+            o.updated_at AS at
+       FROM trade_offers o
+       JOIN trade_requests r ON r.id = o.trade_request_id
+       JOIN residents res ON res.id = r.initiating_resident_id
+       JOIN users u ON u.id = res.user_id
+      WHERE r.program_id = $1
+        AND o.offering_resident_id = $2
+        AND o.status IN ('rejected', 'withdrawn', 'invalidated', 'expired')
+        AND o.updated_at > now() - ($3 || ' days')::interval
+      UNION ALL
+     SELECT 'post'::text AS kind, r.id, r.id AS request_id,
+            r.source_shift_id AS shift_id, ''::text AS counterpart_name,
+            r.status::text AS status, NULL AS invalidation_reason,
+            r.updated_at AS at
+       FROM trade_requests r
+      WHERE r.program_id = $1
+        AND r.initiating_resident_id = $2
+        AND r.status IN ('cancelled', 'expired')
+        AND r.updated_at > now() - ($3 || ' days')::interval
+      ORDER BY at DESC
+      LIMIT 20`,
+    [programId, residentId, String(RESOLVED_TRADE_WINDOW_DAYS)],
+  );
+  if (rows.length === 0) return [];
+
+  const shifts = await query<ShiftDetail>(
+    `${SHIFT_DETAIL_SELECT} WHERE s.id = ANY($1::uuid[])`,
+    [[...new Set(rows.map((row) => row.shift_id))]],
+  );
+  const shiftById = new Map(shifts.map((shift) => [shift.id, shift]));
+
+  return rows
+    .filter((row) => shiftById.has(row.shift_id))
+    .map((row) => {
+      const { outcome, detail } = describeClosure(row);
+      return {
+        kind: row.kind,
+        id: row.id,
+        requestId: row.request_id,
+        shift: shiftById.get(row.shift_id) as ShiftDetail,
+        counterpartName: row.counterpart_name,
+        outcome,
+        detail,
+        at: row.at,
+      };
+    });
+}
+
+/** Plain English for why a trade ended, in the second person. */
+function describeClosure(row: {
+  kind: "post" | "offer";
+  status: string;
+  invalidation_reason: string | null;
+  counterpart_name: string;
+}): { outcome: ResolvedOutcome; detail: string } {
+  if (row.kind === "post") {
+    return row.status === "cancelled"
+      ? { outcome: "cancelled", detail: "You took this posting down." }
+      : {
+          outcome: "expired",
+          detail: "This posting expired before anyone offered. You still work the shift.",
+        };
+  }
+  switch (row.status) {
+    case "rejected":
+      return {
+        outcome: "declined",
+        detail: `${row.counterpart_name} declined your offer. You still work your own shift.`,
+      };
+    case "withdrawn":
+      return { outcome: "withdrawn", detail: "You withdrew this offer." };
+    case "invalidated":
+      /* Its own outcome, not a decline. Nobody turned this resident down — the
+         posting was taken by a different offer, or the shift moved underneath
+         it. Labelling that "declined" tells them something untrue about a
+         colleague. */
+      return {
+        outcome: "unavailable",
+        detail:
+          row.invalidation_reason ??
+          "This offer stopped being available before it was decided.",
+      };
+    default:
+      return {
+        outcome: "expired",
+        detail: "The posting expired before your offer was decided.",
+      };
+  }
 }
 
 export function toShiftSummary(shift: ShiftDetail) {

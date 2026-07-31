@@ -66,25 +66,25 @@ export const DEMO_PEOPLE: DemoPerson[] = [
   person("abiodun", "Blessing Abiodun", "resident", 1, "Scenario: invalid swap"),
   person("varga", "Zsofia Varga", "resident", 1, "Scenario: no available match"),
   person("lindqvist", "Nils Lindqvist", "resident", 1),
-  person("mbeki", "Thandiwe Mbeki", "resident", 1),
-  person("castellanos", "Mateo Castellanos", "resident", 1),
-  person("duong", "Linh Duong", "resident", 1),
+  person("mbeki", "Thandiwe Mbeki", "resident", 1, "Scenario: offer was declined"),
+  person("castellanos", "Mateo Castellanos", "resident", 1, "Scenario: offer was declined"),
+  person("duong", "Linh Duong", "resident", 1, "Scenario: awaiting chief approval"),
 
   // PGY-2
   person("rivera", "Camila Rivera", "resident", 2, "Scenario: valid swap (posts)"),
   person("okonkwo", "Chidi Okonkwo", "resident", 2, "Scenario: valid swap (offers)"),
   person("sorensen", "Freya Sorensen", "resident", 2, "Scenario: overlapping schedule"),
   person("haddad", "Yusuf Haddad", "resident", 2, "Scenario: overlapping schedule (posts)"),
-  person("petrova", "Irina Petrova", "resident", 2),
-  person("kimura", "Hana Kimura", "resident", 2),
+  person("petrova", "Irina Petrova", "resident", 2, "Scenario: has an offer waiting"),
+  person("kimura", "Hana Kimura", "resident", 2, "Scenario: made an offer"),
 
   // PGY-3
   person("nakamura", "Kenji Nakamura", "resident", 3, "Scenario: invalid swap (posts)"),
   person("tanaka", "Aiko Tanaka", "resident", 3, "Scenario: no available match (posts)"),
   person("oyelaran", "Femi Oyelaran", "resident", 3),
-  person("brennan", "Siobhan Brennan", "resident", 3),
-  person("novak", "Tomas Novak", "resident", 3),
-  person("ferreira", "Beatriz Ferreira", "resident", 3),
+  person("brennan", "Siobhan Brennan", "resident", 3, "Scenario: completed switch"),
+  person("novak", "Tomas Novak", "resident", 3, "Scenario: completed switch"),
+  person("ferreira", "Beatriz Ferreira", "resident", 3, "Scenario: awaiting chief approval"),
 ];
 
 export const DEMO_RESIDENT_KEYS = DEMO_PEOPLE.filter((p) => p.pgy !== null).map(
@@ -100,6 +100,14 @@ const SCENARIO_KEYS = new Set([
   "tanaka",
   "sorensen",
   "haddad",
+  "petrova",
+  "kimura",
+  "brennan",
+  "novak",
+  "duong",
+  "ferreira",
+  "mbeki",
+  "castellanos",
 ]);
 
 /**
@@ -399,6 +407,16 @@ export function buildDemoPlan(anchor: string): DemoPlan {
         scenario: "overlapping-schedule",
         notes: "Wedding that morning. Any other ward day would help.",
       },
+      {
+        ref: "sc-offered-source",
+        scenario: "offer-pending",
+        notes: "Family visiting from out of town. Happy to take any weekday.",
+      },
+      {
+        ref: "sc-rejected-source",
+        scenario: "offer-rejected",
+        notes: "Board review course. Ideally the same week.",
+      },
     ],
     invitations: DEMO_INVITATIONS,
   };
@@ -470,6 +488,74 @@ function scenarioShifts(anchor: string): PlannedShift[] {
       residentKey: "tanaka",
       date: dayOf(anchor, 24),
       scenario: "no-available-match",
+    },
+
+    /* --- A posting with a live offer on it, so "My trades" and the offer
+       decision screen are not empty for an evaluator. Petrova posts; Kimura
+       offers. */
+    {
+      ...base,
+      ref: "sc-offered-source",
+      residentKey: "petrova",
+      date: dayOf(anchor, 23),
+      scenario: "offer-pending",
+    },
+    {
+      ...base,
+      ref: "sc-offered-offer",
+      residentKey: "kimura",
+      date: dayOf(anchor, 26),
+      scenario: "offer-pending",
+    },
+
+    /* --- A switch that has already completed, so History and the program
+       notification email have something real in them. */
+    {
+      ...base,
+      ref: "sc-done-source",
+      residentKey: "brennan",
+      date: dayOf(anchor, 24),
+      scenario: "completed-switch",
+    },
+    {
+      ...base,
+      ref: "sc-done-offer",
+      residentKey: "novak",
+      date: dayOf(anchor, 27),
+      scenario: "completed-switch",
+    },
+
+    /* --- A switch waiting on a chief, because the two residents are at
+       different training levels and this program requires approval for that. */
+    {
+      ...base,
+      ref: "sc-approval-source",
+      residentKey: "duong",
+      date: dayOf(anchor, 25),
+      scenario: "awaiting-approval",
+    },
+    {
+      ...base,
+      ref: "sc-approval-offer",
+      residentKey: "ferreira",
+      date: dayOf(anchor, 28),
+      scenario: "awaiting-approval",
+    },
+
+    /* --- An offer that was turned down, so the rejected state is visible. */
+    {
+      ...base,
+      ref: "sc-rejected-source",
+      residentKey: "mbeki",
+      date: dayOf(anchor, 26),
+      scenario: "offer-rejected",
+    },
+    {
+      ...base,
+      ref: "sc-rejected-offer",
+      residentKey: "castellanos",
+      date: dayOf(anchor, 29),
+      scenario: "offer-rejected",
     },
 
     // --- Overlapping schedule: Sorensen already works the afternoon of day 22,

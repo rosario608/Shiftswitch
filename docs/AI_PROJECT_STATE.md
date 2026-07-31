@@ -3,8 +3,9 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 31 July 2026, after a full baseline audit: schema, migrations,
-environments, authorization, data integrity, terminology and every test suite.
+Last updated: 31 July 2026, after finishing the resident-facing product and
+auditing the trade lifecycle end to end: dead ends, rule wording, notification
+routing, five-role gaps, and concurrency.
 
 ---
 
@@ -24,6 +25,16 @@ schema is byte-identical to a fresh migration run** — verified by comparing a
 structural fingerprint (columns, constraints, indexes, enums, triggers) of the
 production database against a database built from scratch by the migration
 runner. Migrations 0001–0006 are applied everywhere.
+
+**Migration `0007_notification_route.sql` has NOT been applied to production.**
+It was written and applied locally in this session; the production connection
+string was not available in the session's environment, so it could not be run
+there and this has not been verified against production. It must be applied
+**before** this code is deployed: `notify()` now inserts a `route` column, so on
+a database without it every trade action that produces a notification would
+fail. Nothing deploys migrations automatically — there is no build hook, only
+`npm run db:migrate` against the production `DATABASE_URL`. Production currently
+has no residents, shifts or notifications, so nothing is currently broken.
 
 ## Current blocker
 
@@ -242,7 +253,82 @@ Reported from hands-on use, plus two the new tests surfaced:
    permissions expressed as `rank >= n`. Replaced with five roles and an
    explicit capability matrix.
 
-## Defects found and fixed this session
+## Defects found and fixed (resident experience & trade lifecycle session)
+
+Twelve, all found by tests or by walking the product as a resident, all fixed at
+the root with regression coverage. The last three are the serious ones.
+
+**Dead ends a resident could reach**
+
+1. **A declined offer vanished completely.** `listMyTradeActivity` returned only
+   live offers, so the moment an offer was declined it left every screen. The
+   resident got a notification saying it had happened and found nothing in the
+   app that agreed. There is now a **Recently closed** section — two weeks of
+   resolved postings and offers, each with the reason in plain English.
+2. **"No offers yet" under a "Pending approval" badge.** The line counted
+   *pending* offers, and accepting one makes it non-pending, so a posting waiting
+   on a chief contradicted itself about the one thing the resident opened it to
+   learn. It now describes the state.
+3. **Tapping a notification about an offer led to the trades board** — the list
+   of everyone else's postings, with no mention of the offer. The in-app list
+   re-derived a link from the related entity and had no case for `trade_offer`,
+   while push used a different derivation that did. The route is now **stored on
+   the notification** (migration `0007`) by the code that knows what it is about,
+   and both surfaces read that one value.
+4. **A decline notification was just the reason text** — "I need something
+   earlier in the week" — naming no shift. A resident with two offers out could
+   not tell which. It now names the shift.
+5. **`invalidateOffer` sent no route at all**, which is the notification a
+   resident is least able to act on: they did nothing, somebody else's offer was
+   accepted first. It also said "An offer is no longer available"; it now says
+   "Your offer", and leads to the posting.
+
+**Five-role gaps left by the earlier session**
+
+6. **`listProgramApprovers` was `role IN ('chief','admin')`.** A program whose
+   approver was a PD or APD raised approval requests that notified *nobody* — the
+   queue filled up silently and the only symptom was switches that never moved.
+7. **`assertApprover` refused APDs and PDs.** The approvals queue is guarded by
+   `requireCapability("approvals.decide")`, so an APD could open it, see the
+   switches waiting, press Approve, and be told they were not allowed.
+8. **An invited PD was emailed "You have been invited as a resident."** The role
+   label was a three-branch conditional whose `else` was "resident".
+9. Three more hardcoded `chief || admin` checks (`dashboard`, `email`,
+   `cancelTradeRequest`). All now read the capability matrix; `rolesWith()` was
+   added so a role *list* is never hand-written again.
+
+**Rule messages** (goal item 4)
+
+10. **Six rule messages showed raw ISO dates** — "2026-08-10 is a blackout
+    date". Messages also omitted the numbers (`detail` is rendered only on the
+    chief's page, so a blocked resident was never told the limit) and duplicated
+    the resident's name, which both surfaces already print. All rewritten;
+    `tests/unit/validation.test.ts` now asserts these as properties across every
+    message the engine can produce, so a rule added later cannot regress them.
+
+**Data integrity — found by the new concurrency suite**
+
+11. **An expired posting could still complete.** `acceptOffer` checked the
+    offer's expiry but never the posting's. The two normally agree, because an
+    offer inherits the posting's deadline — but only at creation, so a posting
+    whose shift was moved earlier expires first, and until the sweep caught up a
+    tap could still complete a switch on a closed posting.
+12. **Shifts leaked into a permanently untradeable state**, three separate ways:
+    `invalidateOffer` never released the offered shift; `invalidateTradesForShift`
+    released nothing at all, so an administrator reassigning a shift stranded
+    every shift offered on it; and an expiring posting closed itself without
+    closing its offers. A stranded shift sits in `offer_pending` with no trade
+    referencing it, and `postShiftForTrade` refuses anything not `scheduled` —
+    so the resident permanently lost the ability to trade that shift, with no
+    error and nothing on any screen to explain it.
+13. **`releaseShiftIfIdle` had a read-modify-write race.** Two transactions
+    closing two different offers on the same shift each counted before the other
+    committed, each still saw one live offer, and neither released it. Both were
+    individually correct and the shift was stranded. It needed genuine
+    concurrency to produce — running the same sequence one call at a time never
+    reaches it. The shift row is now locked first.
+
+## Defects found and fixed (demo data & lifecycle session, earlier)
 
 All found by tests that did not exist before, and all fixed:
 
@@ -269,6 +355,23 @@ All found by tests that did not exist before, and all fixed:
    weekend call shift, which is asserted directly.
 5. **The import's "unknown resident" message told administrators to add people
    under Users**, which predates invitations. It now says to invite them.
+
+## Concurrency
+
+`tests/integration/concurrency.test.ts` races accept against every other verb —
+cancel, withdraw, decline, an administrator reassigning or cancelling a shift,
+the expiry sweep — plus two chiefs deciding at once, and an uncoordinated storm
+of six residents firing everything in parallel.
+
+The assertion that matters is `assertDatabaseConsistent()` in
+`tests/integration/helpers.ts`, run at the end of each. Counting successes is not
+enough: "one accept won and one lost" is compatible with a database in which a
+shift has two holders or a switch was recorded but never applied. It checks that
+every live shift has exactly one holder, every completed switch has two legs and
+actually swapped the two residents, no offer is left accepted on a finished
+request, and no shift claims to be in a trade that does not exist.
+
+Three of the defects above were found this way and by nothing else.
 
 ## Known issues
 

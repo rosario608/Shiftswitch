@@ -1,4 +1,5 @@
 import type { AuthedContext } from "@/server/auth/guards";
+import { ROLE_LABEL } from "@/server/auth/roles";
 import type { CreatedInvitation } from "./invitations";
 import { APP_NAME } from "./email";
 import { logger } from "@/server/observability/logger";
@@ -145,19 +146,20 @@ export function buildInvitationMessage(
   created: CreatedInvitation,
 ): InvitationMessage {
   const { program, user } = context;
-  const roleLabel =
-    created.invitation.role === "chief"
-      ? "chief resident"
-      : created.invitation.role === "admin"
-        ? "program administrator"
-        : "resident";
+  /* Straight from the role table rather than a three-branch conditional. The
+     conditional predated APD and PD, and its `else` was "resident" — so an
+     invited Program Director was emailed "You have been invited as a resident",
+     which is both wrong and the first thing they read about the product. */
+  const roleLabel = ROLE_LABEL[created.invitation.role].toLowerCase();
+  // "an administrator", "an associate program director", "a resident".
+  const article = /^[aeiou]/.test(roleLabel) ? "an" : "a";
 
   const text = [
     `${user.fullName || user.email} has invited you to ${APP_NAME} for ${program.name} at ${program.institution}.`,
     "",
     `${APP_NAME} is how the program swaps shifts: post a shift you cannot work, see what your co-residents can offer, and complete an approved switch from your phone.`,
     "",
-    `You have been invited as a ${roleLabel}.`,
+    `You have been invited as ${article} ${roleLabel}.`,
     "",
     "Accept your invitation:",
     created.url,

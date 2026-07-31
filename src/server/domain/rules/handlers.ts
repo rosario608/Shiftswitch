@@ -1,6 +1,7 @@
 import type { RuleRow } from "@/server/db/types";
 import {
   coveredLocalDates,
+  formatShiftDate,
   isNightShift,
   isWeekendLocal,
   localDateString,
@@ -89,6 +90,45 @@ function hours(value: number): string {
   return `${rounded} hour${rounded === 1 ? "" : "s"}`;
 }
 
+function plural(count: number, one: string, many = `${one}s`): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/**
+ * A date a resident can read.
+ *
+ * `ShiftInfo.date` is an ISO day string — "2026-08-10" — which is the right
+ * value to compare against and the wrong one to show anybody. Six rule messages
+ * interpolated it directly, so a resident who could not offer on a shift was
+ * told "2026-08-10 is a blackout date". Everywhere else in the product the same
+ * day reads "Mon, Aug 10", and it should here too.
+ */
+function shiftDay(shift: ShiftInfo, timezone: string): string {
+  return formatShiftDate(shift.start, timezone);
+}
+
+/** "Mon, Aug 10 MICU" — how a resident refers to a shift in conversation. */
+function shiftName(shift: ShiftInfo, timezone: string): string {
+  return `${shiftDay(shift, timezone)} ${shift.serviceName}`;
+}
+
+/**
+ * A note on the voice of these messages.
+ *
+ * They do not begin with the resident's name. Both surfaces that render a check
+ * — the offer sheet a resident sees and the chief's approvals queue — already
+ * print `residentName` in front of the message themselves, so a message that
+ * also opened with it produced "Jordan Rivera: Jordan Rivera would work too many
+ * consecutive days."
+ *
+ * They also state the numbers. `detail.required`/`detail.available` are only
+ * rendered on the approvals page, so a resident who was blocked read "would
+ * work too many consecutive days" and was never told how many, or what the
+ * limit was — which is precisely the information needed to decide what to offer
+ * instead. The detail fields stay, for the chief's denser view; the sentence no
+ * longer depends on them.
+ */
+
 // ---------------------------------------------------------------------------
 // 1. Safety / coverage
 // ---------------------------------------------------------------------------
@@ -128,7 +168,10 @@ const minRest: RuleHandler = {
           minRest,
           leg,
           rule.severity === "warning" ? "warn" : "fail",
-          `${leg.resident.name} would have insufficient rest around this shift.`,
+          `This would leave only ${hours(Math.max(worst, 0))} between this shift and ${shiftName(
+            worstNeighbour,
+            context.program.timezone,
+          )}. The program requires ${hours(required)}.`,
           { required: hours(required), available: hours(Math.max(worst, 0)) },
         );
       }
@@ -156,7 +199,10 @@ const maxConsecutiveShifts: RuleHandler = {
           maxConsecutiveShifts,
           leg,
           rule.severity === "warning" ? "warn" : "fail",
-          `${leg.resident.name} would work too many consecutive days.`,
+          `This would mean working ${plural(run, "day")} in a row. The program's limit is ${plural(
+            limit,
+            "day",
+          )}.`,
           { required: `${limit} days maximum`, available: `${run} days in a row` },
         );
       }
@@ -190,7 +236,10 @@ const maxConsecutiveNights: RuleHandler = {
           maxConsecutiveNights,
           leg,
           rule.severity === "warning" ? "warn" : "fail",
-          `${leg.resident.name} would work too many consecutive nights.`,
+          `This would mean working ${plural(run, "night")} in a row. The program's limit is ${plural(
+            limit,
+            "night",
+          )}.`,
           { required: `${limit} nights maximum`, available: `${run} nights in a row` },
         );
       }
@@ -226,7 +275,10 @@ const maxShiftsInPeriod: RuleHandler = {
           maxShiftsInPeriod,
           leg,
           rule.severity === "warning" ? "warn" : "fail",
-          `${leg.resident.name} would exceed the shift cap for a ${windowDays}-day period.`,
+          `This would mean ${plural(count, "shift")} in a ${windowDays}-day stretch. The program's cap is ${plural(
+            maxShifts,
+            "shift",
+          )}.`,
           { required: `${maxShifts} shifts`, available: `${count} shifts` },
         );
       }
@@ -261,7 +313,10 @@ const noOverlap: RuleHandler = {
           noOverlap,
           leg,
           "fail",
-          `${leg.resident.name} is already assigned to an overlapping shift (${clash.serviceName} on ${clash.date}).`,
+          `Already assigned to ${shiftName(
+            clash,
+            context.program.timezone,
+          )}, which overlaps this shift.`,
         );
       }
       return baseCheck(rule, noOverlap, leg, "pass", "No schedule conflict.");
@@ -291,7 +346,9 @@ const minNotice: RuleHandler = {
             minNotice,
             leg,
             rule.severity === "warning" ? "warn" : "fail",
-            `The ${leg.receives.date} ${leg.receives.serviceName} shift starts too soon to be traded.`,
+            `${shiftName(leg.receives, context.program.timezone)} starts in ${hours(
+              Math.max(noticeHours, 0),
+            )}. This program stops trades ${hours(required)} before a shift.`,
             { required: hours(required), available: hours(Math.max(noticeHours, 0)) },
           ),
         );
@@ -332,7 +389,9 @@ const blackoutDates: RuleHandler = {
             blackoutDates,
             leg,
             rule.severity === "warning" ? "warn" : "fail",
-            `${blocked.date} is a blackout date for ${context.program.name}.`,
+            `${shiftDay(blocked, context.program.timezone)} is a blackout date at ${
+              context.program.name
+            }, so shifts on that day cannot be traded.`,
           ),
         );
       } else {
@@ -351,7 +410,10 @@ const holidayRestriction: RuleHandler = {
   summarise: (params) => {
     const mode = (params.mode as string) ?? "approval";
     const dates = strings(params, "dates");
-    return `${dates.length} holiday date(s), ${mode === "block" ? "not tradeable" : "approval required"}`;
+    if (dates.length === 0) return "No holiday dates configured — this rule does nothing";
+    return `${plural(dates.length, "holiday date")}, ${
+      mode === "block" ? "not tradeable" : "chief approval required"
+    }`;
   },
   evaluate: (rule, context) => {
     const dates = new Set(strings(rule.params, "dates"));
@@ -373,8 +435,8 @@ const holidayRestriction: RuleHandler = {
             leg,
             mode === "block" ? "fail" : "warn",
             mode === "block"
-              ? `${holiday.date} is a holiday shift and cannot be traded.`
-              : `${holiday.date} is a holiday shift — chief approval is required.`,
+              ? `${shiftName(holiday, context.program.timezone)} falls on a holiday, and this program does not allow holiday shifts to be traded.`
+              : `${shiftName(holiday, context.program.timezone)} falls on a holiday, so a chief resident has to approve this switch.`,
           ),
         );
       } else {
@@ -406,7 +468,10 @@ const weekendLimit: RuleHandler = {
           weekendLimit,
           leg,
           rule.severity === "warning" ? "warn" : "fail",
-          `${leg.resident.name} would exceed the weekend shift limit.`,
+          `This would mean ${plural(count, "weekend shift")} in a ${windowDays}-day stretch. The program's limit is ${plural(
+            maxWeekend,
+            "weekend shift",
+          )}.`,
           { required: `${maxWeekend} weekend shifts`, available: `${count} weekend shifts` },
         );
       }
@@ -436,7 +501,11 @@ const maxTradesPerMonth: RuleHandler = {
           maxTradesPerMonth,
           leg,
           rule.severity === "warning" ? "warn" : "fail",
-          `${leg.resident.name} has reached the monthly trade limit.`,
+          `Already completed ${plural(
+            leg.completedTradesThisMonth,
+            "switch",
+            "switches",
+          )} this month. The program allows ${plural(limit, "switch", "switches")}.`,
           { required: `${limit} trades`, available: `${leg.completedTradesThisMonth} already completed` },
         );
       }
@@ -466,7 +535,10 @@ const maxOpenPickups: RuleHandler = {
           maxOpenPickups,
           leg,
           rule.severity === "warning" ? "warn" : "fail",
-          `${leg.resident.name} has too many pending offers.`,
+          `Already has ${plural(
+            leg.openOffers,
+            "offer",
+          )} waiting on a decision, and the program allows ${limit} at a time. Withdraw one before making another.`,
           { required: `${limit} pending offers`, available: `${leg.openOffers} pending` },
         );
       }
@@ -484,7 +556,12 @@ const nonTradeableService: RuleHandler = {
   label: "Non-tradeable services",
   description: "Shifts on these services may never be traded.",
   category: RULE_CATEGORY.service,
-  summarise: (params) => `${strings(params, "serviceIds").length} service(s) cannot be traded`,
+  summarise: (params) => {
+    const count = strings(params, "serviceIds").length;
+    return count === 0
+      ? "No services configured — this rule does nothing"
+      : `${plural(count, "service")} cannot be traded`;
+  },
   evaluate: (rule, context) => {
     const blocked = new Set(strings(rule.params, "serviceIds"));
     if (blocked.size === 0) return [];
@@ -518,7 +595,9 @@ const serviceRequirement: RuleHandler = {
   category: RULE_CATEGORY.service,
   summarise: (params) => {
     const allowed = (params.allowedPgy as number[]) ?? [];
-    return allowed.length ? `Service limited to PGY ${allowed.join(", ")}` : "No PGY restriction";
+    return allowed.length
+      ? `Only PGY ${allowed.join(", ")} may cover this service`
+      : "No PGY levels configured — this rule does nothing";
   },
   evaluate: (rule, context) => {
     const allowed = Array.isArray(rule.params.allowedPgy)
@@ -535,7 +614,9 @@ const serviceRequirement: RuleHandler = {
             serviceRequirement,
             leg,
             "fail",
-            `${leg.resident.name} (PGY-${leg.resident.pgyLevel}) is not eligible to cover ${leg.receives.serviceName}.`,
+            `${leg.receives.serviceName} is limited to PGY ${allowed.join(
+              ", ",
+            )} at this program, not PGY-${leg.resident.pgyLevel}.`,
             { required: `PGY ${allowed.join(", ")}`, available: `PGY-${leg.resident.pgyLevel}` },
           ),
         );
@@ -583,7 +664,9 @@ const credentialRequirement: RuleHandler = {
             credentialRequirement,
             leg,
             "fail",
-            `${leg.resident.name} is missing required credentials for ${leg.receives.serviceName}.`,
+            `${leg.receives.serviceName} requires ${required.join(
+              ", ",
+            )}. Missing ${missing.join(" and ")}.`,
             { required: required.join(", "), available: leg.resident.credentials.join(", ") || "none on file" },
           ),
         );
@@ -625,7 +708,11 @@ const pgyRequirement: RuleHandler = {
             pgyRequirement,
             leg,
             "fail",
-            `${leg.resident.name} (PGY-${pgy}) does not meet the PGY requirement for the ${shift.date} ${shift.serviceName} shift.`,
+            `${shiftName(shift, context.program.timezone)} is for PGY-${shift.requiredPgyMin}${
+              shift.requiredPgyMax !== shift.requiredPgyMin
+                ? ` to PGY-${shift.requiredPgyMax}`
+                : ""
+            }, not PGY-${pgy}.`,
             {
               required: `PGY-${shift.requiredPgyMin}${
                 shift.requiredPgyMax !== shift.requiredPgyMin ? ` to PGY-${shift.requiredPgyMax}` : ""
@@ -636,7 +723,7 @@ const pgyRequirement: RuleHandler = {
         );
       } else {
         checks.push(
-          baseCheck(rule, pgyRequirement, leg, "pass", `PGY requirements satisfied for ${leg.resident.name}.`),
+          baseCheck(rule, pgyRequirement, leg, "pass", "PGY requirements satisfied."),
         );
       }
     }

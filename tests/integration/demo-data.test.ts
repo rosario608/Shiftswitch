@@ -208,12 +208,89 @@ describe("what gets seeded", () => {
     expect(distinct.size).toBeGreaterThan(1);
   });
 
-  it("posts the scenario shifts for switching", async () => {
+  it("posts shifts that are open for anyone to offer on", async () => {
     const posted = await query<{ id: string }>(
       "SELECT id FROM trade_requests WHERE program_id = $1 AND status = 'open'",
       [program.id],
     );
-    expect(posted).toHaveLength(4);
+    // A lower bound, not an exact count. The exact number is a function of how
+    // many scenarios exist and which of them have live offers against them, and
+    // pinning it means every new scenario breaks this test for no reason. What
+    // matters is that somebody signing in as any resident finds a board with
+    // several things on it.
+    expect(posted.length).toBeGreaterThanOrEqual(4);
+  });
+
+  /**
+   * The demo exists so that every state of a trade can be seen without anybody
+   * making one. These four are the states with no other way to reach them — you
+   * cannot look at a completed switch until somebody completes one — so if the
+   * seed stops producing any of them, the demo silently stops demonstrating the
+   * product and the only symptom is empty screens.
+   */
+  it("leaves a trade sitting in every lifecycle state", async () => {
+    const [state] = await query<{
+      live_offers: string;
+      awaiting_approval: string;
+      completed: string;
+      declined: string;
+    }>(
+      `SELECT (SELECT count(*) FROM trade_offers o
+                 JOIN trade_requests r ON r.id = o.trade_request_id
+                WHERE r.program_id = $1 AND o.status = 'pending')::text   AS live_offers,
+              (SELECT count(*) FROM trade_requests
+                WHERE program_id = $1 AND status = 'pending_approval')::text
+                                                                          AS awaiting_approval,
+              (SELECT count(*) FROM completed_trades WHERE program_id = $1)::text
+                                                                          AS completed,
+              (SELECT count(*) FROM trade_offers o
+                 JOIN trade_requests r ON r.id = o.trade_request_id
+                WHERE r.program_id = $1 AND o.status = 'rejected')::text  AS declined`,
+      [program.id],
+    );
+    expect(Number(state.live_offers), "an offer waiting on a decision").toBeGreaterThan(0);
+    expect(Number(state.awaiting_approval), "a switch waiting on a chief").toBeGreaterThan(0);
+    expect(Number(state.completed), "a switch that completed").toBeGreaterThan(0);
+    expect(Number(state.declined), "an offer that was declined").toBeGreaterThan(0);
+  });
+
+  it("produces notifications residents can actually open", async () => {
+    const rows = await query<{ type: string; route: string; title: string }>(
+      `SELECT n.type, n.route, n.title FROM notifications n
+         JOIN users u ON u.id = n.recipient_user_id
+        WHERE u.program_id = $1`,
+      [program.id],
+    );
+    expect(rows.length).toBeGreaterThan(0);
+
+    // Every notification leads somewhere specific. The dead end this replaced
+    // sent a resident to the board of everyone else's postings.
+    for (const row of rows) {
+      expect(row.route, `${row.type} has no route`).not.toBe("");
+      expect(row.route.startsWith("/"), `${row.type} route "${row.route}"`).toBe(true);
+      expect(row.route, `${row.type} leads nowhere in particular`).not.toBe(
+        "/notifications",
+      );
+    }
+
+    // The states an evaluator is looking for are represented.
+    const types = new Set(rows.map((row) => row.type));
+    expect(types).toContain("offer.created");
+    expect(types).toContain("offer.rejected");
+    expect(types).toContain("switch.completed");
+  });
+
+  it("names the shift in a decline, not just the reason", async () => {
+    const [declined] = await query<{ body: string }>(
+      `SELECT n.body FROM notifications n
+         JOIN users u ON u.id = n.recipient_user_id
+        WHERE u.program_id = $1 AND n.type = 'offer.rejected'`,
+      [program.id],
+    );
+    expect(declined).toBeDefined();
+    // A resident with two offers out has to be able to tell which one this is.
+    expect(declined.body).toMatch(/Your offer for /);
+    expect(declined.body).toContain("Demo");
   });
 
   it("seeds a schedule that does not already break the program's own rules", async () => {

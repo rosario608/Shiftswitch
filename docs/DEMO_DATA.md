@@ -48,7 +48,9 @@ The interlock is `scripts/demo/guard.ts` and is tested in
 | Rotations | Critical Care, Inpatient Medicine, Ambulatory, Emergency Medicine |
 | Schedule | Four weeks, ~370 shifts, anchored to the Monday of the current week |
 | Rules | Minimum rest 10h, max 6 consecutive days, no overlaps, PGY requirements, max 24 shifts per 28 days, approval when PGY levels differ |
-| Posted | Four shifts already posted for switching |
+| Posted | Eight shifts posted for switching |
+| Trades in flight | One offer waiting on a decision, one switch awaiting a chief, one completed switch, one declined offer |
+| Notifications | ~11, already delivered in-app, every one of them tapping through to a real screen |
 | Invitations | One pending, one expired, one revoked |
 
 The schedule contains day shifts, 12-hour overnight shifts that cross midnight,
@@ -101,8 +103,16 @@ invite your address from **Admin → Users**.
 | `demo.haddad@demo.invalid` | Yusuf Haddad | PGY-2 | **Conflicting schedule** — has posted a morning shift |
 | `demo.sorensen@demo.invalid` | Freya Sorensen | PGY-2 | **Conflicting schedule** — already works that afternoon |
 
-Plus nine more residents with ordinary rotations: Lindqvist, Mbeki,
-Castellanos, Duong, Petrova, Kimura, Oyelaran, Brennan, Novak, Ferreira.
+| `demo.petrova@demo.invalid` | Irina Petrova | PGY-2 | **Has an offer waiting** on a shift she posted |
+| `demo.kimura@demo.invalid` | Hana Kimura | PGY-2 | **Made that offer**, waiting on Petrova |
+| `demo.brennan@demo.invalid` | Siobhan Brennan | PGY-2 | **Completed a switch** — History and the program email are populated |
+| `demo.novak@demo.invalid` | Tomas Novak | PGY-2 | The other half of that completed switch |
+| `demo.duong@demo.invalid` | Linh Duong | PGY-1 | **Awaiting chief approval** — accepted an offer that tripped the approval rule |
+| `demo.ferreira@demo.invalid` | Beatriz Ferreira | PGY-3 | The other half of that pending approval |
+| `demo.mbeki@demo.invalid` | Thandiwe Mbeki | PGY-1 | **Declined an offer**, with a reason |
+| `demo.castellanos@demo.invalid` | Mateo Castellanos | PGY-2 | Whose offer was declined — see "Recently closed" |
+
+Plus Lindqvist and Oyelaran with ordinary rotations and nothing in flight.
 
 ---
 
@@ -138,14 +148,36 @@ Sign in as **Sorensen** and open Haddad's post. Taking his 07:00–19:00 shift
 would collide with the 12:00–20:00 shift she already works that day. Both the
 overlap rule and the rest rule fail; the offer is refused.
 
-### 5. Multi-person swaps
+### 5. Every state of a trade, without making one
+
+The four states above are all things you *do*. These four already exist when the
+seed finishes, because some states cannot be reached by looking:
+
+| Sign in as | You meet |
+|---|---|
+| **Petrova** | A posting with an offer on it, and "Review offers" on the home screen |
+| **Duong** | A switch sitting with the chiefs — "Waiting for chief approval" |
+| **Brennan** | A completed switch in History, and "Notify your program" still to do |
+| **Castellanos** | A declined offer under **Recently closed**, with the decliner's reason |
+
+All four are produced by calling the same domain functions a resident's taps
+call — `postShiftForTrade`, `createOffer`, `acceptOffer`, `rejectOffer` — so the
+notifications, audit entries, assignment swaps and generated program email are
+the real ones. A demo assembled with INSERT statements would show the right rows
+and none of the behaviour.
+
+`npm run demo:status` reports the counts, and
+`tests/integration/demo-data.test.ts` fails if any of the four states stops
+being produced.
+
+### 6. Multi-person swaps
 
 **Not supported.** Every switch is between exactly two residents. The
 `trade_legs` table carries a `leg_index`, so the schema would accommodate an
 N-way rotation, but the domain implements two legs and nothing more. There is no
 demo scenario for this because there is no feature to demonstrate.
 
-### 6. Invitations
+### 7. Invitations
 
 | Address | State |
 |---|---|

@@ -238,6 +238,38 @@ export async function countOpenOffers(
  * currently hold, that are tradeable, upcoming, not already posted or offered,
  * and not the target itself.
  */
+/**
+ * Every shift the resident could currently offer, without reference to a
+ * particular posting.
+ *
+ * `listOfferableShifts` answers the same question for one target shift, and
+ * calling it once per posting is how the trade board came to run a query per
+ * row. This returns the set once so the caller can exclude the target in
+ * memory — the only difference between the two is that one row.
+ */
+export async function listAllOfferableShifts(
+  residentId: string,
+  executor: Queryable = getPool(),
+): Promise<ShiftDetail[]> {
+  return query<ShiftDetail>(
+    `${SHIFT_DETAIL_SELECT}
+      WHERE sa.resident_id = $1
+        AND sa.assignment_status = 'active'
+        AND s.tradeable = true
+        AND s.status IN ('scheduled', 'posted')
+        AND s.start_datetime > now()
+        AND (s.trade_deadline IS NULL OR s.trade_deadline > now())
+        AND NOT EXISTS (
+          SELECT 1 FROM trade_offers o
+           WHERE o.offered_shift_id = s.id AND o.status IN ('pending', 'accepted')
+        )
+      ORDER BY s.start_datetime ASC
+      LIMIT 200`,
+    [residentId],
+    executor,
+  );
+}
+
 export async function listOfferableShifts(
   residentId: string,
   targetShiftId: string,

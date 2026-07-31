@@ -251,14 +251,12 @@ export function OfferShiftSheet({
                       aria-hidden="true"
                     />
                   )}
-                  <span className="text-ink-muted">
-                    {check.residentName ? (
-                      <span className="font-medium text-ink">
-                        {check.residentName}:{" "}
-                      </span>
-                    ) : null}
-                    {check.message}
-                  </span>
+                  {/* No name prefix. This list is what *you* would run into by
+                      making this offer, so naming yourself on every line is
+                      noise — and it read as a stutter when the message named
+                      the resident too. The approvals queue still prefixes,
+                      because two people's checks are interleaved there. */}
+                  <span className="text-ink-muted">{check.message}</span>
                 </li>
               ))}
             </ul>

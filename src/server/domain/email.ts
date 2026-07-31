@@ -6,6 +6,7 @@ import type {
   ShiftDetail,
 } from "@/server/db/types";
 import type { AuthedContext } from "@/server/auth/guards";
+import { can } from "@/server/auth/roles";
 import { forbidden, notFound } from "@/server/http/errors";
 import { recordAudit } from "./audit";
 import { notify } from "./notifications";
@@ -149,7 +150,7 @@ function assertParticipantOrElevated(
 ): void {
   const isParticipant =
     context.resident?.id === trade.resident_a || context.resident?.id === trade.resident_b;
-  const isElevated = context.user.role === "chief" || context.user.role === "admin";
+  const isElevated = can(context.user.role, "approvals.decide");
   if (!isParticipant && !isElevated) {
     throw forbidden("Only the residents involved in this switch can notify the program.");
   }

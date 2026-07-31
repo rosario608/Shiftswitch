@@ -1,5 +1,6 @@
 import { afterCommit, getPool, query, type Queryable } from "@/server/db/pool";
 import type { NotificationRow } from "@/server/db/types";
+import { rolesWith } from "@/server/auth/roles";
 import { sendPush } from "./push";
 
 export type NotificationType =
@@ -41,6 +42,14 @@ export function routeFor(input: NotificationInput): string {
       return `/switches/${input.relatedEntityId}`;
     case "shift":
       return `/schedule/${input.relatedEntityId}`;
+    case "trade_offer":
+      /* An offer id addresses no screen of its own — an offer is always seen in
+         the context of the posting it was made on, and only the caller knows
+         which that is. Callers that have the request in hand pass an explicit
+         `route`; this is the fallback for any that do not, and it lands on the
+         resident's own offers rather than the board of everyone else's
+         postings, which is where the old derivation sent them. */
+      return "/trades?tab=mine";
     default:
       return "/notifications";
   }
@@ -54,7 +63,7 @@ export async function notify(
   if (items.length === 0) return;
   const values: unknown[] = [];
   const tuples = items.map((item, index) => {
-    const base = index * 6;
+    const base = index * 7;
     values.push(
       item.recipientUserId,
       item.type,
@@ -62,12 +71,16 @@ export async function notify(
       item.body ?? "",
       item.relatedEntityType ?? null,
       item.relatedEntityId ?? null,
+      // Stored, not recomputed on read. The in-app list and the push payload
+      // are then the same string by construction; when they were derived
+      // separately they disagreed on every `trade_offer` notification.
+      routeFor(item),
     );
-    return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`;
+    return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`;
   });
   const inserted = await query<{ id: string; recipient_user_id: string }>(
     `INSERT INTO notifications
-       (recipient_user_id, type, title, body, related_entity_type, related_entity_id)
+       (recipient_user_id, type, title, body, related_entity_type, related_entity_id, route)
      VALUES ${tuples.join(", ")}
      RETURNING id, recipient_user_id`,
     values,
@@ -136,15 +149,22 @@ export async function markRead(
   return rows.length;
 }
 
-/** User ids of chiefs and administrators for a program (approval routing). */
+/**
+ * User ids of everybody who can act on the approvals queue.
+ *
+ * Derived from the capability matrix rather than a literal role list. The
+ * literal list said `('chief', 'admin')` and was correct until APD and PD were
+ * added — after which a program whose approver was a PD raised approval
+ * requests that notified nobody at all, and the switches simply waited.
+ */
 export async function listProgramApprovers(
   programId: string,
   executor: Queryable = getPool(),
 ): Promise<string[]> {
   const rows = await query<{ id: string }>(
     `SELECT id FROM users
-      WHERE program_id = $1 AND active = true AND role IN ('chief', 'admin')`,
-    [programId],
+      WHERE program_id = $1 AND active = true AND role = ANY($2::user_role[])`,
+    [programId, rolesWith("approvals.decide")],
     executor,
   );
   return rows.map((row) => row.id);

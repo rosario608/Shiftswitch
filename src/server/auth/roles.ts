@@ -161,6 +161,21 @@ export function capabilitiesOf(role: UserRole): Capability[] {
 }
 
 /**
+ * Every role that holds a capability — the inverse of `capabilitiesOf`.
+ *
+ * For the places that need a *list* of roles rather than a yes/no on one:
+ * notification routing, `role = ANY(...)` in SQL, "who can I escalate to".
+ * Those are exactly the places a hand-written list rots. `listProgramApprovers`
+ * asked for `role IN ('chief', 'admin')` and was written before APD and PD
+ * existed, so from the moment they did, a program run by a PD generated
+ * approval requests that notified nobody — the queue filled up silently and the
+ * only symptom was switches that sat there.
+ */
+export function rolesWith(capability: Capability): UserRole[] {
+  return ROLE_ORDER.filter((role) => can(role, capability));
+}
+
+/**
  * The roles a given role may assign to somebody else.
  *
  * Strictly junior to your own, which gives three properties for free:

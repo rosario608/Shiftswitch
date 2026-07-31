@@ -10,16 +10,19 @@ import { fmtTimestamp } from "@/lib/format";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Notifications" };
 
-function hrefFor(entityType: string | null, entityId: string | null): string {
-  if (!entityId) return "/";
-  switch (entityType) {
-    case "trade_request":
-      return `/trades/${entityId}`;
-    case "completed_trade":
-      return `/switches/${entityId}`;
-    default:
-      return "/trades";
-  }
+/**
+ * Where the row leads.
+ *
+ * The route is stored on the notification when it is written, by the code that
+ * knew what the notification was about. This page does not re-derive it — that
+ * is what it used to do, and its own switch statement had no case for an offer,
+ * so "your offer was declined" sent the resident to the board of everyone
+ * else's postings. The fallback is only for rows written before the column
+ * existed.
+ */
+function hrefFor(item: { route: string; related_entity_id: string | null }): string {
+  if (item.route) return item.route;
+  return item.related_entity_id ? "/trades?tab=mine" : "/";
 }
 
 export default async function NotificationsPage() {
@@ -52,7 +55,7 @@ export default async function NotificationsPage() {
             <li key={item.id}>
               <Card className={item.read_at ? "" : "border-brand/40 bg-brand-soft/30"}>
                 <Link
-                  href={hrefFor(item.related_entity_type, item.related_entity_id)}
+                  href={hrefFor(item)}
                   className="block px-4 py-3.5 hover:bg-surface-muted"
                 >
                   <div className="flex items-start gap-2">

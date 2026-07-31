@@ -1,10 +1,11 @@
-import { restHoursBetween } from "@/server/domain/time";
+import { formatShiftDate, restHoursBetween } from "@/server/domain/time";
 import {
   APPROVAL_TRIGGERING_TYPES,
   evaluateRules,
 } from "@/server/domain/rules/handlers";
 import {
   RULE_CATEGORY,
+  type ShiftInfo,
   type TradeContext,
   type TradeLegContext,
   type TradeValidationResult,
@@ -19,6 +20,15 @@ import {
  * offer is accepted, and once more inside the finalisation transaction — so a
  * schedule that changed underneath a pending trade can never slip through.
  */
+
+/**
+ * "Mon, Aug 10 MICU". Mirrors the helper in `rules/handlers.ts` — every message
+ * a resident reads names a day the way the rest of the product does, never as
+ * the ISO string the comparison happens to use.
+ */
+function shiftName(shift: ShiftInfo, timezone: string): string {
+  return `${formatShiftDate(shift.start, timezone)} ${shift.serviceName}`;
+}
 
 const STATUS_WEIGHT: Record<ValidationCheck["status"], number> = {
   fail: 0,
@@ -126,7 +136,7 @@ function evaluateSystemChecks(context: TradeContext): ValidationCheck[] {
             RULE_CATEGORY.safety,
             "Shift availability",
             "fail",
-            `The ${shift.date} ${shift.serviceName} shift is no longer available (${shift.status}).`,
+            `${shiftName(shift, context.program.timezone)} is no longer available (${shift.status}).`,
             scope,
           ),
         );
@@ -138,7 +148,7 @@ function evaluateSystemChecks(context: TradeContext): ValidationCheck[] {
             RULE_CATEGORY.shift,
             "Shift is tradeable",
             "fail",
-            `The ${shift.date} ${shift.serviceName} shift is marked non-tradeable.`,
+            `${shiftName(shift, context.program.timezone)} is marked non-tradeable by the program.`,
             scope,
           ),
         );
@@ -150,7 +160,7 @@ function evaluateSystemChecks(context: TradeContext): ValidationCheck[] {
             RULE_CATEGORY.shift,
             "Trade deadline",
             "fail",
-            `The trade deadline for the ${shift.date} ${shift.serviceName} shift has passed.`,
+            `The trade deadline for ${shiftName(shift, context.program.timezone)} has passed.`,
             scope,
           ),
         );
@@ -162,7 +172,7 @@ function evaluateSystemChecks(context: TradeContext): ValidationCheck[] {
             RULE_CATEGORY.safety,
             "Shift is upcoming",
             "fail",
-            `The ${shift.date} ${shift.serviceName} shift has already started.`,
+            `${shiftName(shift, context.program.timezone)} has already started.`,
             scope,
           ),
         );
@@ -212,7 +222,7 @@ export function validateTrade(context: TradeContext): TradeValidationResult {
   for (const leg of context.legs) {
     for (const shift of [leg.gives, leg.receives]) {
       if (shift.approvalRequired) {
-        const reason = `The ${shift.date} ${shift.serviceName} shift requires chief approval.`;
+        const reason = `${shiftName(shift, context.program.timezone)} requires chief approval.`;
         if (!approvalReasons.includes(reason)) approvalReasons.push(reason);
       }
     }
