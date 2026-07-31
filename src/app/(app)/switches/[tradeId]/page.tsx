@@ -1,3 +1,4 @@
+import { can } from "@/server/auth/roles";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeftRight, CheckCircle2 } from "lucide-react";
@@ -27,7 +28,8 @@ export default async function SwitchPage({
 
   const isParticipant =
     context.resident?.id === trade.resident_a || context.resident?.id === trade.resident_b;
-  const elevated = context.user.role === "chief" || context.user.role === "admin";
+  // Anybody who runs the schedule may look at one they are not part of.
+  const elevated = can(context.user.role, "schedule.manage");
   if (!isParticipant && !elevated) notFound();
 
   const timezone = context.program.timezone;

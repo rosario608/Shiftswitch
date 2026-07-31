@@ -135,6 +135,24 @@ export async function createInvitation(
   const expiresAt = new Date(Date.now() + ttlDays * 86_400_000);
 
   const invitation = await withTransaction(async (client) => {
+    /* Serialise concurrent creates for the same address.
+     *
+     * Superseding-then-inserting is read-modify-write, and the partial unique
+     * index `invitations_one_live_per_email` enforces the invariant at the end
+     * of it. Two requests racing — a double-tapped button, or a retried
+     * request — both saw no live invitation, both revoked nothing, and both
+     * inserted; one then died on the constraint with a message naming an index.
+     *
+     * An advisory lock keyed on the program and address makes the pair atomic
+     * without touching any other invitation. It is transaction-scoped, so it is
+     * released on commit or rollback with no cleanup path to forget.
+     */
+    await query(
+      "SELECT pg_advisory_xact_lock(hashtext($1))",
+      [`invitation:${context.program.id}:${email.toLowerCase()}`],
+      client,
+    );
+
     // Supersede any live invitation for this address, so "invite again" is a
     // safe thing to do rather than a unique-violation. The old token stops
     // working the moment the new one is issued.

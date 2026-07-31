@@ -3,40 +3,40 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 31 July 2026, after the five-role permission model, service
-management, the rebuilt invite field and the development invitation sandbox.
+Last updated: 31 July 2026, after a full baseline audit: schema, migrations,
+environments, authorization, data integrity, terminology and every test suite.
 
 ---
 
 ## Current phase
 
-`AWAITING_PROGRAM_ROSTER`
+`VERIFIED_BASELINE`
 
 ## Current status
 
-Live and in use at `https://shiftswitch.vercel.app`, with one administrator and
-the program named **Internal Medicine / DUH / America/New_York**. Still no
-residents, services or shifts in production.
+Live at `https://shiftswitch.vercel.app` with one administrator and the program
+named **Internal Medicine / DUH / America/New_York**. No residents, services or
+shifts in production yet.
 
-Since the last checkpoint the product gained the five-role model, a Services
-screen, a conventional multi-address invite field, and a development-only
-invitation sandbox so one person can test the whole onboarding flow alone.
-**Migration 0005 has not yet been applied to production** — see Next action.
+The repository has been audited end to end and the implementation, database,
+tests, environments and documentation now agree with one another. **Production's
+schema is byte-identical to a fresh migration run** — verified by comparing a
+structural fingerprint (columns, constraints, indexes, enums, triggers) of the
+production database against a database built from scratch by the migration
+runner. Migrations 0001–0006 are applied everywhere.
 
 ## Current blocker
 
 The program has no people and no schedule. Neither can be invented: they are the
-institution's real roster and real block schedule.
+institution's real roster and real block schedule. Nothing technical is blocked.
 
 ## User action required
 
 1. **The residents' email addresses**, for **Admin → Users & roles → Invite
-   people**. Paste them in any format — commas, semicolons, one per line, or a
-   spreadsheet column.
-2. **The block schedule**, as CSV or XLSX, for **Admin → Import**. Download the
-   template there first.
-3. **A Google Play developer account.** $25 plus identity verification; the long
-   pole for Android.
+   people**. Any format: commas, semicolons, one per line, or a spreadsheet
+   column.
+2. **The block schedule**, as CSV or XLSX, for **Admin → Import**.
+3. **A Google Play developer account.** $25 plus identity verification.
 4. **An Apple Developer account.** $99/year plus identity verification.
 5. **A bundle id on a domain the institution controls**, replacing
    `org.shiftswitch.app`. It can never be changed after the first store upload.
@@ -48,22 +48,18 @@ Do not ask the user for passwords or verification codes at any point.
 
 ## Next action
 
-**Apply migration 0005 to the production Neon database** before or with the next
-deploy — it adds the `apd` and `pd` enum values, the service/rotation
-abbreviation column, and case-insensitive uniqueness. Nothing in the running app
-uses them until it is applied, and the deploy will fail closed rather than
-corrupt anything, but it must not be forgotten:
+Nothing is blocked. The setup sequence is **Admin → Program settings** →
+**Admin → Services** → **Admin → Users & roles → Invite people** →
+**Admin → Import** (`docs/ONBOARDING.md`).
 
-```bash
-DATABASE_DRIVER=neon-ws DATABASE_URL=<pooled neon url> npx tsx scripts/migrate.ts
-```
+To exercise it without real data, `npm run demo:seed` locally and use the
+invitation sandbox — see `docs/DEMO_DATA.md`.
 
-Then the program setup sequence: **Admin → Program settings** → **Admin →
-Services** → **Admin → Users & roles → Invite people** → **Admin → Import**.
-See `docs/ONBOARDING.md`.
+The natural next development phase is the one this baseline was established
+for: **the UX pass**. The audit deliberately fixed only defects, not design.
 
 For the mobile apps, `mobile/.env.production` already points at the live host.
-Still needed later: `ANDROID_PACKAGE_NAME`, `ANDROID_CERT_FINGERPRINTS`,
+Still needed: `ANDROID_PACKAGE_NAME`, `ANDROID_CERT_FINGERPRINTS`,
 `APPLE_TEAM_ID`, `IOS_BUNDLE_ID`, and FCM credentials.
 
 ## Completed
@@ -84,6 +80,10 @@ Still needed later: `ANDROID_PACKAGE_NAME`, `ANDROID_CERT_FINGERPRINTS`,
   wording audit. Migration `0004_invitations.sql`, applied locally **and to the
   production Neon database**.
   PR #3, merged.
+- **Baseline audit** — schema/migration verification against production, an
+  authorization red team, an idempotency and concurrency pass, the three-role
+  leftovers removed from the web and native clients, and observability gaps
+  closed. Migration `0006_supporting_indexes.sql`. Applied everywhere.
 - **Roles, services and the invitation sandbox** — the five-role model
   (Resident, Chief, APD, PD, Administrator) as an explicit capability matrix
   replacing the old three-tier rank; a Services screen; a conventional
@@ -167,11 +167,51 @@ not production-with-email.
 | First program | **Internal Medicine / DUH / America/New_York** — corrected from the placeholders by the administrator. The timezone governs every shift time, so it is worth a second look before the first import |
 | Administrator | One, the repository owner's Google account: role `admin`, identity linked, first sign-in 31 July 2026 17:29 UTC |
 | Vercel project | `shiftswitch`, team `rosario608-2488s-projects`, builds from `main`, root directory. Preview deployments are SSO-protected; production is not |
-| Database | Neon, PostgreSQL 17.10, region us-east-1. Migrations 0001–0004 applied in production; **0005 applied locally only**. Contents: 1 program, 1 user, 0 residents, 0 services, 0 shifts |
+| Database | Neon, PostgreSQL 17.10, region us-east-1. Migrations 0001–0006 applied. **Structurally identical to a fresh migration run**, verified by fingerprint comparison. Contents: 1 program, 1 user, 0 residents, 0 services, 0 shifts |
 | Connection pooling | The **pooled** Neon endpoint is safe — verified empirically, see docs/DEPLOYMENT.md |
 
 Secrets are never in the repository. `.env.production`, `key.properties`,
 `*.jks`, `*.p8`, `*.p12` and `google-services.json` are all git-ignored.
+
+## Defects found and fixed (baseline audit)
+
+1. **Program leadership could not reach administration.** The app shell, the
+   profile page, the shift detail page and the switch detail page all tested
+   `role === "chief" || role === "admin"` literally. A PD or an APD signed in,
+   saw a resident's application, and had no route to the admin area at all
+   unless they knew the URL — and the header badge called them "Chief". All four
+   now derive from a capability. Regression test in
+   `tests/e2e/roles-and-onboarding.spec.ts`.
+2. **Two simultaneous invitations for the same address crashed** on the partial
+   unique index, surfacing a message naming a database constraint. The
+   supersede-then-insert is read-modify-write; it is now serialised with a
+   transaction-scoped advisory lock keyed on program and address.
+3. **The same race existed for services**, with the same fix.
+4. **The native client only knew three roles.** Its `UserRole` union, its
+   administrative-area check and its profile label all predated APD and PD. It
+   now has its own labelled copy of the vocabulary (it cannot import server
+   code) plus a test that stops the copy drifting.
+5. **Four database failures bypassed the structured logger** — idle client
+   errors, after-commit failures and rollback failures went to `console.error`,
+   so they were the only errors in the application not captured as JSON and not
+   passed through the redactor.
+6. **Five foreign keys had no supporting index** on paths that scan them: the
+   Services screen counted rotation shifts with a sequential scan per rotation
+   (confirmed with EXPLAIN), and every shift deletion scanned `completed_trades`
+   and `trade_legs` in full to enforce ON DELETE RESTRICT.
+
+Two things examined and deliberately **not** changed:
+
+- A deactivated account observes 401 rather than 403, because the session query
+  declines to resolve it before the guard runs. Access is denied either way, the
+  Google callback explains the reason at sign-in, and deactivation deletes every
+  session the user held. The guard's `active` check is unreachable-by-
+  construction and is documented as belt-and-braces rather than removed.
+- A malformed identifier produces a different message from a well-formed one
+  that does not exist. That distinguishes only what the caller already knows —
+  the shape of the id they typed. A well-formed id belonging to *another
+  program* is indistinguishable from one that exists nowhere, which is the
+  property that matters and is now asserted.
 
 ## Defects found and fixed (roles/services session)
 
@@ -262,13 +302,13 @@ All found by tests that did not exist before, and all fixed:
 
 | Suite | Command | Result |
 |---|---|---|
-| Server unit + integration | `npx vitest run` | 342 passed |
-| Native client unit | `npm --prefix mobile run test` | 34 passed |
-| Web end-to-end | `npx playwright test` | 100 passed (mobile + desktop projects) |
+| Server unit + integration | `npx vitest run` | 353 passed |
+| Native client unit | `npm --prefix mobile run test` | 37 passed |
+| Web end-to-end | `npx playwright test` | 122 passed (mobile + desktop projects) |
 | Native client end-to-end | `npx playwright test --config playwright.mobile.config.ts` | 16 passed (including the 9 screenshot specs) |
 | Screenshots | `… --config playwright.mobile.config.ts screenshots` | 9 passed, 10 images |
 | Typecheck / lint | `npx tsc --noEmit`, `npm run lint`, `npm run lint:mobile` | clean |
-| Production build | `npm run build` | succeeds |
+| Production build | `npm run build` + `npm --prefix mobile run build` | both succeed |
 
 Also verified by execution, not inspection:
 
@@ -302,7 +342,31 @@ Also verified by execution, not inspection:
 - **The Google OAuth client is valid**: Google's authorisation endpoint
   returned 302 to its sign-in page for this client ID and the production
   redirect URI, so the client exists and the URI is registered.
-- **The self-test path** (`tests/e2e/roles-and-onboarding.spec.ts`, 13 tests):
+- **The authorization red team** (`tests/e2e/red-team.spec.ts`, 9 tests, driven
+  over real HTTP against a fixture that now contains a **second program** and a
+  **deactivated account**): deactivating an account kills the session it is
+  already holding and deletes it, so reactivating does not hand the old cookie
+  back; another program's administrator can neither list nor patch this
+  program's users, shifts or services, and a guessed identifier changes nothing;
+  a payload cannot move a user between programs; a resident cannot patch
+  themselves to administrator; an unconfigured account is refused on every
+  route, not only the home page; a well-formed identifier from another program
+  is indistinguishable from one that exists nowhere; a native bearer token
+  carries exactly the same limits as a cookie and a tampered one carries none;
+  and the invitation sandbox derives its identity from the invitation, so it
+  cannot be pointed at somebody else's.
+- **Idempotency and concurrency** (`tests/integration/idempotency.test.ts`,
+  11 tests): simultaneous and repeated invitations leave exactly one live
+  invitation with exactly one working token; a refused invitation writes
+  nothing; revoking twice produces one audit entry; simultaneous service
+  creation produces one service and a readable conflict for the losers;
+  double-tapped renames and deactivations settle; repeated role changes leave
+  one resident record; and audit entries and shift assignments survive the
+  deactivation of the people in them.
+- **Migrations from empty** — `0001`–`0006` applied to a brand-new database,
+  and the resulting schema compared field by field against the incrementally
+  migrated development database and against production. All three identical.
+- **The self-test path** (`tests/e2e/roles-and-onboarding.spec.ts`, 15 tests):
   an administrator finds Services in the navigation and creates one, is refused
   a case-insensitive duplicate and a deactivation that would strand upcoming
   shifts; the invite field is driven the way a person drives it (Enter, comma,

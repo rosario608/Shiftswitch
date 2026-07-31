@@ -1,3 +1,4 @@
+import { hasAdminArea } from "@/api/roles";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BrowserRouter,
@@ -205,8 +206,7 @@ function Shell() {
     );
   }
 
-  const elevated =
-    session?.user?.role === "chief" || session?.user?.role === "admin";
+  const elevated = hasAdminArea(session?.user?.role);
 
   return (
     <div className="flex h-full flex-col">

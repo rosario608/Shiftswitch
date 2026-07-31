@@ -1,3 +1,4 @@
+import { can, ROLE_SHORT_LABEL } from "@/server/auth/roles";
 import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 import { BottomNav } from "@/components/app/bottom-nav";
@@ -14,7 +15,10 @@ export default async function AppLayout({
 }) {
   const context = await requirePageUser();
   const unread = await countUnread(context.user.id);
-  const elevated = context.user.role === "chief" || context.user.role === "admin";
+  /* Whether this person has an administrative area at all. Derived from the
+     capability that opens it rather than a list of roles, which is how a PD and
+     an APD came to have no way of reaching it from the app shell. */
+  const elevated = can(context.user.role, "audit.view");
 
   return (
     <div className="flex min-h-full flex-col">
@@ -43,7 +47,7 @@ export default async function AppLayout({
                 className="flex min-h-[2.25rem] items-center gap-1.5 rounded-full bg-surface-muted px-3 text-xs font-semibold text-ink-muted"
               >
                 <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                {context.user.role === "admin" ? "Admin" : "Chief"}
+                {ROLE_SHORT_LABEL[context.user.role]}
               </Link>
             ) : null}
             <Link

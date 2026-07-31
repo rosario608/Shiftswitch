@@ -33,6 +33,12 @@ export async function getOptionalContext(): Promise<SessionContext | null> {
 export async function requireUser(): Promise<AuthedContext> {
   const context = await getSessionContext();
   if (!context) throw unauthenticated();
+  /* Belt and braces. `loadSession` already refuses a deactivated account, so a
+     context reaching here always has `active = true` and this branch does not
+     fire — which is why a deactivated session observes 401 rather than 403.
+     Kept because the cost is one comparison and the failure mode it guards
+     against (a future change to the session query) is silent. Google sign-in
+     tells the person why, in `api/auth/google/callback`. */
   if (!context.user.active) {
     throw forbidden("Your account has been deactivated.");
   }

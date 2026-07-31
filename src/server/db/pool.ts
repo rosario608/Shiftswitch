@@ -1,5 +1,21 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { logger } from "@/server/observability/logger";
+
+/**
+ * These four failures are the ones most worth seeing and the easiest to lose:
+ * an idle client dying, after-commit work failing, a rollback failing. They
+ * used to go to `console.error`, which meant they were the only errors in the
+ * application not captured by the structured, redacting logger — so they were
+ * invisible to anything reading logs as JSON, and a connection string in an
+ * error message would have gone out unredacted.
+ */
+function describe(error: unknown): { name: string; message: string; stack?: string } {
+  return error instanceof Error
+    ? { name: error.name, message: error.message, stack: error.stack }
+    : { name: "unknown", message: String(error) };
+}
+
 
 /**
  * A single shared connection pool per process.
@@ -29,7 +45,7 @@ function createPool(): Pool {
         : undefined,
   });
   pool.on("error", (err) => {
-    console.error("[db] idle client error", err);
+    logger.error("db.idle_client_error", { error: describe(err) });
   });
   return pool;
 }
@@ -93,7 +109,7 @@ export function afterCommit(work: () => Promise<void>): void {
     return;
   }
   void work().catch((error) => {
-    console.error("[db] after-commit work failed", error);
+    logger.error("db.after_commit_failed", { error: describe(error) });
   });
 }
 
@@ -126,7 +142,7 @@ export async function withTransaction<T>(
       try {
         await work();
       } catch (error) {
-        console.error("[db] after-commit work failed", error);
+        logger.error("db.after_commit_failed", { error: describe(error) });
       }
     }
     return result;
@@ -134,7 +150,7 @@ export async function withTransaction<T>(
     try {
       await client.query("ROLLBACK");
     } catch (rollbackError) {
-      console.error("[db] rollback failed", rollbackError);
+      logger.error("db.rollback_failed", { error: describe(rollbackError) });
     }
     throw error;
   } finally {

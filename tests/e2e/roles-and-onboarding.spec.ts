@@ -293,6 +293,50 @@ test("a chief sees the schedule and the approvals queue, and nothing else", asyn
   await expect(nav.getByRole("link", { name: "Program settings" })).toHaveCount(0);
 });
 
+test("program leadership can actually reach the admin area from the app shell", async ({
+  page,
+}) => {
+  /* Regression. The header link and the shift/switch detail pages tested
+     `role === "chief" || role === "admin"` literally, so a PD or an APD signed
+     in, saw a resident's app, and had no way to reach administration at all
+     unless they knew the URL. Both now derive from a capability. */
+  for (const [account, badge] of [
+    [ACCOUNTS.pd, "PD"],
+    [ACCOUNTS.apd, "APD"],
+    [ACCOUNTS.chief, "Chief"],
+    [ACCOUNTS.admin, "Admin"],
+  ] as const) {
+    await signOut(page);
+    await signIn(page, account);
+    await page.goto("/");
+    const link = page.getByRole("link", { name: badge });
+    await expect(link, `${account} should see the admin link`).toBeVisible();
+    await link.click();
+    await expect(page).toHaveURL(/\/admin/);
+  }
+
+  // A resident has no such link, and no admin area behind it.
+  await signOut(page);
+  await signIn(page, ACCOUNTS.bob);
+  await page.goto("/");
+  for (const badge of ["PD", "APD", "Chief", "Admin"]) {
+    await expect(page.getByRole("link", { name: badge })).toHaveCount(0);
+  }
+  await page.goto("/admin");
+  await expect(page).not.toHaveURL(/\/admin/);
+});
+
+test("program leadership is named correctly on their own profile", async ({ page }) => {
+  await signIn(page, ACCOUNTS.pd);
+  await page.goto("/profile");
+  await expect(page.getByText("Program Director")).toBeVisible();
+
+  await signOut(page);
+  await signIn(page, ACCOUNTS.apd);
+  await page.goto("/profile");
+  await expect(page.getByText("Associate Program Director")).toBeVisible();
+});
+
 test("an APD manages people and services but not the program's settings", async ({
   page,
 }) => {
