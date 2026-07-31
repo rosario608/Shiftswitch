@@ -97,6 +97,22 @@ function writeEnvLocal(devUrl: string, testUrl: string): void {
   writeFileSync(ENV_LOCAL, configured, { mode: 0o600 });
 }
 
+/**
+ * `mobile/` is its own npm package, not a workspace, so a root `npm ci` does
+ * not install it. Three `verify` steps need it — the native unit suite, the
+ * native end-to-end suite and the mobile build — and the failure is unhelpful:
+ * vitest reports an unresolved import from `vite.config.ts` rather than saying
+ * the dependencies are missing.
+ */
+function ensureMobileDependencies(): void {
+  if (existsSync(path.join(process.cwd(), "mobile", "node_modules"))) {
+    console.log("[setup] mobile/node_modules already present");
+    return;
+  }
+  console.log("[setup] installing mobile/ dependencies (separate package)…");
+  execFileSync("npm", ["--prefix", "mobile", "ci"], { stdio: "inherit" });
+}
+
 async function main(): Promise<void> {
   const adminUrl = await findConnection();
   if (!adminUrl) {
@@ -113,6 +129,8 @@ async function main(): Promise<void> {
     const created = await ensureDatabase(adminUrl, name);
     console.log(`[setup] database ${name} ${created ? "created" : "already existed"}`);
   }
+
+  ensureMobileDependencies();
 
   if (existsSync(ENV_LOCAL)) {
     console.log("[setup] .env.local already exists — left untouched");

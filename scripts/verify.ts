@@ -37,6 +37,8 @@
  * to run against anything that does not look local — see `scripts/db-guard.ts`.
  */
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { loadEnv } from "./load-env";
 
 interface Step {
@@ -133,6 +135,18 @@ function run(step: Step): boolean {
  * running. One line up front is worth more than any amount of scrollback.
  */
 async function preflight(): Promise<boolean> {
+  /* `mobile/` is a separate npm package rather than a workspace, so a root
+     `npm ci` leaves it uninstalled. Three steps below need it, and the failure
+     is opaque — vitest reports an unresolved import inside `vite.config.ts`,
+     which reads like a broken config rather than absent dependencies. */
+  if (!existsSync(path.join(process.cwd(), "mobile", "node_modules"))) {
+    process.stdout.write(
+      "[verify] mobile/node_modules is missing — it is a separate package, not a workspace.\n" +
+        "[verify] Run `npm --prefix mobile ci` (or `npm run setup:local`).\n",
+    );
+    return false;
+  }
+
   const url = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
   if (!url) {
     process.stdout.write(

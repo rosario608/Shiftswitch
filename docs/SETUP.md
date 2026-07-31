@@ -21,9 +21,11 @@ npm install
 npm run setup:local
 ```
 
-`setup:local` creates both local databases, writes `.env.local` from
-`.env.example` with a generated `AUTH_SECRET`, and applies the migrations. It is
-idempotent and refuses to overwrite an existing `.env.local`.
+`setup:local` creates both local databases, installs the native client's
+dependencies (`mobile/` is a separate npm package, so a root install does not
+reach it), writes `.env.local` from `.env.example` with a generated
+`AUTH_SECRET`, and applies the migrations. It is idempotent and refuses to
+overwrite an existing `.env.local`.
 
 Then:
 
