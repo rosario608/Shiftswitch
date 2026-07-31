@@ -46,7 +46,12 @@ test("resident posts a shift, a colleague offers, the switch completes and the p
   await page.goto("/trades");
   await expect(page.getByRole("heading", { name: "Trades" })).toBeVisible();
   await expect(page.getByText(/family event/i)).toBeVisible();
-  await expect(page.getByText(/% match/).first()).toBeVisible();
+  // The board says how well the posting fits *this* resident, in a band rather
+  // than a percentage, and how many of their own shifts would work for it.
+  await expect(
+    page.getByText(/(strong|good|possible|weak) match/i).first(),
+  ).toBeVisible();
+  await expect(page.getByText(/of your shifts fit/i).first()).toBeVisible();
 
   await page.goto(tradeUrl);
   await page.getByRole("button", { name: /offer my shift/i }).click();

@@ -4,11 +4,17 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { requirePageUser } from "@/server/auth/page-guards";
-import { summariseMatches } from "@/server/domain/candidates";
+import {
+  MATCH_BAND_LABEL,
+  summariseMatches,
+  type MatchBand,
+  type TradeMatchSummary,
+} from "@/server/domain/candidates";
 import {
   listAvailableTrades,
   listCompletedTradesForResident,
   listMyTradeActivity,
+  type ResolvedOutcome,
 } from "@/server/domain/trades";
 import { REQUEST_STATUS_LABELS, OFFER_STATUS_LABELS } from "@/server/domain/status";
 import { toShiftView } from "@/lib/views";
@@ -18,11 +24,59 @@ import type { TradeRequestStatus, TradeOfferStatus } from "@/server/db/types";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Trades" };
 
+const BAND_TONE: Record<MatchBand, "positive" | "brand" | "caution" | "neutral"> = {
+  strong: "positive",
+  good: "brand",
+  possible: "caution",
+  weak: "neutral",
+};
+
 const TABS = [
   { key: "available", label: "Available" },
   { key: "mine", label: "My trades" },
   { key: "history", label: "History" },
 ] as const;
+
+/**
+ * What is actually happening to a posting, in the resident's own terms.
+ *
+ * This line used to be a count of *pending* offers, with "No offers yet" as the
+ * else. Once an offer was accepted it stopped being pending, so a posting
+ * waiting on a chief said "No offers yet" directly beneath a badge reading
+ * "Pending approval" — the screen contradicting itself about the one thing the
+ * resident opened it to find out. A count only describes a posting nobody has
+ * acted on yet; every state after that needs to say what it is waiting for.
+ */
+function describePosting(status: TradeRequestStatus, pendingOffers: number): string {
+  switch (status) {
+    case "accepted":
+      return "You accepted an offer. Finishing the switch now.";
+    case "pending_approval":
+      return "You accepted an offer. A chief resident is reviewing the switch.";
+    case "approved":
+      return "Approved. The switch is being applied to both schedules.";
+    default:
+      return pendingOffers > 0
+        ? `${pendingOffers} offer${pendingOffers === 1 ? "" : "s"} waiting for you`
+        : "No offers yet";
+  }
+}
+
+const OUTCOME_TONE: Record<ResolvedOutcome, "neutral" | "caution"> = {
+  declined: "caution",
+  unavailable: "caution",
+  withdrawn: "neutral",
+  expired: "neutral",
+  cancelled: "neutral",
+};
+
+const OUTCOME_LABEL: Record<ResolvedOutcome, string> = {
+  declined: "Declined",
+  unavailable: "No longer available",
+  withdrawn: "Withdrawn",
+  expired: "Expired",
+  cancelled: "Cancelled",
+};
 
 export default async function TradesPage({
   searchParams,
@@ -42,7 +96,7 @@ export default async function TradesPage({
     tab === "available"
       ? await listAvailableTrades(context.program.id, residentId, { limit: 50 })
       : [];
-  const matches =
+  const matches: Map<string, TradeMatchSummary> =
     tab === "available" && context.resident
       ? await summariseMatches(
           context as never,
@@ -55,10 +109,28 @@ export default async function TradesPage({
         )
       : new Map();
 
+  /* Sorted by how well it fits *this* resident, not by when it was posted.
+     Somebody scanning the board between patients should meet the postings they
+     can actually take first; a chronological list buries them. Postings with
+     nothing offerable sink to the bottom rather than disappearing, because
+     "there is nothing you can swap for this" is still worth seeing. */
+  const ordered =
+    tab === "available"
+      ? [...available].sort((a, b) => {
+          const scoreA = matches.get(a.id)?.bestScore ?? -1;
+          const scoreB = matches.get(b.id)?.bestScore ?? -1;
+          if (scoreA !== scoreB) return scoreB - scoreA;
+          return (
+            new Date(a.shift.start_datetime).getTime() -
+            new Date(b.shift.start_datetime).getTime()
+          );
+        })
+      : available;
+
   const activity =
     tab === "mine" && residentId
       ? await listMyTradeActivity(residentId, context.program.id)
-      : { posted: [], offersMade: [] };
+      : { posted: [], offersMade: [], recentlyClosed: [] };
 
   const history =
     tab === "history" && residentId
@@ -100,7 +172,7 @@ export default async function TradesPage({
           />
         ) : (
           <ul className="space-y-2">
-            {available.map((trade) => {
+            {ordered.map((trade) => {
               const view = toShiftView(trade.shift, timezone);
               const match = matches.get(trade.id);
               return (
@@ -127,12 +199,23 @@ export default async function TradesPage({
                               &ldquo;{trade.notes}&rdquo;
                             </p>
                           ) : null}
-                          {match?.bestScore != null ? (
+                          {match ? (
                             <p className="mt-2 flex flex-wrap items-center gap-1.5">
-                              <Badge tone="positive">{match.bestScore}% match</Badge>
-                              {match.bestReasons.map((reason: string) => (
+                              {match.band ? (
+                                <Badge tone={BAND_TONE[match.band]}>
+                                  {MATCH_BAND_LABEL[match.band]}
+                                </Badge>
+                              ) : (
+                                <Badge tone="neutral">Nothing to offer</Badge>
+                              )}
+                              <span className="text-xs text-ink-subtle">
+                                {match.candidateCount === 0
+                                  ? "none of your shifts fit"
+                                  : `${match.candidateCount} of your shifts fit`}
+                              </span>
+                              {match.bestReasons.slice(0, 2).map((reason: string) => (
                                 <span key={reason} className="text-xs text-ink-subtle">
-                                  {reason}
+                                  · {reason}
                                 </span>
                               ))}
                             </p>
@@ -195,9 +278,7 @@ export default async function TradesPage({
                                 {view.timeRange}
                               </p>
                               <p className="mt-1 text-sm text-ink-subtle">
-                                {pending > 0
-                                  ? `${pending} offer${pending === 1 ? "" : "s"} waiting for you`
-                                  : "No offers yet"}
+                                {describePosting(post.status as TradeRequestStatus, pending)}
                               </p>
                             </div>
                             <Badge
@@ -261,6 +342,53 @@ export default async function TradesPage({
               </ul>
             )}
           </section>
+
+          {/* Trades that ended without a switch.
+              Completed ones live in History; these had nowhere to go, so they
+              simply disappeared — a resident told "your offer was declined"
+              found no trace of it anywhere in the app. Two weeks of them, with
+              the reason spelled out, so every notification has somewhere to
+              land. Absent entirely when there are none: an empty state here
+              would imply something ought to have gone wrong. */}
+          {activity.recentlyClosed.length > 0 ? (
+            <section>
+              <h2 className="mb-2 px-1 text-sm font-semibold tracking-wide text-ink-muted uppercase">
+                Recently closed
+              </h2>
+              <ul className="space-y-2">
+                {activity.recentlyClosed.map((entry) => {
+                  const view = toShiftView(entry.shift, timezone);
+                  return (
+                    <li key={`${entry.kind}-${entry.id}`}>
+                      <Card>
+                        <Link
+                          href={`/trades/${entry.requestId}`}
+                          className="block px-4 py-3.5 hover:bg-surface-muted"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="font-semibold text-ink">
+                                {view.dayLabel} · {view.serviceName}
+                              </p>
+                              <p className="mt-0.5 text-sm text-ink-muted">
+                                {entry.detail}
+                              </p>
+                              <p className="mt-1 text-xs text-ink-subtle">
+                                {fmtTimestamp(entry.at, timezone)}
+                              </p>
+                            </div>
+                            <Badge tone={OUTCOME_TONE[entry.outcome]}>
+                              {OUTCOME_LABEL[entry.outcome]}
+                            </Badge>
+                          </div>
+                        </Link>
+                      </Card>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ) : null}
         </div>
       ) : null}
 

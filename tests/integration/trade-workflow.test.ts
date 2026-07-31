@@ -7,6 +7,8 @@ import {
   cancelTradeRequest,
   createOffer,
   getCompletedTrade,
+  listCompletedTradesForResident,
+  listMyTradeActivity,
   postShiftForTrade,
   rejectOffer,
   rejectTrade,
@@ -766,5 +768,209 @@ describe("offer candidates", () => {
     });
     const { candidates } = await getOfferCandidates(bob.context, secondRequest.id);
     expect(candidates.map((candidate) => candidate.shift.id)).not.toContain(bobShift.id);
+  });
+});
+
+/**
+ * A resident must never be told something happened and then find no trace of
+ * it. Every one of these was a real dead end: the app sent a notification, and
+ * the screen it pointed at either contradicted it or did not mention it at all.
+ */
+describe("what a resident can still see after a trade ends", () => {
+  it("shows a declined offer on My trades instead of dropping it", async () => {
+    const { request, offer, bobShift } = await setupTrade();
+    await rejectOffer(alice.context, offer.id, "I need something earlier in the week.");
+
+    const activity = await listMyTradeActivity(bob.resident.id, fixture.program.id);
+    // It is no longer live, and that is correct.
+    expect(activity.offersMade).toHaveLength(0);
+    // But it has not vanished.
+    const closed = activity.recentlyClosed.find((entry) => entry.id === offer.id);
+    expect(closed, "the declined offer disappeared entirely").toBeDefined();
+    expect(closed!.outcome).toBe("declined");
+    expect(closed!.requestId).toBe(request.id);
+    expect(closed!.detail).toContain("Alice Adeyemi");
+    expect(closed!.detail).toContain("You still work your own shift");
+    // It points at the posting it was made on, which is a real screen.
+    expect(closed!.shift.id).toBe(request.source_shift_id);
+    expect(bobShift.id).toBeTruthy();
+  });
+
+  it("distinguishes an offer that lost from an offer that was turned down", async () => {
+    const aliceShift = await createShift(fixture.program, {
+      inDays: 10,
+      residentId: alice.resident.id,
+    });
+    const bobShift = await createShift(fixture.program, {
+      inDays: 17,
+      residentId: bob.resident.id,
+    });
+    const carol = await createResident(fixture.program, {
+      email: "carol@hospital.org",
+      name: "Carol Cruz",
+      pgy: 2,
+      credentials: ["BLS", "ACLS", "Critical Care"],
+    });
+    const carolShift = await createShift(fixture.program, {
+      inDays: 18,
+      residentId: carol.resident.id,
+    });
+
+    const request = await postShiftForTrade(alice.context, { shiftId: aliceShift.id });
+    const bobOffer = await createOffer(bob.context, {
+      tradeRequestId: request.id,
+      offeredShiftId: bobShift.id,
+    });
+    await createOffer(carol.context, {
+      tradeRequestId: request.id,
+      offeredShiftId: carolShift.id,
+    });
+    // Alice takes Bob's. Carol's is invalidated — nobody declined her.
+    await acceptOffer(alice.context, bobOffer.offer.id);
+
+    const carolActivity = await listMyTradeActivity(carol.resident.id, fixture.program.id);
+    const closed = carolActivity.recentlyClosed[0];
+    expect(closed).toBeDefined();
+    expect(closed.outcome, "losing to another offer is not being declined").toBe(
+      "unavailable",
+    );
+    expect(closed.detail).toBeTruthy();
+  });
+
+  it("shows a cancelled posting to the resident who posted it", async () => {
+    const aliceShift = await createShift(fixture.program, {
+      inDays: 10,
+      residentId: alice.resident.id,
+    });
+    const request = await postShiftForTrade(alice.context, { shiftId: aliceShift.id });
+    await cancelTradeRequest(alice.context, request.id);
+
+    const activity = await listMyTradeActivity(alice.resident.id, fixture.program.id);
+    expect(activity.posted).toHaveLength(0);
+    const closed = activity.recentlyClosed.find((entry) => entry.id === request.id);
+    expect(closed).toBeDefined();
+    expect(closed!.outcome).toBe("cancelled");
+    expect(closed!.kind).toBe("post");
+  });
+
+  it("leaves a completed switch to History and off the closed list", async () => {
+    const { offer } = await setupTrade();
+    await acceptOffer(alice.context, offer.id);
+
+    const activity = await listMyTradeActivity(bob.resident.id, fixture.program.id);
+    // A completed switch is a permanent record, not a loose end.
+    expect(activity.recentlyClosed).toHaveLength(0);
+    const history = await listCompletedTradesForResident(
+      bob.resident.id,
+      fixture.program.id,
+      10,
+    );
+    expect(history).toHaveLength(1);
+  });
+});
+
+/**
+ * Every notification has to lead to a screen that talks about the thing the
+ * notification is about. The route is stored on the row rather than derived
+ * twice, which is how the web list and the push payload used to disagree.
+ */
+describe("notifications lead somewhere", () => {
+  it("points a decline at the posting, and names the shift in the body", async () => {
+    const { request, offer } = await setupTrade();
+    await rejectOffer(alice.context, offer.id, "Need something earlier.");
+
+    const [declined] = await notificationsFor(bob.user.id, "offer.rejected");
+    expect(declined.route).toBe(`/trades/${request.id}`);
+    // Not just the reason — a resident with two offers out could not tell which
+    // one had been declined.
+    expect(declined.body).toContain("Your offer for");
+    expect(declined.body).toContain("Need something earlier.");
+  });
+
+  it("points an invalidated offer at the posting it lost", async () => {
+    const aliceShift = await createShift(fixture.program, {
+      inDays: 10,
+      residentId: alice.resident.id,
+    });
+    const bobShift = await createShift(fixture.program, {
+      inDays: 17,
+      residentId: bob.resident.id,
+    });
+    const carol = await createResident(fixture.program, {
+      email: "carol@hospital.org",
+      pgy: 2,
+      credentials: ["BLS", "ACLS", "Critical Care"],
+    });
+    const carolShift = await createShift(fixture.program, {
+      inDays: 18,
+      residentId: carol.resident.id,
+    });
+    const request = await postShiftForTrade(alice.context, { shiftId: aliceShift.id });
+    const bobOffer = await createOffer(bob.context, {
+      tradeRequestId: request.id,
+      offeredShiftId: bobShift.id,
+    });
+    await createOffer(carol.context, {
+      tradeRequestId: request.id,
+      offeredShiftId: carolShift.id,
+    });
+    await acceptOffer(alice.context, bobOffer.offer.id);
+
+    const [invalidated] = await notificationsFor(carol.user.id, "offer.invalidated");
+    expect(invalidated.route).toBe(`/trades/${request.id}`);
+    expect(invalidated.route).not.toBe("/notifications");
+  });
+
+  it("never writes a notification with no destination", async () => {
+    const { offer } = await setupTrade();
+    await acceptOffer(alice.context, offer.id);
+
+    const rows = await query<{ type: string; route: string }>(
+      `SELECT n.type, n.route FROM notifications n
+         JOIN users u ON u.id = n.recipient_user_id
+        WHERE u.program_id = $1`,
+      [fixture.program.id],
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.route, `${row.type} has no route`).toMatch(/^\//);
+    }
+  });
+});
+
+/**
+ * The approvals queue is routed by capability. When it was routed by a literal
+ * `role IN ('chief', 'admin')`, a program whose approver was a Program Director
+ * raised approval requests that notified nobody — the queue filled up and the
+ * only symptom was switches that never moved.
+ */
+describe("approval requests reach the people who can act on them", () => {
+  it("notifies an APD and a PD, not only a chief", async () => {
+    const apd = await createStaff(fixture.program, {
+      email: "apd@hospital.org",
+      role: "apd",
+      name: "Ada Apd",
+    });
+    const pd = await createStaff(fixture.program, {
+      email: "pd@hospital.org",
+      role: "pd",
+      name: "Pat Pd",
+    });
+
+    const { offer } = await setupTrade({ approvalRequired: true });
+    await acceptOffer(alice.context, offer.id);
+
+    for (const staff of [chief, apd, pd]) {
+      const notes = await notificationsFor(staff.user.id, "approval.required");
+      expect(notes.length, `${staff.user.email} was not told`).toBeGreaterThan(0);
+      expect(notes[0].route).toContain("/trades/");
+    }
+  });
+
+  it("does not notify a resident", async () => {
+    const { offer } = await setupTrade({ approvalRequired: true });
+    await acceptOffer(alice.context, offer.id);
+    expect(await notificationsFor(bob.user.id, "approval.required")).toHaveLength(0);
+    expect(await notificationsFor(alice.user.id, "approval.required")).toHaveLength(0);
   });
 });

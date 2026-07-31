@@ -25,12 +25,35 @@ never authoritative.
 ```
 
 Each check carries a category, the resident it applies to, a message written for
-a resident, and — where it makes sense — the numbers:
+a resident, and — where it makes sense — the numbers again in structured form:
 
 ```
-✕ Bob Brennan would have insufficient rest around this shift.
-  Required: 10 hours · Available: 7 hours
+✕ This would leave only 7 hours between this shift and Tue, Aug 11 Night Float.
+  The program requires 10 hours.
+     Required: 10 hours · Available: 7 hours
 ```
+
+### How the message is written
+
+Three rules, asserted for every message the engine can produce in
+`tests/unit/validation.test.ts`:
+
+**The sentence carries the numbers.** The `detail` fields are rendered only on
+the chief's approvals queue. A resident's offer sheet shows the message and
+nothing else, so a message that said "would have insufficient rest" told the one
+person who had to act the least — not how short they were, not what the limit
+was, not which shift caused it.
+
+**Dates are written the way the rest of the product writes them.** `Mon, Aug 10`,
+never `2026-08-10`. `ShiftInfo.date` is an ISO day string because that is what
+the comparisons need; it is not something to show anybody. Six messages
+interpolated it directly.
+
+**The message does not open with the resident's name.** Both surfaces that
+render a check print `residentName` in front of it themselves, so a message that
+began with the name produced "Jordan Rivera: Jordan Rivera would work too many
+consecutive days." Where a name genuinely disambiguates, the surface supplies
+it.
 
 ---
 

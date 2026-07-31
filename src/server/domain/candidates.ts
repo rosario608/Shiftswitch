@@ -7,6 +7,7 @@ import {
   countCompletedTradesThisMonth,
   countOpenOffers,
   getResidentInfo,
+  listAllOfferableShifts,
   listOfferableShifts,
   listScheduleRange,
   toShiftInfo,
@@ -180,7 +181,34 @@ export interface TradeMatchSummary {
   bestScore: number | null;
   bestReasons: string[];
   candidateCount: number;
+  /**
+   * The score as something a person can act on.
+   *
+   * A raw percentage was worse than useless here: a swap that is same-service,
+   * same-type, similar-length and in the same week scores 99 every time, so
+   * every row on the board read "99% match" and the number differentiated
+   * nothing while implying a precision the arithmetic does not have. A band
+   * plus the count of shifts that actually fit is what a resident needs to
+   * decide which posting to open first.
+   */
+  band: MatchBand | null;
 }
+
+export type MatchBand = "strong" | "good" | "possible" | "weak";
+
+export function matchBand(score: number): MatchBand {
+  if (score >= 90) return "strong";
+  if (score >= 78) return "good";
+  if (score >= 65) return "possible";
+  return "weak";
+}
+
+export const MATCH_BAND_LABEL: Record<MatchBand, string> = {
+  strong: "Strong match",
+  good: "Good match",
+  possible: "Possible match",
+  weak: "Weak match",
+};
 
 /**
  * Cheap match preview for the "Available trades" list: scores the viewer's
@@ -205,10 +233,14 @@ export async function summariseMatches(
   );
   const pgy = residentRow?.pgy_level ?? 1;
 
+  /* One query for the whole board, not one per row. The only thing that
+     differs between postings is that the posting's own shift is excluded, and
+     that is a filter, not a query. */
+  const allOfferable = await listAllOfferableShifts(context.resident.id);
+
   for (const trade of trades) {
-    const offerable = await listOfferableShifts(
-      context.resident.id,
-      trade.source_shift_id,
+    const offerable = allOfferable.filter(
+      (shift) => shift.id !== trade.source_shift_id,
     );
     const ranked = rankCandidates(
       { preferences: (trade.preferences ?? {}) as never },
@@ -217,11 +249,13 @@ export async function summariseMatches(
       pgy,
       context.program,
     );
+    const best = ranked[0]?.match.score ?? null;
     summaries.set(trade.id, {
       tradeRequestId: trade.id,
-      bestScore: ranked[0]?.match.score ?? null,
+      bestScore: best,
       bestReasons: ranked[0]?.match.reasons.slice(0, 3) ?? [],
       candidateCount: ranked.length,
+      band: best === null ? null : matchBand(best),
     });
   }
   return summaries;

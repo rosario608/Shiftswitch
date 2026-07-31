@@ -200,6 +200,8 @@ export interface NotificationRow {
   read_at: Date | null;
   related_entity_type: string | null;
   related_entity_id: string | null;
+  /** Where tapping it should land. Written once, read by web and native alike. */
+  route: string;
   created_at: Date;
 }
 

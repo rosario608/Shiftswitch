@@ -45,20 +45,38 @@ async function main() {
         shifts: string;
         posted: string;
         invitations: string;
+        live_offers: string;
+        awaiting_approval: string;
+        completed: string;
+        notifications: string;
       }>(
         `SELECT (SELECT count(*) FROM users WHERE program_id = $1)::text          AS users,
                 (SELECT count(*) FROM shifts WHERE program_id = $1)::text         AS shifts,
                 (SELECT count(*) FROM trade_requests WHERE program_id = $1)::text AS posted,
-                (SELECT count(*) FROM invitations WHERE program_id = $1)::text    AS invitations`,
+                (SELECT count(*) FROM invitations WHERE program_id = $1)::text    AS invitations,
+                (SELECT count(*) FROM trade_offers o
+                   JOIN trade_requests r ON r.id = o.trade_request_id
+                  WHERE r.program_id = $1 AND o.status = 'pending')::text         AS live_offers,
+                (SELECT count(*) FROM trade_requests
+                  WHERE program_id = $1 AND status = 'pending_approval')::text    AS awaiting_approval,
+                (SELECT count(*) FROM completed_trades WHERE program_id = $1)::text
+                                                                                  AS completed,
+                (SELECT count(*) FROM notifications
+                  WHERE recipient_user_id IN
+                        (SELECT id FROM users WHERE program_id = $1))::text       AS notifications`,
         [program.id],
       );
       console.log(
         `[demo] "${DEMO_PROGRAM_NAME}" on ${guard.target}\n` +
-          `  seeded      ${program.created_at.toISOString()}\n` +
-          `  users       ${counts!.users}\n` +
-          `  shifts      ${counts!.shifts}\n` +
-          `  posted      ${counts!.posted}\n` +
-          `  invitations ${counts!.invitations}`,
+          `  seeded            ${program.created_at.toISOString()}\n` +
+          `  users             ${counts!.users}\n` +
+          `  shifts            ${counts!.shifts}\n` +
+          `  posted            ${counts!.posted}\n` +
+          `  invitations       ${counts!.invitations}\n` +
+          `  live offers       ${counts!.live_offers}\n` +
+          `  awaiting a chief  ${counts!.awaiting_approval}\n` +
+          `  completed         ${counts!.completed}\n` +
+          `  notifications     ${counts!.notifications}`,
       );
     }
     if (!guard.allowed) {
@@ -104,6 +122,13 @@ async function main() {
   Shifts          ${result.shifts}
   Posted          ${result.posts}
   Invitations     ${result.invitations}
+
+  Trade lifecycle, all of it driven through the real domain code:
+  Live offers     ${result.liveOffers}  waiting on the poster to decide
+  Declined        ${result.declinedOffers}  turned down, with a reason
+  Awaiting chief  ${result.pendingApprovals}  sitting in the approvals queue
+  Completed       ${result.completedSwitches}  switched, and in both residents' history
+  Notifications   ${result.notifications}  already delivered in-app
 
   Administrator   ${admin.email}
   Chief resident  ${chief.email}

@@ -1,5 +1,6 @@
 import { query } from "@/server/db/pool";
 import type { AuthedContext } from "@/server/auth/guards";
+import { can } from "@/server/auth/roles";
 import type { ShiftDetail } from "@/server/db/types";
 import { listResidentSchedule } from "./schedule";
 import {
@@ -115,7 +116,7 @@ export async function getResidentDashboard(
     }
   }
 
-  if (context.user.role === "chief" || context.user.role === "admin") {
+  if (can(context.user.role, "approvals.decide")) {
     const approvals = await query<{ count: string }>(
       `SELECT count(*)::text AS count FROM trade_requests
         WHERE program_id = $1 AND status = 'pending_approval'`,
