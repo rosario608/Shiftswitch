@@ -41,27 +41,61 @@ jobs:
         run: node mobile/scripts/set-version.mjs --check
 
       - name: Typecheck
-        run: npm run typecheck --prefix mobile
+        run: npm --prefix mobile run typecheck
 
       - name: Lint
         run: npm run lint:mobile
 
       - name: Unit tests
-        run: npm run test --prefix mobile
+        run: npm --prefix mobile run test
 
       - name: Build (development configuration)
-        run: npm run build:dev --prefix mobile
+        # This is the bundle the native end-to-end job drives. A development
+        # build deliberately *does* contain the test-login path; that is what
+        # makes the suite able to sign in without Google.
+        run: npm --prefix mobile run build:dev
 
-      - name: The bundle carries no development affordances
+      - name: A production build compiles the development affordances out
+        # Built against a dummy host purely to exercise the production path.
+        # The real host and secrets belong to the release workflow — what is
+        # being checked here is that the production *mode* strips test login
+        # and source maps, which is a property of the code, not of the host.
         run: |
           set -euo pipefail
+          cat > mobile/.env.production <<'ENV'
+          VITE_API_URL=https://ci.invalid
+          VITE_APP_SCHEME=shiftswitch
+          VITE_ENVIRONMENT=production
+          VITE_ALLOW_TEST_LOGIN=false
+          VITE_APP_VERSION=0.0.0-ci
+          ENV
+          npm --prefix mobile run build
+          rm -f mobile/.env.production
+
           if grep -rq "auth/test-login" mobile/dist/assets/*.js; then
-            echo "::error::The test-login path is present in the bundle."
+            echo "::error::The test-login path survived a production build."
             exit 1
           fi
           if [ -n "$(ls mobile/dist/assets/*.map 2>/dev/null || true)" ]; then
-            echo "::notice::Source maps present — expected for a development build."
+            echo "::error::Source maps must not ship in a production bundle."
+            exit 1
           fi
+          # A development API base always carries a port (http://localhost:3000).
+          # react-router embeds a bare, portless "http://localhost" as an
+          # internal history fallback, which is harmless and must not fail this.
+          if grep -rqE "https?://(localhost|127\.0\.0\.1|0\.0\.0\.0):[0-9]+" mobile/dist/assets/*.js; then
+            echo "::error::A local API URL reached a production bundle."
+            grep -rhoE "https?://(localhost|127\.0\.0\.1|0\.0\.0\.0):[0-9]+" mobile/dist/assets/*.js | sort -u
+            exit 1
+          fi
+          if ! grep -rq "https://ci.invalid" mobile/dist/assets/*.js; then
+            echo "::error::The configured API URL is not in the bundle — the build is not reading .env.production."
+            exit 1
+          fi
+          echo "Production bundle is clean."
+
+      - name: Rebuild the development bundle for the other jobs
+        run: npm --prefix mobile run build:dev
 
   native-e2e:
     name: Native client — end-to-end
@@ -142,10 +176,11 @@ jobs:
       - name: Build the client
         # A development configuration on branches: a store build needs the
         # production secrets, and those only exist in the release workflow.
-        run: npm run build:dev --prefix mobile
+        run: npm --prefix mobile run build:dev
 
       - name: Sync the native project
-        run: npx cap sync android --prefix mobile || npm run sync:android --prefix mobile
+        working-directory: mobile
+        run: npx cap sync android
 
       - name: Assemble a debug APK
         working-directory: mobile/android
