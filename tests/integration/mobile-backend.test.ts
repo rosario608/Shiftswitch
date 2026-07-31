@@ -1,0 +1,691 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { query, queryOne } from "@/server/db/pool";
+import {
+  createHandoffCode,
+  pkceChallengeFromVerifier,
+  redeemHandoffCode,
+} from "@/server/auth/native";
+import { resolveSessionByToken } from "@/server/auth/session";
+import {
+  deleteOwnAccount,
+  ensureCalendarFeed,
+  findUserForIdentity,
+  linkIdentity,
+  previewAccountDeletion,
+  resolveCalendarFeed,
+  revokeCalendarFeed,
+  rotateCalendarFeed,
+} from "@/server/domain/account";
+import { buildCalendar } from "@/server/domain/calendar";
+import {
+  getNotificationPreferences,
+  registerDevice,
+  sendPush,
+  setNotificationPreference,
+  setPushTransport,
+  unregisterDevice,
+  type PushMessage,
+  type PushResult,
+  type PushTarget,
+  type PushTransport,
+} from "@/server/domain/push";
+import { notify, routeFor } from "@/server/domain/notifications";
+import { acceptOffer, createOffer, postShiftForTrade } from "@/server/domain/trades";
+import { listResidentSchedule } from "@/server/domain/schedule";
+import { withTransaction } from "@/server/db/pool";
+import {
+  closeDatabase,
+  createProgram,
+  createResident,
+  createShift,
+  ensureMigrated,
+  resetDatabase,
+  type TestProgram,
+  type TestResident,
+} from "./helpers";
+
+/** Records everything it is asked to send, so dispatch can be asserted. */
+class RecordingTransport implements PushTransport {
+  readonly name = "recording";
+  readonly configured = true;
+  sent: Array<{ target: PushTarget; message: PushMessage }> = [];
+  nextResult: Partial<PushResult> = {};
+
+  async send(target: PushTarget, message: PushMessage): Promise<PushResult> {
+    this.sent.push({ target, message });
+    return { deviceId: target.deviceId, status: "sent", ...this.nextResult };
+  }
+}
+
+let fixture: TestProgram;
+let alice: TestResident;
+let bob: TestResident;
+let transport: RecordingTransport;
+
+beforeAll(() => {
+  ensureMigrated();
+});
+
+afterAll(async () => {
+  setPushTransport(null);
+  await closeDatabase();
+});
+
+beforeEach(async () => {
+  await resetDatabase();
+  fixture = await createProgram();
+  alice = await createResident(fixture.program, {
+    email: "alice@hospital.org",
+    name: "Alice Adeyemi",
+    pgy: 2,
+  });
+  bob = await createResident(fixture.program, {
+    email: "bob@hospital.org",
+    name: "Bob Brennan",
+    pgy: 2,
+  });
+  transport = new RecordingTransport();
+  setPushTransport(transport);
+});
+
+afterEach(() => {
+  setPushTransport(null);
+});
+
+describe("native sign-in handoff", () => {
+  const verifier = "verifier-".padEnd(60, "x");
+
+  it("exchanges a one-time code for a working session", async () => {
+    const code = await createHandoffCode(
+      alice.user.id,
+      pkceChallengeFromVerifier(verifier),
+    );
+    const session = await redeemHandoffCode(code, verifier);
+    expect(session.userId).toBe(alice.user.id);
+
+    const context = await resolveSessionByToken(session.token);
+    expect(context?.user.email).toBe("alice@hospital.org");
+    expect(context?.resident?.id).toBe(alice.resident.id);
+  });
+
+  it("refuses a code that has already been redeemed", async () => {
+    const code = await createHandoffCode(
+      alice.user.id,
+      pkceChallengeFromVerifier(verifier),
+    );
+    await redeemHandoffCode(code, verifier);
+    await expect(redeemHandoffCode(code, verifier)).rejects.toMatchObject({
+      code: "unauthenticated",
+    });
+  });
+
+  it("refuses a code redeemed with the wrong verifier", async () => {
+    const code = await createHandoffCode(
+      alice.user.id,
+      pkceChallengeFromVerifier(verifier),
+    );
+    await expect(
+      redeemHandoffCode(code, "a-different-verifier-entirely-0000000000"),
+    ).rejects.toMatchObject({ code: "unauthenticated" });
+    // The failed attempt must not have consumed the code.
+    await expect(redeemHandoffCode(code, verifier)).resolves.toBeTruthy();
+  });
+
+  it("refuses an expired code", async () => {
+    const code = await createHandoffCode(
+      alice.user.id,
+      pkceChallengeFromVerifier(verifier),
+    );
+    await query("UPDATE native_auth_codes SET expires_at = now() - interval '1 minute'");
+    await expect(redeemHandoffCode(code, verifier)).rejects.toMatchObject({
+      code: "unauthenticated",
+    });
+  });
+
+  it("refuses an unknown code", async () => {
+    await expect(redeemHandoffCode("not-a-real-code", verifier)).rejects.toMatchObject({
+      code: "unauthenticated",
+    });
+  });
+
+  it("only one of two simultaneous redemptions succeeds", async () => {
+    const code = await createHandoffCode(
+      alice.user.id,
+      pkceChallengeFromVerifier(verifier),
+    );
+    const results = await Promise.allSettled([
+      redeemHandoffCode(code, verifier),
+      redeemHandoffCode(code, verifier),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  });
+});
+
+describe("identity linking", () => {
+  it("resolves a second provider with the same verified email to one account", async () => {
+    await linkIdentity(alice.user.id, {
+      provider: "google",
+      subject: "google-123",
+      email: "alice@hospital.org",
+    });
+
+    // The same person signs in later with Apple, same verified address.
+    const found = await findUserForIdentity({
+      provider: "apple",
+      subject: "apple-456",
+      email: "alice@hospital.org",
+    });
+    expect(found).toBe(alice.user.id);
+  });
+
+  it("resolves a returning provider identity even when the email changed", async () => {
+    await linkIdentity(alice.user.id, {
+      provider: "google",
+      subject: "google-123",
+      email: "old.address@hospital.org",
+    });
+    const found = await findUserForIdentity({
+      provider: "google",
+      subject: "google-123",
+      email: "new.address@hospital.org",
+    });
+    expect(found).toBe(alice.user.id);
+  });
+
+  it("returns nothing for a genuinely new person", async () => {
+    expect(
+      await findUserForIdentity({
+        provider: "google",
+        subject: "google-new",
+        email: "stranger@hospital.org",
+      }),
+    ).toBeNull();
+  });
+
+  it("is idempotent", async () => {
+    for (let index = 0; index < 3; index += 1) {
+      await linkIdentity(alice.user.id, {
+        provider: "google",
+        subject: "google-123",
+        email: "alice@hospital.org",
+      });
+    }
+    const rows = await query<{ id: string }>("SELECT id FROM user_identities WHERE user_id = $1", [
+      alice.user.id,
+    ]);
+    expect(rows).toHaveLength(1);
+  });
+});
+
+describe("device registry and push", () => {
+  it("registers a device and pushes to it", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+      appVersion: "1.0.0",
+    });
+    const results = await sendPush({
+      userId: alice.user.id,
+      type: "offer.created",
+      title: "New offer",
+      body: "Bob offered a shift",
+      route: "/trades/abc",
+    });
+    expect(results).toHaveLength(1);
+    expect(transport.sent[0].message.route).toBe("/trades/abc");
+    expect(transport.sent[0].message.category).toBe("offers");
+    expect(transport.sent[0].target.token).toBe("token-abc-1234567890");
+  });
+
+  it("re-registering the same installation updates rather than duplicates", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-1",
+    });
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-2",
+      appVersion: "1.1.0",
+    });
+    const rows = await query<{ push_token: string; app_version: string }>(
+      "SELECT push_token, app_version FROM devices WHERE user_id = $1",
+      [alice.user.id],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].push_token).toBe("token-2");
+    expect(rows[0].app_version).toBe("1.1.0");
+  });
+
+  it("moves a push token when the same phone signs in as somebody else", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "android",
+      pushToken: "shared-token",
+    });
+    await registerDevice(bob.user.id, {
+      installId: "install-1",
+      platform: "android",
+      pushToken: "shared-token",
+    });
+
+    const aliceDevices = await query<{ push_token: string | null }>(
+      "SELECT push_token FROM devices WHERE user_id = $1",
+      [alice.user.id],
+    );
+    expect(aliceDevices[0].push_token).toBeNull();
+
+    // Alice must not receive Bob's notifications.
+    await sendPush({
+      userId: alice.user.id,
+      type: "offer.created",
+      title: "x",
+      body: "y",
+    });
+    expect(transport.sent).toHaveLength(0);
+  });
+
+  it("disables a token the platform rejects permanently", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "android",
+      pushToken: "dead-token-123456",
+    });
+    transport.nextResult = {
+      status: "failed",
+      errorCode: "UNREGISTERED",
+      permanentFailure: true,
+    };
+    await sendPush({ userId: alice.user.id, type: "offer.created", title: "x", body: "y" });
+
+    const rows = await query<{ push_token: string | null; disabled_at: Date | null }>(
+      "SELECT push_token, disabled_at FROM devices WHERE user_id = $1",
+      [alice.user.id],
+    );
+    expect(rows[0].push_token).toBeNull();
+    expect(rows[0].disabled_at).toBeTruthy();
+  });
+
+  it("records every delivery attempt", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+    });
+    await sendPush({ userId: alice.user.id, type: "offer.created", title: "x", body: "y" });
+    const deliveries = await query<{ status: string; provider: string }>(
+      "SELECT status, provider FROM push_deliveries",
+    );
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].status).toBe("sent");
+  });
+
+  it("unregisters a device", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+    });
+    await unregisterDevice(alice.user.id, "install-1");
+    await sendPush({ userId: alice.user.id, type: "offer.created", title: "x", body: "y" });
+    expect(transport.sent).toHaveLength(0);
+  });
+
+  it("honours a category the user switched off", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+    });
+    await setNotificationPreference(alice.user.id, "offers", { push: false });
+
+    await sendPush({ userId: alice.user.id, type: "offer.created", title: "x", body: "y" });
+    expect(transport.sent).toHaveLength(0);
+
+    // A different category still gets through.
+    await sendPush({ userId: alice.user.id, type: "approval.required", title: "x", body: "y" });
+    expect(transport.sent).toHaveLength(1);
+
+    const preferences = await getNotificationPreferences(alice.user.id);
+    expect(preferences.offers.push).toBe(false);
+    expect(preferences.approvals.push).toBe(true);
+  });
+
+  it("never lets a push failure break the caller", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+    });
+    setPushTransport({
+      name: "exploding",
+      configured: true,
+      async send() {
+        throw new Error("provider is down");
+      },
+    });
+    await expect(
+      sendPush({ userId: alice.user.id, type: "offer.created", title: "x", body: "y" }),
+    ).resolves.toEqual([]);
+  });
+});
+
+describe("push is tied to the transaction that caused it", () => {
+  it("sends only after the transaction commits", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+    });
+
+    await withTransaction(async (client) => {
+      await notify(
+        {
+          recipientUserId: alice.user.id,
+          type: "offer.created",
+          title: "Inside the transaction",
+          body: "…",
+        },
+        client,
+      );
+      // Nothing has been sent yet — the trade could still roll back.
+      expect(transport.sent).toHaveLength(0);
+    });
+
+    expect(transport.sent).toHaveLength(1);
+    expect(transport.sent[0].message.title).toBe("Inside the transaction");
+  });
+
+  it("sends nothing when the transaction rolls back", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+    });
+
+    await expect(
+      withTransaction(async (client) => {
+        await notify(
+          {
+            recipientUserId: alice.user.id,
+            type: "switch.completed",
+            title: "Switch completed",
+            body: "…",
+          },
+          client,
+        );
+        throw new Error("validation failed after all");
+      }),
+    ).rejects.toThrow();
+
+    expect(transport.sent).toHaveLength(0);
+    const stored = await query<{ id: string }>("SELECT id FROM notifications");
+    expect(stored).toHaveLength(0);
+  });
+
+  it("pushes a real completed switch to both residents with a deep link", async () => {
+    for (const [user, install] of [
+      [alice.user.id, "install-a"],
+      [bob.user.id, "install-b"],
+    ] as const) {
+      await registerDevice(user, {
+        installId: install,
+        platform: "ios",
+        pushToken: `token-${install}-0000`,
+      });
+    }
+
+    const aliceShift = await createShift(fixture.program, {
+      inDays: 10,
+      residentId: alice.resident.id,
+    });
+    const bobShift = await createShift(fixture.program, {
+      inDays: 17,
+      residentId: bob.resident.id,
+    });
+    const request = await postShiftForTrade(alice.context, { shiftId: aliceShift.id });
+    const { offer } = await createOffer(bob.context, {
+      tradeRequestId: request.id,
+      offeredShiftId: bobShift.id,
+    });
+
+    // Posting the offer notified Alice and deep-links to the trade.
+    const offerPush = transport.sent.find((entry) =>
+      entry.message.title.includes("New offer"),
+    );
+    expect(offerPush?.message.route).toBe(`/trades/${request.id}`);
+
+    transport.sent = [];
+    const outcome = await acceptOffer(alice.context, offer.id);
+    if (outcome.status !== "completed") throw new Error("expected completion");
+
+    const completionPushes = transport.sent.filter((entry) =>
+      entry.message.title.includes("Shift switch completed"),
+    );
+    expect(completionPushes).toHaveLength(2);
+    expect(completionPushes[0].message.route).toBe(
+      `/switches/${outcome.completedTradeId}`,
+    );
+  });
+});
+
+describe("notification deep links", () => {
+  it("routes each entity type to its screen", () => {
+    expect(
+      routeFor({
+        recipientUserId: "u",
+        type: "offer.created",
+        title: "t",
+        relatedEntityType: "trade_request",
+        relatedEntityId: "abc",
+      }),
+    ).toBe("/trades/abc");
+    expect(
+      routeFor({
+        recipientUserId: "u",
+        type: "switch.completed",
+        title: "t",
+        relatedEntityType: "completed_trade",
+        relatedEntityId: "def",
+      }),
+    ).toBe("/switches/def");
+    expect(
+      routeFor({ recipientUserId: "u", type: "shift.changed", title: "t" }),
+    ).toBe("/notifications");
+    expect(
+      routeFor({
+        recipientUserId: "u",
+        type: "offer.created",
+        title: "t",
+        route: "/trades/explicit",
+        relatedEntityType: "trade_offer",
+        relatedEntityId: "zzz",
+      }),
+    ).toBe("/trades/explicit");
+  });
+});
+
+describe("calendar feed", () => {
+  it("serves only the resident's own shifts, and only while the token is live", async () => {
+    await createShift(fixture.program, { inDays: 4, residentId: alice.resident.id });
+    await createShift(fixture.program, { inDays: 5, residentId: bob.resident.id });
+
+    const token = await ensureCalendarFeed(alice.resident.id);
+    const feed = await resolveCalendarFeed(token);
+    expect(feed?.residentId).toBe(alice.resident.id);
+
+    await revokeCalendarFeed(alice.resident.id);
+    expect(await resolveCalendarFeed(token)).toBeNull();
+  });
+
+  it("rotating the link invalidates the previous one", async () => {
+    const first = await ensureCalendarFeed(alice.resident.id);
+    const second = await rotateCalendarFeed(alice.resident.id);
+    expect(second).not.toBe(first);
+    expect(await resolveCalendarFeed(first)).toBeNull();
+    expect(await resolveCalendarFeed(second)).toBeTruthy();
+  });
+
+  it("stores the token hashed, never in the clear", async () => {
+    const token = await ensureCalendarFeed(alice.resident.id);
+    const rows = await query<{ token_hash: string }>("SELECT token_hash FROM calendar_feeds");
+    expect(rows.every((row) => row.token_hash !== token)).toBe(true);
+  });
+
+  it("produces a valid iCalendar document with one event per shift", async () => {
+    await createShift(fixture.program, {
+      inDays: 3,
+      residentId: alice.resident.id,
+      startTime: "19:00",
+      endTime: "07:00",
+      overnight: true,
+    });
+    const shifts = await listResidentSchedule(alice.resident.id, { limit: 10 });
+    const ics = buildCalendar(shifts, {
+      programName: "Test Residency",
+      residentName: "Alice Adeyemi",
+      timezone: fixture.program.timezone,
+      appUrl: "https://shiftswitch.example",
+      reminderMinutes: 60,
+    });
+
+    expect(ics.startsWith("BEGIN:VCALENDAR\r\n")).toBe(true);
+    expect(ics.trimEnd().endsWith("END:VCALENDAR")).toBe(true);
+    expect(ics.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+    expect(ics).toContain(`UID:shift-${shifts[0].id}@shiftswitch`);
+    expect(ics).toContain("BEGIN:VALARM");
+    // Times are published as UTC instants so the phone renders them correctly.
+    expect(ics).toMatch(/DTSTART:\d{8}T\d{6}Z/);
+    // Every line ends CRLF, as RFC 5545 requires.
+    expect(ics.split("\r\n").length).toBeGreaterThan(10);
+    expect(ics.includes("\n\n")).toBe(false);
+  });
+
+  it("escapes text that would otherwise break the format", async () => {
+    const shifts = await listResidentSchedule(alice.resident.id, { limit: 1 });
+    void shifts;
+    const ics = buildCalendar(
+      [
+        {
+          ...(await createShift(fixture.program, {
+            inDays: 2,
+            residentId: alice.resident.id,
+            location: "Ward 6; East, Room 12",
+          })),
+        },
+      ],
+      {
+        programName: "Test",
+        residentName: "Alice",
+        timezone: fixture.program.timezone,
+        appUrl: "https://shiftswitch.example",
+      },
+    );
+    expect(ics).toContain("Ward 6\\; East\\, Room 12");
+  });
+});
+
+describe("account deletion", () => {
+  it("explains what is removed and what is kept", async () => {
+    const preview = await previewAccountDeletion(alice.context);
+    expect(preview.removed.join(" ")).toMatch(/email/i);
+    expect(preview.retained.some((item) => /completed shift switches/i.test(item.item))).toBe(
+      true,
+    );
+    expect(preview.blockers).toHaveLength(0);
+  });
+
+  it("blocks deletion while the resident still holds upcoming shifts", async () => {
+    await createShift(fixture.program, { inDays: 5, residentId: alice.resident.id });
+    const preview = await previewAccountDeletion(alice.context);
+    expect(preview.blockers[0]).toMatch(/upcoming shift/i);
+    await expect(
+      deleteOwnAccount(alice.context, { confirm: "DELETE" }),
+    ).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it("requires the typed confirmation", async () => {
+    await expect(
+      deleteOwnAccount(alice.context, { confirm: "yes" }),
+    ).rejects.toMatchObject({ code: "validation_failed" });
+  });
+
+  it("anonymises the account, ends access, and keeps the operational record", async () => {
+    // A completed switch in the past that the program must keep.
+    const past = await createShift(fixture.program, {
+      inDays: 6,
+      residentId: alice.resident.id,
+    });
+    const bobShift = await createShift(fixture.program, {
+      inDays: 13,
+      residentId: bob.resident.id,
+    });
+    const request = await postShiftForTrade(alice.context, { shiftId: past.id });
+    const { offer } = await createOffer(bob.context, {
+      tradeRequestId: request.id,
+      offeredShiftId: bobShift.id,
+    });
+    await acceptOffer(alice.context, offer.id);
+
+    // After the switch Alice holds Bob's old shift; move it into the past so
+    // deletion is not blocked by an upcoming assignment.
+    await query(
+      `UPDATE shifts SET start_datetime = now() - interval '3 days',
+                        end_datetime = now() - interval '2 days'
+        WHERE id = $1`,
+      [bobShift.id],
+    );
+
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-to-be-removed",
+    });
+    await ensureCalendarFeed(alice.resident.id);
+
+    const result = await deleteOwnAccount(alice.context, {
+      confirm: "DELETE",
+      reason: "Finished residency",
+    });
+    expect(result.status).toBe("completed");
+
+    const user = await queryOne<{
+      email: string;
+      full_name: string;
+      active: boolean;
+      anonymised_at: Date | null;
+      auth_user_id: string | null;
+    }>("SELECT email, full_name, active, anonymised_at, auth_user_id FROM users WHERE id = $1", [
+      alice.user.id,
+    ]);
+    expect(user?.email).not.toContain("alice@hospital.org");
+    expect(user?.full_name).toBe("Former resident");
+    expect(user?.active).toBe(false);
+    expect(user?.anonymised_at).toBeTruthy();
+    expect(user?.auth_user_id).toBeNull();
+
+    expect(await query("SELECT id FROM user_identities WHERE user_id = $1", [alice.user.id])).toHaveLength(0);
+    expect(await query("SELECT id FROM devices WHERE user_id = $1", [alice.user.id])).toHaveLength(0);
+    expect(await query("SELECT id FROM sessions WHERE user_id = $1", [alice.user.id])).toHaveLength(0);
+    expect(
+      await query("SELECT id FROM calendar_feeds WHERE resident_id = $1 AND revoked_at IS NULL", [
+        alice.resident.id,
+      ]),
+    ).toHaveLength(0);
+
+    // The record of who covered which shift survives.
+    const completed = await query<{ id: string }>("SELECT id FROM completed_trades");
+    expect(completed).toHaveLength(1);
+    const audit = await query<{ action: string }>(
+      "SELECT action FROM audit_logs WHERE action = 'user.deactivated'",
+    );
+    expect(audit).toHaveLength(1);
+    const deletionRequest = await queryOne<{ status: string; email_at_request: string }>(
+      "SELECT status, email_at_request FROM account_deletion_requests",
+    );
+    expect(deletionRequest?.status).toBe("completed");
+    expect(deletionRequest?.email_at_request).toBe("alice@hospital.org");
+  });
+});

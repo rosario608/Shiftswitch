@@ -369,6 +369,7 @@ export async function createOffer(
         body: `${context.user.fullName} offered ${shiftLabel(offeredShift, program.timezone)} for your ${shiftLabel(sourceShift, program.timezone)}.`,
         relatedEntityType: "trade_offer",
         relatedEntityId: offer!.id,
+        route: `/trades/${request.id}`,
       },
       client,
     );
@@ -485,6 +486,7 @@ export async function rejectOffer(
         recipientUserId: offeringUserId,
         type: "offer.rejected",
         title: "Your offer was declined",
+        route: `/trades/${request.id}`,
         body: reason?.trim()
           ? reason.trim()
           : "The resident declined your offer. The shift may still be available to other residents.",

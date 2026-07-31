@@ -18,7 +18,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run build",
-    "e2e:fixture": "tsx scripts/e2e-fixture.ts"
+    "e2e:fixture": "tsx scripts/e2e-fixture.ts",
+    "check:release": "tsx scripts/check-release-env.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.5.7",

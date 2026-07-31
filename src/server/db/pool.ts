@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 
 /**
@@ -73,6 +74,29 @@ export async function queryOne<T extends QueryResultRow = QueryResultRow>(
   return rows[0] ?? null;
 }
 
+interface TransactionScope {
+  afterCommit: Array<() => Promise<void>>;
+}
+
+const transactionScope = new AsyncLocalStorage<TransactionScope>();
+
+/**
+ * Registers work that must happen only if the surrounding transaction commits —
+ * sending a push notification, for example. Outside a transaction it runs
+ * immediately. Failures are swallowed: a side effect must never fail the
+ * operation that caused it, and it has already been recorded in the database.
+ */
+export function afterCommit(work: () => Promise<void>): void {
+  const scope = transactionScope.getStore();
+  if (scope) {
+    scope.afterCommit.push(work);
+    return;
+  }
+  void work().catch((error) => {
+    console.error("[db] after-commit work failed", error);
+  });
+}
+
 export type TxOptions = {
   /** Defaults to READ COMMITTED; the trade finaliser uses SERIALIZABLE. */
   isolation?: "read committed" | "repeatable read" | "serializable";
@@ -87,6 +111,7 @@ export async function withTransaction<T>(
   options: TxOptions = {},
 ): Promise<T> {
   const client = await getPool().connect();
+  const scope: TransactionScope = { afterCommit: [] };
   try {
     if (options.isolation) {
       await client.query(
@@ -95,8 +120,15 @@ export async function withTransaction<T>(
     } else {
       await client.query("BEGIN");
     }
-    const result = await fn(client);
+    const result = await transactionScope.run(scope, () => fn(client));
     await client.query("COMMIT");
+    for (const work of scope.afterCommit) {
+      try {
+        await work();
+      } catch (error) {
+        console.error("[db] after-commit work failed", error);
+      }
+    }
     return result;
   } catch (error) {
     try {

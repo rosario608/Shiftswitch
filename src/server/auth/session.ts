@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { getPool, query, queryOne, type Queryable } from "@/server/db/pool";
 import type { ProgramRow, ResidentRow, UserRow } from "@/server/db/types";
 
@@ -46,11 +46,18 @@ function cookieOptions(maxAgeSeconds: number) {
   };
 }
 
-/** Creates a database-backed session and sets the opaque session cookie. */
-export async function createSession(
+/**
+ * Creates a database-backed session and returns the opaque token.
+ *
+ * The web client receives it as an httpOnly cookie; the native client receives
+ * it once, over a custom-scheme redirect, and keeps it in the platform secure
+ * store. Both presentations are the same row, with the same expiry and the same
+ * revocation path — there is no second authentication system.
+ */
+export async function issueSessionToken(
   userId: string,
   meta: { userAgent?: string | null; ip?: string | null } = {},
-): Promise<string> {
+): Promise<{ token: string; expiresAt: Date }> {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 86_400_000);
   await query(
@@ -64,6 +71,15 @@ export async function createSession(
       expiresAt,
     ],
   );
+  return { token, expiresAt };
+}
+
+/** Creates a session and sets the opaque session cookie (web clients). */
+export async function createSession(
+  userId: string,
+  meta: { userAgent?: string | null; ip?: string | null } = {},
+): Promise<string> {
+  const { token } = await issueSessionToken(userId, meta);
   const store = await cookies();
   store.set(SESSION_COOKIE, token, cookieOptions(SESSION_TTL_DAYS * 86_400));
   return token;
@@ -94,10 +110,35 @@ interface SessionJoinRow extends UserRow {
  * client never supplies its own role, program, or resident id.
  */
 export async function getSessionContext(): Promise<SessionContext | null> {
+  const bearer = await bearerToken();
+  if (bearer) return resolveSessionByToken(bearer);
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
   if (!token) return null;
   return resolveSessionByToken(token);
+}
+
+/**
+ * The native client presents its session as `Authorization: Bearer <token>`,
+ * because a WebView served from a custom scheme is cross-origin to the API and
+ * cannot carry a SameSite=Lax cookie.
+ */
+async function bearerToken(): Promise<string | null> {
+  const headerList = await headers();
+  const value = headerList.get("authorization");
+  if (!value) return null;
+  const [scheme, token] = value.split(" ");
+  if (!token || scheme.toLowerCase() !== "bearer") return null;
+  return token.trim() || null;
+}
+
+/** Revokes the caller's session, whichever presentation they used. */
+export async function destroyCurrentSessionAnywhere(): Promise<void> {
+  const bearer = await bearerToken();
+  if (bearer) {
+    await query("DELETE FROM sessions WHERE token_hash = $1", [hashToken(bearer)]);
+  }
+  await destroyCurrentSession();
 }
 
 export async function resolveSessionByToken(
@@ -160,6 +201,8 @@ export interface OAuthStateCookie {
   nonce: string;
   codeVerifier: string;
   returnTo: string;
+  /** Set when the native app started the flow; carries its PKCE challenge. */
+  nativeChallenge?: string;
 }
 
 export async function setOAuthStateCookie(

@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { getSessionContext, destroyCurrentSession } from "@/server/auth/session";
+import {
+  getSessionContext,
+  destroyCurrentSession,
+  destroyCurrentSessionAnywhere,
+} from "@/server/auth/session";
 import { recordAudit } from "@/server/domain/audit";
 import { apiHandler, ok } from "@/server/http/api";
 
@@ -17,7 +21,7 @@ export const POST = apiHandler(async () => {
       entityId: context.user.id,
     });
   }
-  await destroyCurrentSession();
+  await destroyCurrentSessionAnywhere();
   return ok({ signedOut: true });
 });
 

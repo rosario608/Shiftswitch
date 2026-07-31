@@ -1,5 +1,6 @@
-import { getPool, query, type Queryable } from "@/server/db/pool";
+import { afterCommit, getPool, query, type Queryable } from "@/server/db/pool";
 import type { NotificationRow } from "@/server/db/types";
+import { sendPush } from "./push";
 
 export type NotificationType =
   | "offer.created"
@@ -22,6 +23,27 @@ export interface NotificationInput {
   body?: string;
   relatedEntityType?: string;
   relatedEntityId?: string | null;
+  /**
+   * Where tapping the notification should land in the app. When absent it is
+   * derived from the related entity.
+   */
+  route?: string;
+}
+
+/** Deep-link target for a notification, so a tap opens the right screen. */
+export function routeFor(input: NotificationInput): string {
+  if (input.route) return input.route;
+  if (!input.relatedEntityId) return "/notifications";
+  switch (input.relatedEntityType) {
+    case "trade_request":
+      return `/trades/${input.relatedEntityId}`;
+    case "completed_trade":
+      return `/switches/${input.relatedEntityId}`;
+    case "shift":
+      return `/schedule/${input.relatedEntityId}`;
+    default:
+      return "/notifications";
+  }
 }
 
 export async function notify(
@@ -43,13 +65,30 @@ export async function notify(
     );
     return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`;
   });
-  await query(
+  const inserted = await query<{ id: string; recipient_user_id: string }>(
     `INSERT INTO notifications
        (recipient_user_id, type, title, body, related_entity_type, related_entity_id)
-     VALUES ${tuples.join(", ")}`,
+     VALUES ${tuples.join(", ")}
+     RETURNING id, recipient_user_id`,
     values,
     executor,
   );
+
+  // Push only once the surrounding transaction has committed: a rolled-back
+  // trade must never produce "your switch is complete" on someone's phone.
+  inserted.forEach((row, index) => {
+    const item = items[index];
+    afterCommit(async () => {
+      await sendPush({
+        userId: item.recipientUserId,
+        type: item.type,
+        title: item.title,
+        body: item.body ?? "",
+        route: routeFor(item),
+        notificationId: row.id,
+      });
+    });
+  });
 }
 
 export async function listNotifications(

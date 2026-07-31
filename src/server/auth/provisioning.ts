@@ -1,6 +1,7 @@
 import { queryOne, withTransaction } from "@/server/db/pool";
 import type { ProgramRow, UserRow } from "@/server/db/types";
 import { recordAudit } from "@/server/domain/audit";
+import { linkIdentity } from "@/server/domain/account";
 import type { VerifiedIdentity } from "./oidc";
 
 /**
@@ -111,6 +112,13 @@ export async function provisionUserFromIdentity(
         },
         client,
       );
+      // Record the provider identity so signing in again — or through another
+      // provider with the same verified address — resolves to this same account.
+      await linkIdentity(
+        existing.id,
+        { provider: "google", subject: identity.subject, email: identity.email },
+        client,
+      );
       return { outcome: "ok" as const, user: updated as UserRow };
     }
 
@@ -164,6 +172,11 @@ export async function provisionUserFromIdentity(
         newState: { email: identity.email, role },
         reason: isBootstrap ? "bootstrap_admin" : "first_google_login",
       },
+      client,
+    );
+    await linkIdentity(
+      created!.id,
+      { provider: "google", subject: identity.subject, email: identity.email },
       client,
     );
     return { outcome: "ok" as const, user: created as UserRow };

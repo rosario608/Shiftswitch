@@ -13,6 +13,9 @@ export const dynamic = "force-dynamic";
 /** Kicks off Google sign-in: generates state/nonce/PKCE and redirects. */
 export async function GET(request: Request) {
   const url = new URL(request.url);
+  // The native app starts the same flow, but finishes on a custom scheme with
+  // a one-time code instead of a session cookie.
+  const nativeChallenge = url.searchParams.get("nativeChallenge") ?? undefined;
   const rawReturnTo = url.searchParams.get("returnTo") ?? "/";
   // Only same-origin relative paths may be used as a post-login destination.
   const returnTo = rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//")
@@ -24,7 +27,13 @@ export async function GET(request: Request) {
     const state = randomUrlSafe();
     const nonce = randomUrlSafe();
     const codeVerifier = randomUrlSafe(48);
-    await setOAuthStateCookie({ state, nonce, codeVerifier, returnTo });
+    await setOAuthStateCookie({
+      state,
+      nonce,
+      codeVerifier,
+      returnTo,
+      nativeChallenge,
+    });
     return NextResponse.redirect(
       buildAuthorizationUrl(config, { state, nonce, codeVerifier }),
     );

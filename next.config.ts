@@ -8,6 +8,20 @@ const nextConfig: NextConfig = {
   // The dev overlay indicator sits on top of the bottom navigation on a phone
   // viewport, so it is hidden; compile and runtime errors still surface.
   devIndicators: false,
+  async rewrites() {
+    // Deep-link association files must live at /.well-known with exact content
+    // types; they are generated from environment configuration.
+    return [
+      {
+        source: "/.well-known/assetlinks.json",
+        destination: "/api/well-known/assetlinks",
+      },
+      {
+        source: "/.well-known/apple-app-site-association",
+        destination: "/api/well-known/apple-app-site-association",
+      },
+    ];
+  },
   async headers() {
     return [
       {
