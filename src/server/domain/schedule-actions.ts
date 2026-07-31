@@ -27,6 +27,26 @@ export async function listOfferableForPosting(
   );
 }
 
+/**
+ * Why a shift cannot be posted for trade right now, or null when it can be.
+ * Lives here rather than in a component so that "now" is read outside render.
+ */
+export function describePostingBlock(
+  shift: Pick<ShiftDetail, "tradeable" | "status" | "start_datetime" | "trade_deadline">,
+  now: Date = new Date(),
+): string | null {
+  if (!shift.tradeable) return "Your program has marked this shift non-tradeable.";
+  if (shift.status === "cancelled") return "This shift has been cancelled.";
+  if (shift.status === "completed") return "This shift has already been worked.";
+  if (shift.start_datetime.getTime() <= now.getTime()) {
+    return "This shift has already started.";
+  }
+  if (shift.trade_deadline && shift.trade_deadline.getTime() <= now.getTime()) {
+    return "The trade deadline for this shift has passed.";
+  }
+  return null;
+}
+
 export async function listServices(
   programId: string,
   executor: Queryable = getPool(),

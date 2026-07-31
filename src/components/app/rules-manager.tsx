@@ -116,19 +116,27 @@ export function RulesManager({
         ))}
       </ul>
 
-      <RuleSheet
-        open={creating}
-        onClose={() => setCreating(false)}
-        ruleTypes={ruleTypes}
-        services={services}
-      />
-      <RuleSheet
-        open={Boolean(editing)}
-        onClose={() => setEditing(null)}
-        ruleTypes={ruleTypes}
-        services={services}
-        rule={editing}
-      />
+      {/* `key` remounts the sheet so its fields start from the chosen rule —
+          no state syncing effect required. */}
+      {creating ? (
+        <RuleSheet
+          key="new-rule"
+          open
+          onClose={() => setCreating(false)}
+          ruleTypes={ruleTypes}
+          services={services}
+        />
+      ) : null}
+      {editing ? (
+        <RuleSheet
+          key={editing.id}
+          open
+          onClose={() => setEditing(null)}
+          ruleTypes={ruleTypes}
+          services={services}
+          rule={editing}
+        />
+      ) : null}
     </div>
   );
 }
@@ -158,19 +166,6 @@ function RuleSheet({
   const [scopeId, setScopeId] = React.useState(rule?.scope_id ?? "");
   const [overridable, setOverridable] = React.useState(rule?.overridable ?? true);
   const [paramsError, setParamsError] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    if (!open) return;
-    setRuleType(rule?.rule_type ?? ruleTypes[0]?.type ?? "");
-    setName(rule?.name ?? "");
-    setDescription(rule?.description ?? "");
-    setParams(JSON.stringify(rule?.params ?? {}, null, 2));
-    setSeverity(rule?.severity ?? "error");
-    setScope(rule?.scope ?? "program");
-    setScopeId(rule?.scope_id ?? "");
-    setOverridable(rule?.overridable ?? true);
-    setParamsError(null);
-  }, [open, rule, ruleTypes]);
 
   const save = useAction(
     async () => {

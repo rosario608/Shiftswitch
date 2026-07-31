@@ -1469,6 +1469,8 @@ export interface TradeRequestDetail extends TradeRequestRow {
   shift: ShiftDetail;
   initiator_name: string;
   initiator_user_id: string;
+  /** Computed on read so pages do not have to consult the clock while rendering. */
+  expired: boolean;
   offers: Array<
     TradeOfferRow & {
       offered_shift: ShiftDetail;
@@ -1519,6 +1521,7 @@ export async function getTradeRequestDetail(
   return {
     ...request,
     shift,
+    expired: request.expires_at.getTime() <= Date.now(),
     offers: offerRows
       .filter((offer) => shiftById.has(offer.offered_shift_id))
       .map((offer) => ({

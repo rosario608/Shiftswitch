@@ -42,7 +42,7 @@ export default async function TradeDetailPage({
   const pendingOffers = trade.offers.filter((offer) =>
     ["pending", "accepted"].includes(offer.status),
   );
-  const expired = trade.expires_at.getTime() <= Date.now();
+  const expired = trade.expired;
   const closed = ["completed", "cancelled", "expired"].includes(trade.status);
 
   const completed = closed

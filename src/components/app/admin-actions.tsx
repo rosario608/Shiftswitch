@@ -100,6 +100,14 @@ export function ApprovalActions({
   return (
     <div className="space-y-2">
       {approve.error ? <Alert tone="error">{approve.error}</Alert> : null}
+      <Field label="Notes for both residents (optional)" htmlFor={`notes-${tradeRequestId}`}>
+        <Input
+          id={`notes-${tradeRequestId}`}
+          value={notes}
+          onChange={(event) => setNotes(event.target.value)}
+          placeholder="Recorded with the approval"
+        />
+      </Field>
       <div className="flex gap-2">
         <Button variant="secondary" block onClick={() => setRejecting(true)}>
           Reject

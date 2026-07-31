@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Download } from "lucide-react";
 import { Card, CardBody } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -75,7 +76,7 @@ export default async function SchedulePage({
       </Card>
 
       <div className="flex gap-2">
-        <a
+        <Link
           href="/schedule"
           aria-current={!showPast ? "page" : undefined}
           className={`min-h-[2.5rem] flex-1 rounded-xl px-4 py-2 text-center text-sm font-semibold ${
@@ -83,8 +84,8 @@ export default async function SchedulePage({
           }`}
         >
           Upcoming
-        </a>
-        <a
+        </Link>
+        <Link
           href="/schedule?past=1"
           aria-current={showPast ? "page" : undefined}
           className={`min-h-[2.5rem] flex-1 rounded-xl px-4 py-2 text-center text-sm font-semibold ${
@@ -92,7 +93,7 @@ export default async function SchedulePage({
           }`}
         >
           All shifts
-        </a>
+        </Link>
       </div>
 
       {shifts.length === 0 ? (

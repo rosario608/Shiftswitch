@@ -8,7 +8,10 @@ import { PostShiftButton } from "@/components/app/post-shift-sheet";
 import { requirePageUser } from "@/server/auth/page-guards";
 import { queryOne } from "@/server/db/pool";
 import { getShiftDetail } from "@/server/domain/schedule";
-import { listOfferableForPosting } from "@/server/domain/schedule-actions";
+import {
+  describePostingBlock,
+  listOfferableForPosting,
+} from "@/server/domain/schedule-actions";
 import { isUuid } from "@/lib/cn";
 import { toShiftView } from "@/lib/views";
 
@@ -42,15 +45,7 @@ export default async function ShiftDetailPage({
     [shiftId],
   );
 
-  const blockReason = !shift.tradeable
-    ? "Your program has marked this shift non-tradeable."
-    : shift.status === "cancelled"
-      ? "This shift has been cancelled."
-      : shift.status === "completed"
-        ? "This shift has already been worked."
-        : shift.start_datetime.getTime() <= Date.now()
-          ? "This shift has already started."
-          : null;
+  const blockReason = describePostingBlock(shift);
 
   return (
     <div className="space-y-5">

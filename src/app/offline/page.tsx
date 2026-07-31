@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { WifiOff } from "lucide-react";
 
 export const metadata = { title: "Offline" };
@@ -16,12 +17,12 @@ export default function OfflinePage() {
         Schedule changes require an internet connection. Your schedule and trades will
         load as soon as you&rsquo;re back online.
       </p>
-      <a
+      <Link
         href="/"
         className="mt-6 inline-flex min-h-[2.75rem] items-center justify-center rounded-xl bg-brand px-5 font-semibold text-white"
       >
         Try again
-      </a>
+      </Link>
     </main>
   );
 }

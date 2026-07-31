@@ -76,12 +76,18 @@ export function ContactsManager({ contacts }: { contacts: ContactRecord[] }) {
         ))}
       </ul>
 
-      <ContactSheet open={creating} onClose={() => setCreating(false)} />
-      <ContactSheet
-        open={Boolean(editing)}
-        onClose={() => setEditing(null)}
-        contact={editing}
-      />
+      {/* `key` remounts the sheet so its fields start from the chosen contact. */}
+      {creating ? (
+        <ContactSheet key="new-contact" open onClose={() => setCreating(false)} />
+      ) : null}
+      {editing ? (
+        <ContactSheet
+          key={editing.id}
+          open
+          onClose={() => setEditing(null)}
+          contact={editing}
+        />
+      ) : null}
     </div>
   );
 }
@@ -103,15 +109,6 @@ function ContactSheet({
   );
   const [notifyRole, setNotifyRole] = React.useState(contact?.notify_role ?? "to");
   const [active, setActive] = React.useState(contact?.active ?? true);
-
-  React.useEffect(() => {
-    if (!open) return;
-    setName(contact?.name ?? "");
-    setEmail(contact?.email ?? "");
-    setContactType(contact?.contact_type ?? "program_coordinator");
-    setNotifyRole(contact?.notify_role ?? "to");
-    setActive(contact?.active ?? true);
-  }, [open, contact]);
 
   const save = useAction(
     async () => {

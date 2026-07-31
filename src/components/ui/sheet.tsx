@@ -31,10 +31,7 @@ export function Sheet({
 }) {
   const panelRef = React.useRef<HTMLDivElement>(null);
   const previouslyFocused = React.useRef<HTMLElement | null>(null);
-  const [mounted, setMounted] = React.useState(false);
   const titleId = React.useId();
-
-  React.useEffect(() => setMounted(true), []);
 
   React.useEffect(() => {
     if (!open) return;
@@ -81,7 +78,9 @@ export function Sheet({
     };
   }, [open, onClose]);
 
-  if (!mounted || !open) return null;
+  // A sheet is only ever opened by user interaction, so it never renders during
+  // server rendering or hydration.
+  if (!open || typeof document === "undefined") return null;
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">

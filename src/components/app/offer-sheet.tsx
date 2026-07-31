@@ -59,19 +59,26 @@ export function OfferShiftSheet({
   const [loading, setLoading] = React.useState(false);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
-    if (!open || candidates || loading) return;
+  async function openSheet() {
+    setOpen(true);
+    if (candidates || loading) return;
     setLoading(true);
     setLoadError(null);
-    apiFetch<{ candidates: Candidate[] }>(`/api/trades/${tradeRequestId}/candidates`)
-      .then((result) => {
-        setCandidates(result.candidates);
-        const firstEligible = result.candidates.find((candidate) => candidate.eligible);
-        setSelectedId(firstEligible?.shift.id ?? null);
-      })
-      .catch((error: Error) => setLoadError(error.message))
-      .finally(() => setLoading(false));
-  }, [open, candidates, loading, tradeRequestId]);
+    try {
+      const result = await apiFetch<{ candidates: Candidate[] }>(
+        `/api/trades/${tradeRequestId}/candidates`,
+      );
+      setCandidates(result.candidates);
+      const firstEligible = result.candidates.find((candidate) => candidate.eligible);
+      setSelectedId(firstEligible?.shift.id ?? null);
+    } catch (error) {
+      setLoadError(
+        error instanceof Error ? error.message : "We couldn't check your shifts.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const selected = candidates?.find((candidate) => candidate.shift.id === selectedId) ?? null;
 
@@ -91,7 +98,7 @@ export function OfferShiftSheet({
 
   return (
     <>
-      <Button block onClick={() => setOpen(true)} disabled={Boolean(disabledReason)}>
+      <Button block onClick={openSheet} disabled={Boolean(disabledReason)}>
         <HandCoins className="h-4 w-4" aria-hidden="true" />
         Offer my shift
       </Button>
