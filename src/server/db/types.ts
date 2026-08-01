@@ -66,6 +66,13 @@ export interface UserRow {
   role: UserRole | null;
   program_id: string | null;
   active: boolean;
+  /**
+   * `confirmed` for every account that was invited or created by leadership.
+   * `pending` only for somebody who joined by an enrollment link without a
+   * recognised email domain: they hold their own schedule and see nothing about
+   * anybody else until admitted.
+   */
+  enrollment_status: "confirmed" | "pending";
   last_login_at: Date | null;
   created_at: Date;
   updated_at: Date;

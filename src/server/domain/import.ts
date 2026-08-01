@@ -1,21 +1,63 @@
+import { randomUUID } from "node:crypto";
 import { parse } from "csv-parse/sync";
 import ExcelJS from "exceljs";
-import { query, queryOne, withTransaction } from "@/server/db/pool";
+import { query, withTransaction, type Queryable } from "@/server/db/pool";
 import type { AuthedContext } from "@/server/auth/guards";
+import { can } from "@/server/auth/roles";
 import { validationFailed } from "@/server/http/errors";
 import { recordAudit } from "./audit";
+import { holdRow, matchKey } from "./held-rows";
+import {
+  placeShift,
+  resolveRotationId,
+  resolveServiceId,
+  type ShiftProvenance,
+} from "./shift-write";
 import { InvalidZonedTimeError, zonedWallTimeToInstant } from "./time";
 
 /**
  * Schedule import.
  *
  * The file is parsed and validated in full before anything is written. If a
- * single row fails, the whole import is refused and the production schedule is
- * untouched. A successful import runs inside one transaction.
+ * single row is *malformed*, the whole import is refused and the production
+ * schedule is untouched. A successful import runs inside one transaction.
+ *
+ * ## The interchange format
+ *
+ *   Resident, PGY, Date, Start, End, Service, Rotation, Shift type, Location, Status
+ *
+ * Every column a programme's published schedule actually carries, and nothing
+ * it does not. `parseScheduleFile` still accepts the aliases other systems
+ * export (`Resident Email`, `Start time`, `Overnight`, `Type`), because a
+ * coordinator should not have to rename columns before their own file will
+ * load.
+ *
+ * ## A row naming somebody who has not joined is not an error
+ *
+ * It used to be: the import refused the file and told the administrator to
+ * invite everybody first. That is the wrong order for a programme that has the
+ * block file today and whose residents arrive over the next fortnight. Those
+ * rows are now *held* — see `./held-rows.ts` — listed as unmatched, and turned
+ * into shifts the moment that person enrolls.
+ *
+ * Malformed rows still stop everything. "This date is not a date" and "this
+ * person has not signed in yet" are different kinds of fact, and only the first
+ * means the file is wrong.
+ *
+ * ## A position's hours are a hint, never an inheritance
+ *
+ * A row whose Start or End is blank is filled in from the position's suggested
+ * default, and only when somebody has *confirmed* that default. An assumed one
+ * generates nothing: the row is reported, with the hours the product would have
+ * guessed, so the administrator can confirm the position or correct the file.
+ * The shift that results still stores its own start and end — the default is
+ * copied at import, never referenced afterwards, because one emergency-medicine
+ * code in a single real week runs 10a–6p, 3p–11p, 7p–7a and 7a–7p.
  */
 
 export interface ImportRow {
-  residentEmail: string;
+  /** Either an email or a name identifies the person. Files carry one or both. */
+  residentEmail?: string;
   residentName?: string;
   pgy?: number;
   date: string;
@@ -26,6 +68,10 @@ export interface ImportRow {
   rotation?: string;
   shiftType?: string;
   location?: string;
+  /** The tenth column: what the programme says about this row's standing. */
+  status?: string;
+  /** Which position within the service, when the file distinguishes them. */
+  position?: string;
 }
 
 export interface ImportIssue {
@@ -34,13 +80,24 @@ export interface ImportIssue {
   message: string;
 }
 
+/** Somebody the file names who has not joined the program. */
+export interface UnmatchedPreview {
+  name: string;
+  email: string;
+  rows: number;
+}
+
 export interface ImportPreview {
   rows: ImportRow[];
   issues: ImportIssue[];
   summary: {
     totalRows: number;
     validRows: number;
-    newResidents: string[];
+    /** People the file names who have not joined. Their rows are held, not lost. */
+    unmatched: UnmatchedPreview[];
+    heldRows: number;
+    /** Rows whose hours came from a confirmed position rather than from the file. */
+    hoursFilledIn: number;
     newServices: string[];
     newRotations: string[];
     dateRange: { from: string; to: string } | null;
@@ -67,7 +124,42 @@ const HEADER_ALIASES: Record<string, keyof ImportRow> = {
   "shift type": "shiftType",
   type: "shiftType",
   location: "location",
+  status: "status",
+  "shift status": "status",
+  position: "position",
+  role: "position",
 };
+
+/**
+ * What a Status cell means, and what it may do.
+ *
+ * `confirmed` is the only value that claims the programme has vouched for a
+ * row, so it is the only one gated: a file cannot confer an authority its
+ * uploader does not hold. Anything unrecognised imports as an ordinary imported
+ * shift rather than failing the file — a coordinator's own vocabulary in a
+ * column the product invented is not a defect in their schedule.
+ */
+const STATUS_WORDS: Record<string, "confirmed" | "provisional" | "cancelled"> = {
+  confirmed: "confirmed",
+  final: "confirmed",
+  published: "confirmed",
+  approved: "confirmed",
+  draft: "provisional",
+  tentative: "provisional",
+  provisional: "provisional",
+  proposed: "provisional",
+  planned: "provisional",
+  cancelled: "cancelled",
+  canceled: "cancelled",
+  removed: "cancelled",
+  deleted: "cancelled",
+};
+
+function readStatus(value: string | undefined): "confirmed" | "provisional" | "cancelled" | null {
+  const text = (value ?? "").trim().toLowerCase();
+  if (!text) return null;
+  return STATUS_WORDS[text] ?? null;
+}
 
 function normaliseHeader(header: string): keyof ImportRow | null {
   return HEADER_ALIASES[header.trim().toLowerCase()] ?? null;
@@ -152,6 +244,137 @@ export async function parseScheduleFile(
   }) as Array<Record<string, string>>;
 }
 
+/**
+ * Everybody in the program, indexed both ways a file can name them.
+ *
+ * Loaded once rather than queried per row: a block file is four weeks of a
+ * whole class, and the same twenty names repeat three hundred times.
+ */
+export interface ResidentIndex {
+  byEmail: Map<string, { id: string; name: string }>;
+  byName: Map<string, { id: string; name: string }>;
+}
+
+export async function loadResidentIndex(
+  programId: string,
+  executor?: Queryable,
+): Promise<ResidentIndex> {
+  const people = await query<{ id: string; email: string; full_name: string }>(
+    `SELECT r.id, lower(u.email) AS email, u.full_name
+       FROM residents r JOIN users u ON u.id = r.user_id
+      WHERE r.program_id = $1 AND r.active`,
+    [programId],
+    executor,
+  );
+  const byEmail = new Map<string, { id: string; name: string }>();
+  const byName = new Map<string, { id: string; name: string }>();
+  const ambiguous = new Set<string>();
+  for (const person of people) {
+    byEmail.set(person.email, { id: person.id, name: person.full_name });
+    const key = matchKey(person.full_name);
+    if (!key) continue;
+    /* Two residents whose names normalise to the same key are not matchable by
+       name at all. Holding both their rows and showing the administrator the
+       name the file used is right; picking one of them is not. */
+    if (byName.has(key)) ambiguous.add(key);
+    byName.set(key, { id: person.id, name: person.full_name });
+  }
+  for (const key of ambiguous) byName.delete(key);
+  return { byEmail, byName };
+}
+
+/** The resident a row names, or null when nobody in the program matches. */
+export function matchResident(
+  index: ResidentIndex,
+  row: { residentEmail?: string; residentName?: string },
+): { id: string; name: string } | null {
+  const email = (row.residentEmail ?? "").trim().toLowerCase();
+  if (email) {
+    const byEmail = index.byEmail.get(email);
+    if (byEmail) return byEmail;
+    /* An address the program does not have is not a name to fall back on: the
+       file is asserting a specific person, and guessing past that is how one
+       resident's call lands on another. */
+    return null;
+  }
+  const key = matchKey(row.residentName ?? "");
+  return key ? (index.byName.get(key) ?? null) : null;
+}
+
+interface PositionDefault {
+  id: string;
+  name: string;
+  serviceName: string;
+  defaultStart: string | null;
+  defaultMinutes: number | null;
+  defaultShiftType: string;
+  provenance: "stated" | "assumed" | "confirmed";
+}
+
+/**
+ * The suggested hours a position carries, indexed by every name a file might
+ * use for it: the position's own name, its short name, and the service's name
+ * when that service has exactly one position (which is the common case, and the
+ * reason a file can get away with a Service column alone).
+ */
+async function loadPositionDefaults(
+  programId: string,
+  executor?: Queryable,
+): Promise<Map<string, PositionDefault>> {
+  const positions = await query<{
+    id: string;
+    name: string;
+    short_name: string;
+    service_name: string;
+    default_start: string | null;
+    default_minutes: number | null;
+    default_shift_type: string;
+    provenance: "stated" | "assumed" | "confirmed";
+  }>(
+    `SELECT p.id, p.name, p.short_name, s.name AS service_name,
+            to_char(p.default_start, 'HH24:MI') AS default_start,
+            p.default_minutes, p.default_shift_type, p.provenance
+       FROM positions p JOIN services s ON s.id = p.service_id
+      WHERE p.program_id = $1 AND p.active`,
+    [programId],
+    executor,
+  );
+
+  const index = new Map<string, PositionDefault>();
+  const perService = new Map<string, number>();
+  for (const position of positions) {
+    const key = position.service_name.toLowerCase();
+    perService.set(key, (perService.get(key) ?? 0) + 1);
+  }
+  for (const position of positions) {
+    const entry: PositionDefault = {
+      id: position.id,
+      name: position.name,
+      serviceName: position.service_name,
+      defaultStart: position.default_start,
+      defaultMinutes: position.default_minutes,
+      defaultShiftType: position.default_shift_type,
+      provenance: position.provenance,
+    };
+    index.set(position.name.toLowerCase(), entry);
+    if (position.short_name) index.set(position.short_name.toLowerCase(), entry);
+    if (perService.get(position.service_name.toLowerCase()) === 1) {
+      index.set(position.service_name.toLowerCase(), entry);
+    }
+  }
+  return index;
+}
+
+/** `HH:MM` plus a number of minutes, wrapped into the following day if it runs over. */
+function addMinutes(time: string, minutes: number): { time: string; nextDay: boolean } {
+  const total = Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5)) + minutes;
+  const wrapped = ((total % 1440) + 1440) % 1440;
+  return {
+    time: `${String(Math.floor(wrapped / 60)).padStart(2, "0")}:${String(wrapped % 60).padStart(2, "0")}`,
+    nextDay: total >= 1440,
+  };
+}
+
 export async function validateImport(
   context: AuthedContext,
   records: Array<Record<string, string>>,
@@ -179,22 +402,15 @@ export async function validateImport(
       )
     ).map((row) => [row.name.toLowerCase(), row.id]),
   );
-  const residents = new Map(
-    (
-      await query<{ id: string; email: string }>(
-        `SELECT r.id, lower(u.email) AS email
-           FROM residents r JOIN users u ON u.id = r.user_id
-          WHERE r.program_id = $1`,
-        [context.program.id],
-      )
-    ).map((row) => [row.email, row.id]),
-  );
+  const residentIndex = await loadResidentIndex(context.program.id);
+  const positions = await loadPositionDefaults(context.program.id);
 
-  const newResidents = new Set<string>();
+  const unmatched = new Map<string, UnmatchedPreview>();
   const newServices = new Set<string>();
   const newRotations = new Set<string>();
   let minDate: string | null = null;
   let maxDate: string | null = null;
+  let hoursFilledIn = 0;
 
   records.forEach((record, index) => {
     const rowNumber = index + 2; // 1-based, accounting for the header row
@@ -215,12 +431,30 @@ export async function validateImport(
     }
 
     const email = (mapped.residentEmail ?? "").toLowerCase();
-    if (!email) {
-      issues.push({ row: rowNumber, column: "Email", message: "Resident email is required." });
-    } else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-      issues.push({ row: rowNumber, column: "Email", message: `"${email}" is not a valid email address.` });
-    } else if (!residents.has(email)) {
-      newResidents.add(email);
+    const residentName = (mapped.residentName ?? "").trim();
+    if (!email && !residentName) {
+      issues.push({
+        row: rowNumber,
+        column: "Resident",
+        message: "Every row needs the resident's name, their email address, or both.",
+      });
+    } else if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      issues.push({
+        row: rowNumber,
+        column: "Resident",
+        message: `"${email}" is not a valid email address.`,
+      });
+    }
+
+    const status = readStatus(mapped.status);
+    if (mapped.status && !status) {
+      /* Not an error. The programme's own word for a row's standing is not a
+         defect in their schedule, and the row still describes a real shift. */
+      issues.push({
+        row: rowNumber,
+        column: "Status",
+        message: `"${mapped.status}" is not a status this recognises, so this row will be imported as an ordinary shift. Recognised: confirmed, draft, cancelled.`,
+      });
     }
 
     const date = normaliseDate(mapped.date ?? "");
@@ -232,23 +466,51 @@ export async function validateImport(
       });
     }
 
+    /* Blank hours are filled from the position's suggested default — but only a
+       confirmed one. An assumed default has not been checked by anybody, and
+       generating three hundred shifts from a guess is exactly what item 8 of
+       this work forbids. */
+    const positionKey = (mapped.position || mapped.service || "").toLowerCase();
+    const suggestion = positions.get(positionKey);
+    if (!mapped.startTime && suggestion?.defaultStart) {
+      if (suggestion.provenance === "assumed") {
+        issues.push({
+          row: rowNumber,
+          column: "Start",
+          message: `This row has no hours, and the suggested hours for ${suggestion.name} (${suggestion.defaultStart}) have not been confirmed by anybody. Confirm them under Services, or put the times in the file.`,
+        });
+      } else {
+        mapped.startTime = suggestion.defaultStart;
+        hoursFilledIn += 1;
+        if (!mapped.endTime && suggestion.defaultMinutes) {
+          const finish = addMinutes(suggestion.defaultStart, suggestion.defaultMinutes);
+          mapped.endTime = finish.time;
+          mapped.endsNextDay = mapped.endsNextDay ?? finish.nextDay;
+        }
+        if (!mapped.shiftType) mapped.shiftType = suggestion.defaultShiftType;
+      }
+    }
+
     const startTime = normaliseTime(mapped.startTime ?? "");
     if (!startTime) {
       issues.push({
         row: rowNumber,
-        column: "Start time",
-        message: `"${mapped.startTime ?? ""}" is not a valid time (use HH:MM).`,
+        column: "Start",
+        message: mapped.startTime
+          ? `"${mapped.startTime}" is not a valid time (use HH:MM).`
+          : "This row has no start time, and no confirmed position supplies one.",
       });
     }
     const endTime = normaliseTime(mapped.endTime ?? "");
     if (!endTime) {
       issues.push({
         row: rowNumber,
-        column: "End time",
-        message: `"${mapped.endTime ?? ""}" is not a valid time (use HH:MM).`,
+        column: "End",
+        message: mapped.endTime
+          ? `"${mapped.endTime}" is not a valid time (use HH:MM).`
+          : "This row has no end time, and no confirmed position supplies one.",
       });
     }
-
     if (!mapped.service) {
       issues.push({ row: rowNumber, column: "Service", message: "Service is required." });
     } else if (!services.has(mapped.service.toLowerCase())) {
@@ -287,12 +549,36 @@ export async function validateImport(
         });
       }
 
+      /* Who this row is for. Nobody is not an error — it is a held row, and
+         `unmatched` is what the administrator is shown so they can see whose
+         schedule is waiting rather than wondering what the import dropped. */
+      if (email || residentName) {
+        const person = matchResident(residentIndex, {
+          residentEmail: email,
+          residentName,
+        });
+        if (!person) {
+          const key = email || matchKey(residentName);
+          const already = unmatched.get(key);
+          if (already) {
+            already.rows += 1;
+            if (!already.email && email) already.email = email;
+          } else {
+            unmatched.set(key, {
+              name: residentName || email,
+              email,
+              rows: 1,
+            });
+          }
+        }
+      }
+
       if (!minDate || date < minDate) minDate = date;
       if (!maxDate || date > maxDate) maxDate = date;
 
       rows.push({
-        residentEmail: email,
-        residentName: mapped.residentName,
+        residentEmail: email || undefined,
+        residentName: residentName || undefined,
         pgy: mapped.pgy,
         date,
         startTime,
@@ -302,6 +588,8 @@ export async function validateImport(
         rotation: mapped.rotation,
         shiftType: mapped.shiftType || (endsNextDay ? "night" : "day"),
         location: mapped.location ?? "",
+        status: mapped.status,
+        position: mapped.position,
       });
     }
   });
@@ -309,7 +597,8 @@ export async function validateImport(
   // Duplicate detection inside the file itself.
   const seen = new Set<string>();
   rows.forEach((row, index) => {
-    const key = `${row.residentEmail}|${row.date}|${row.startTime}|${row.service}`;
+    const who = row.residentEmail || matchKey(row.residentName ?? "");
+    const key = `${who}|${row.date}|${row.startTime}|${row.service}`;
     if (seen.has(key)) {
       issues.push({
         row: index + 2,
@@ -320,13 +609,17 @@ export async function validateImport(
     seen.add(key);
   });
 
+  const heldRows = [...unmatched.values()].reduce((total, person) => total + person.rows, 0);
+
   return {
     rows,
     issues,
     summary: {
       totalRows: records.length,
       validRows: issues.length === 0 ? rows.length : 0,
-      newResidents: [...newResidents],
+      unmatched: [...unmatched.values()].sort((a, b) => a.name.localeCompare(b.name)),
+      heldRows,
+      hoursFilledIn,
       newServices: [...newServices],
       newRotations: [...newRotations],
       dateRange: minDate && maxDate ? { from: minDate, to: maxDate } : null,
@@ -339,6 +632,13 @@ export interface ImportResult {
   createdServices: number;
   createdRotations: number;
   skippedExisting: number;
+  /** Rows for people who have not joined. Waiting, not lost. */
+  heldRows: number;
+  heldPeople: number;
+  /** Rows the file marked cancelled, which create nothing. */
+  cancelledRows: number;
+  /** The batch every row of this import shares, for tracing one file's effect. */
+  importBatch: string;
 }
 
 export async function commitImport(
@@ -348,7 +648,8 @@ export async function commitImport(
   const preview = await validateImport(
     context,
     rows.map((row) => ({
-      Email: row.residentEmail,
+      Resident: row.residentName ?? "",
+      Email: row.residentEmail ?? "",
       Date: row.date,
       "Start time": row.startTime,
       "End time": row.endTime,
@@ -358,95 +659,48 @@ export async function commitImport(
       "Shift type": row.shiftType ?? "",
       Location: row.location ?? "",
       PGY: row.pgy ? String(row.pgy) : "",
+      Status: row.status ?? "",
+      Position: row.position ?? "",
     })),
   );
-  if (preview.issues.length > 0) {
+  /* Only the *blocking* issues stop the import. An unrecognised Status word is
+     reported so the administrator can see it, and the row still imports as an
+     ordinary shift, because their vocabulary in a column we invented is not a
+     defect in their schedule. */
+  const blocking = preview.issues.filter((issue) => issue.column !== "Status");
+  if (blocking.length > 0) {
     throw validationFailed(
-      `${preview.issues.length} error${preview.issues.length === 1 ? "" : "s"} found. No changes have been made.`,
+      `${blocking.length} error${blocking.length === 1 ? "" : "s"} found. No changes have been made.`,
       { issues: preview.issues },
     );
   }
-  if (preview.summary.newResidents.length > 0) {
-    throw validationFailed(
-      `These residents are not in your program yet: ${preview.summary.newResidents.join(", ")}. Invite them under Users first, then import again. No changes have been made.`,
-      { unknownResidents: preview.summary.newResidents },
-    );
-  }
+
+  /* Whether this file may say a shift is confirmed. A Status of "confirmed"
+     from somebody who cannot confirm a shift imports as an ordinary imported
+     one — the file does not confer an authority its uploader lacks. */
+  const mayConfirm = can(context.user.role, "shifts.confirm");
+  const importBatch = randomUUID();
 
   return withTransaction(async (client) => {
     let createdServices = 0;
     let createdRotations = 0;
     let createdShifts = 0;
     let skippedExisting = 0;
+    let heldRows = 0;
+    let cancelledRows = 0;
 
     const serviceCache = new Map<string, string>();
     const rotationCache = new Map<string, string>();
-    const residentCache = new Map<string, string>();
+    const index = await loadResidentIndex(context.program.id, client);
+    const heldPeople = new Set<string>();
 
     for (const row of preview.rows) {
-      const serviceKey = row.service.toLowerCase();
-      let serviceId = serviceCache.get(serviceKey);
-      if (!serviceId) {
-        const existing = await queryOne<{ id: string }>(
-          "SELECT id FROM services WHERE program_id = $1 AND lower(name) = $2",
-          [context.program.id, serviceKey],
-          client,
-        );
-        if (existing) {
-          serviceId = existing.id;
-        } else {
-          const created = await queryOne<{ id: string }>(
-            "INSERT INTO services (program_id, name) VALUES ($1, $2) RETURNING id",
-            [context.program.id, row.service],
-            client,
-          );
-          serviceId = created!.id;
-          createdServices += 1;
-        }
-        serviceCache.set(serviceKey, serviceId);
-      }
-
-      let rotationId: string | null = null;
-      if (row.rotation) {
-        const rotationKey = row.rotation.toLowerCase();
-        rotationId = rotationCache.get(rotationKey) ?? null;
-        if (!rotationId) {
-          const existing = await queryOne<{ id: string }>(
-            "SELECT id FROM rotations WHERE program_id = $1 AND lower(name) = $2",
-            [context.program.id, rotationKey],
-            client,
-          );
-          if (existing) {
-            rotationId = existing.id;
-          } else {
-            const created = await queryOne<{ id: string }>(
-              "INSERT INTO rotations (program_id, name) VALUES ($1, $2) RETURNING id",
-              [context.program.id, row.rotation],
-              client,
-            );
-            rotationId = created!.id;
-            createdRotations += 1;
-          }
-          rotationCache.set(rotationKey, rotationId);
-        }
-      }
-
-      let residentId = residentCache.get(row.residentEmail);
-      if (!residentId) {
-        const resident = await queryOne<{ id: string }>(
-          `SELECT r.id FROM residents r
-             JOIN users u ON u.id = r.user_id
-            WHERE r.program_id = $1 AND lower(u.email) = $2`,
-          [context.program.id, row.residentEmail],
-          client,
-        );
-        if (!resident) {
-          throw validationFailed(
-            `${row.residentEmail} is not a resident in this program. No changes have been made.`,
-          );
-        }
-        residentId = resident.id;
-        residentCache.set(row.residentEmail, residentId);
+      const status = readStatus(row.status);
+      if (status === "cancelled") {
+        /* The file says this shift is not happening. Inventing it and then
+           relying on somebody to delete it is worse than not inventing it. */
+        cancelledRows += 1;
+        continue;
       }
 
       const start = zonedWallTimeToInstant(
@@ -461,43 +715,81 @@ export async function commitImport(
         : row.date;
       const end = zonedWallTimeToInstant(endDate, row.endTime, context.program.timezone);
 
-      const duplicate = await queryOne<{ id: string }>(
-        `SELECT s.id FROM shifts s
-           JOIN shift_assignments sa ON sa.shift_id = s.id AND sa.assignment_status = 'active'
-          WHERE s.program_id = $1 AND s.service_id = $2 AND s.start_datetime = $3
-            AND sa.resident_id = $4`,
-        [context.program.id, serviceId, start, residentId],
-        client,
-      );
-      if (duplicate) {
-        skippedExisting += 1;
+      const person = matchResident(index, row);
+      if (!person) {
+        /* Nobody in this program answers to that name or address yet. The row
+           waits for them rather than failing the file — and it waits with the
+           hours already resolved into instants, so enrolling in November cannot
+           reinterpret an August shift through a different clock change. */
+        const name = row.residentName || row.residentEmail || "";
+        await holdRow(
+          {
+            programId: context.program.id,
+            residentName: name,
+            email: row.residentEmail,
+            pgy: row.pgy ?? null,
+            date: row.date,
+            start,
+            end,
+            serviceName: row.service,
+            rotationName: row.rotation ?? "",
+            shiftType: row.shiftType ?? "day",
+            location: row.location ?? "",
+            statusHint: status ?? "",
+            importBatch,
+          },
+          client,
+        );
+        heldRows += 1;
+        heldPeople.add(matchKey(name) || (row.residentEmail ?? "").toLowerCase());
         continue;
       }
 
-      const shift = await queryOne<{ id: string }>(
-        `INSERT INTO shifts
-           (program_id, service_id, rotation_id, date, start_datetime, end_datetime,
-            location, shift_type)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING id`,
-        [
+      const service = await resolveServiceId(
+        context.program.id,
+        row.service,
+        client,
+        serviceCache,
+      );
+      if (service.created) createdServices += 1;
+
+      let rotationId: string | null = null;
+      if (row.rotation) {
+        const rotation = await resolveRotationId(
           context.program.id,
-          serviceId,
+          row.rotation,
+          client,
+          rotationCache,
+        );
+        if (rotation.created) createdRotations += 1;
+        rotationId = rotation.id;
+      }
+
+      const provenance: ShiftProvenance =
+        status === "provisional"
+          ? "provisional"
+          : status === "confirmed" && mayConfirm
+            ? "confirmed"
+            : "imported";
+
+      const outcome = await placeShift(
+        {
+          programId: context.program.id,
+          serviceId: service.id,
           rotationId,
-          row.date,
+          residentId: person.id,
+          date: row.date,
           start,
           end,
-          row.location ?? "",
-          row.shiftType ?? "day",
-        ],
+          location: row.location ?? "",
+          shiftType: row.shiftType ?? "day",
+          provenance,
+          confirmedBy: provenance === "confirmed" ? context.user.id : null,
+        },
         client,
       );
-      await query(
-        "INSERT INTO shift_assignments (shift_id, resident_id) VALUES ($1, $2)",
-        [shift!.id, residentId],
-        client,
-      );
-      createdShifts += 1;
+      if (outcome === "duplicate") skippedExisting += 1;
+      else createdShifts += 1;
     }
 
     await recordAudit(
@@ -507,17 +799,30 @@ export async function commitImport(
         actorLabel: context.user.email,
         action: "schedule.imported",
         entityType: "schedule",
+        entityId: importBatch,
         newState: {
           createdShifts,
           createdServices,
           createdRotations,
           skippedExisting,
+          heldRows,
+          heldPeople: heldPeople.size,
+          cancelledRows,
           dateRange: preview.summary.dateRange,
         },
       },
       client,
     );
 
-    return { createdShifts, createdServices, createdRotations, skippedExisting };
+    return {
+      createdShifts,
+      createdServices,
+      createdRotations,
+      skippedExisting,
+      heldRows,
+      heldPeople: heldPeople.size,
+      cancelledRows,
+      importBatch,
+    };
   });
 }

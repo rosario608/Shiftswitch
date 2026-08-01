@@ -151,19 +151,28 @@ export const shiftPatchSchema = z.object({
 export const importCommitSchema = z.object({
   rows: z
     .array(
-      z.object({
-        residentEmail: z.string().email(),
-        residentName: z.string().max(200).optional(),
-        pgy: z.number().int().min(1).max(10).optional(),
-        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-        startTime: z.string().regex(/^\d{2}:\d{2}$/),
-        endTime: z.string().regex(/^\d{2}:\d{2}$/),
-        endsNextDay: z.boolean().optional(),
-        service: z.string().min(1).max(120),
-        rotation: z.string().max(120).optional(),
-        shiftType: z.string().max(40).optional(),
-        location: z.string().max(120).optional(),
-      }),
+      z
+        .object({
+          /* Either identifies the person. A programme's own schedule commonly
+             carries names and no addresses; refusing those rows was what forced
+             every resident to be invited before their block could be loaded. */
+          residentEmail: z.string().email().optional(),
+          residentName: z.string().max(200).optional(),
+          pgy: z.number().int().min(1).max(10).optional(),
+          date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          startTime: z.string().regex(/^\d{2}:\d{2}$/),
+          endTime: z.string().regex(/^\d{2}:\d{2}$/),
+          endsNextDay: z.boolean().optional(),
+          service: z.string().min(1).max(120),
+          rotation: z.string().max(120).optional(),
+          shiftType: z.string().max(40).optional(),
+          location: z.string().max(120).optional(),
+          status: z.string().max(40).optional(),
+          position: z.string().max(120).optional(),
+        })
+        .refine((row) => Boolean(row.residentEmail || row.residentName), {
+          message: "Every row needs the resident's name, their email address, or both.",
+        }),
     )
     .min(1)
     .max(5000),

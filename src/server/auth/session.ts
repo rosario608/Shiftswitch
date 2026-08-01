@@ -16,6 +16,12 @@ export interface SessionUser {
   role: UserRow["role"];
   programId: string | null;
   active: boolean;
+  /**
+   * `pending` when somebody joined by an enrollment link and their address was
+   * not inside one of the programme's own domains. Carried on the session so
+   * every guard can see it without a second query.
+   */
+  enrollmentStatus: "confirmed" | "pending";
 }
 
 export interface SessionContext {
@@ -188,6 +194,7 @@ export async function resolveSessionByToken(
       role: row.role,
       programId: row.program_id,
       active: row.active,
+      enrollmentStatus: row.enrollment_status ?? "confirmed",
     },
     program,
     resident,

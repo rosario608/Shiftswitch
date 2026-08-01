@@ -144,6 +144,7 @@ export function makeContext(
       email: user.email,
       fullName: user.full_name,
       pictureUrl: null,
+      enrollmentStatus: "confirmed" as const,
       role: user.role!,
       programId: program.id,
       active: user.active,

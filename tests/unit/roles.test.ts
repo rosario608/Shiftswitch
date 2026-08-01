@@ -43,9 +43,10 @@ describe("the five roles", () => {
 
 describe("what each role may do", () => {
   const EXPECTED: Record<UserRole, string[]> = {
-    resident: ["trade.participate"],
+    resident: ["trade.participate", "shifts.self_report"],
     chief: [
       "trade.participate",
+      "shifts.self_report",
       "approvals.decide",
       "schedule.manage",
       "schedule.export_program",
@@ -53,14 +54,17 @@ describe("what each role may do", () => {
       "audit.view",
       "scheduling.plan",
       "schedule.publish",
+      "shifts.confirm",
       "residents.contact_info",
     ],
     apd: [
       "trade.participate",
+      "shifts.self_report",
       "approvals.decide",
       "schedule.manage",
       "scheduling.plan",
       "schedule.publish",
+      "shifts.confirm",
       "residents.contact_info",
       "schedule.export_program",
       "analytics.view",
@@ -73,10 +77,12 @@ describe("what each role may do", () => {
     ],
     pd: [
       "trade.participate",
+      "shifts.self_report",
       "approvals.decide",
       "schedule.manage",
       "scheduling.plan",
       "schedule.publish",
+      "shifts.confirm",
       "residents.contact_info",
       "schedule.export_program",
       "analytics.view",
@@ -100,6 +106,8 @@ describe("what each role may do", () => {
   it("gives a resident no administrative reach at all", () => {
     for (const capability of CAPABILITIES) {
       if (capability === "trade.participate") continue;
+      // Their own schedule is their own business, admitted or not.
+      if (capability === "shifts.self_report") continue;
       expect(can("resident", capability), capability).toBe(false);
     }
   });

@@ -10,6 +10,7 @@ import {
   updateShift,
 } from "@/server/domain/admin";
 import { commitImport, validateImport } from "@/server/domain/import";
+import { listUnmatched } from "@/server/domain/held-rows";
 import { toCsv, toPdf, toXlsx } from "@/server/domain/export";
 import {
   generateSwitchEmail,
@@ -363,14 +364,14 @@ describe("schedule import", () => {
     expect(preview.summary.validRows).toBe(0);
 
     await expect(commitImport(admin.context, preview.rows)).resolves.toBeTruthy();
-    // …but committing the raw bad rows is refused outright.
+    // …but committing a malformed row is refused outright.
     await expect(
       commitImport(admin.context, [
         {
-          residentEmail: "ghost@hospital.org",
+          residentEmail: "alice@hospital.org",
           date: "2026-09-05",
           startTime: "07:00",
-          endTime: "19:00",
+          endTime: "07:00", // zero length: ends when it starts
           service: "MICU",
         },
       ]),
@@ -410,18 +411,30 @@ describe("schedule import", () => {
     expect(second.skippedExisting).toBe(2);
   });
 
-  it("refuses an import that references an unknown resident", async () => {
-    await expect(
-      commitImport(admin.context, [
-        {
-          residentEmail: "nobody@hospital.org",
-          date: "2026-09-01",
-          startTime: "07:00",
-          endTime: "19:00",
-          service: "MICU",
-        },
-      ]),
-    ).rejects.toMatchObject({ code: "validation_failed" });
+  it("holds a row for somebody who has not joined instead of refusing the file", async () => {
+    /* This used to be a refusal, and the refusal was the reason a programme had
+       to invite forty people before their own block file would load. The row is
+       kept, the administrator is told whose it is, and nothing is invented for a
+       resident who does not exist. */
+    const result = await commitImport(admin.context, [
+      {
+        residentEmail: "nobody@hospital.org",
+        residentName: "Nobody Yet",
+        date: "2026-09-01",
+        startTime: "07:00",
+        endTime: "19:00",
+        service: "MICU",
+      },
+    ]);
+    expect(result.createdShifts).toBe(0);
+    expect(result.heldRows).toBe(1);
+    expect(result.heldPeople).toBe(1);
+
+    const waiting = await listUnmatched(admin.context.program.id);
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0].resident_name).toBe("Nobody Yet");
+    expect(waiting[0].shifts).toBe(1);
+    expect(waiting[0].email).toBe("nobody@hospital.org");
   });
 
   it("rejects a time that does not exist because of daylight saving", async () => {

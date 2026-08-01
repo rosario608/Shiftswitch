@@ -122,6 +122,36 @@ export const CAPABILITIES = [
    */
   "schedule.publish",
   /**
+   * Enter or correct one's *own* shifts.
+   *
+   * Separate from `trade.participate` because it is the one thing an account
+   * waiting to be admitted may still do. Somebody who joined by an enrollment
+   * link with an address the programme has not listed can hold their own
+   * schedule, fix the hours the file got wrong, and see what is waiting for
+   * them — while seeing nothing at all about anybody else.
+   *
+   * Held by every role, because every role that has a schedule has a schedule
+   * that can be wrong.
+   */
+  "shifts.self_report",
+  /**
+   * Vouch for a shift: mark it confirmed.
+   *
+   * Every shift carries where it came from — generated as a placeholder,
+   * entered by the resident, imported from the programme's file, or confirmed.
+   * That status governs *disclosure*, not function: all four switch, and both
+   * parties see both statuses before accepting. What it must never be is
+   * self-serving. A resident typing their own hours is telling the product what
+   * they believe; a resident marking those hours *confirmed* would be telling
+   * everybody else the programme had checked them, which nobody can do about
+   * their own schedule.
+   *
+   * So it is its own capability rather than part of `schedule.manage`: a
+   * programme can hand editing to somebody without also handing them the
+   * authority to say a shift is settled.
+   */
+  "shifts.confirm",
+  /**
    * Read a resident's phone number.
    *
    * Its own capability because it is the one genuinely personal field in the
@@ -140,10 +170,11 @@ export type Capability = (typeof CAPABILITIES)[number];
  * truth and that document describes it.
  */
 const ROLE_CAPABILITIES: Record<UserRole, ReadonlySet<Capability>> = {
-  resident: new Set<Capability>(["trade.participate"]),
+  resident: new Set<Capability>(["trade.participate", "shifts.self_report"]),
 
   chief: new Set<Capability>([
     "trade.participate",
+    "shifts.self_report",
     "approvals.decide",
     "schedule.manage",
     "schedule.export_program",
@@ -151,15 +182,18 @@ const ROLE_CAPABILITIES: Record<UserRole, ReadonlySet<Capability>> = {
     "audit.view",
     "scheduling.plan",
     "schedule.publish",
+    "shifts.confirm",
     "residents.contact_info",
   ]),
 
   apd: new Set<Capability>([
     "trade.participate",
+    "shifts.self_report",
     "approvals.decide",
     "schedule.manage",
     "scheduling.plan",
     "schedule.publish",
+    "shifts.confirm",
     "residents.contact_info",
     "schedule.export_program",
     "analytics.view",
@@ -173,10 +207,12 @@ const ROLE_CAPABILITIES: Record<UserRole, ReadonlySet<Capability>> = {
 
   pd: new Set<Capability>([
     "trade.participate",
+    "shifts.self_report",
     "approvals.decide",
     "schedule.manage",
     "scheduling.plan",
     "schedule.publish",
+    "shifts.confirm",
     "residents.contact_info",
     "schedule.export_program",
     "analytics.view",
