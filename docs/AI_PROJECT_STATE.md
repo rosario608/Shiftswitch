@@ -72,15 +72,20 @@ ends, rule wording, notification routing, five-role gaps, and concurrency.
 
 ## Current phase
 
-`AUDITED, AND SELF-REPORTING` — the product has been through an independent
-audit whose brief was that a green test suite is the floor rather than the
-finding, and every defect it found is fixed at the root with a regression test.
-On top of that, every failure path enumerated in `docs/FAILURE_PATHS.md` now has
-a designed outcome, and a problem in production announces itself at
-`/admin/diagnostics` and `/api/health` rather than waiting to be noticed by a
-resident. What remains before a pilot is not code: two migrations to apply, a
-preview database branch, one repository setting, and the institution's roster.
-See **User action required**.
+`READY FOR A BETA` — the product has been through an independent audit whose
+brief was that a green test suite is the floor rather than the finding, every
+failure path in `docs/FAILURE_PATHS.md` has a designed outcome, and a problem in
+production announces itself at `/admin/diagnostics` and `/api/health` rather
+than waiting to be noticed by a resident.
+
+The last piece of code before a beta is now in: a program can be onboarded
+without waiting for anybody. An administrator sets up its services from a
+starting configuration whose every guess is marked as one, imports a block that
+names people who have no accounts, and posts a single link. Residents join over
+the following fortnight and find their shifts already there; anybody whose block
+has not been uploaded enters it themselves. What remains is not code — a preview
+database branch, one repository setting, and the institution's roster. See
+**User action required**.
 
 ## Current status
 
@@ -105,22 +110,35 @@ test.
 
 | | |
 |---|---|
-| In the repository | `0001` – `0009` |
-| Applied locally, and proven to apply to an **empty** database in order | `0001` – `0009` |
-| Reported applied to production by the session of 31 July 2026 | `0001` – `0006` |
+| In the repository | `0001` – `0011` |
+| Applied locally, and proven to apply to an **empty** database in order | `0001` – `0011` |
+| Applied to production by the pipeline on merge | `0008` onwards |
 | Reported applied to production by hand, 31 July 2026 | `0007_notification_route.sql` |
-| **Not applied to production** | **`0008_scheduler_foundation.sql`**, **`0009_schedule_operations.sql`** |
 
-**`0008` and `0009` must both be applied to production, in that order, before
-the code on `main` is deployed.** `0008` adds the scheduling tables and
-`shifts.schedule_version_id`; without it every schedule query fails, because
-that column is now part of the definition of a live shift. `0009` adds
-`resident_absences`, `schedule_version_locks`, `schedule_corrections`, the
-approval columns on `schedule_versions` and `shifts.published_version_id`;
-without it publishing a schedule fails, because publication now stamps the
-provenance column. Nothing applies migrations automatically — there is no build
-hook, only `npm run db:migrate` against the production `DATABASE_URL`. Both are
-listed under **User action required**.
+**Applying a migration is no longer a person's job.**
+`.github/workflows/apply-migrations.yml` runs on any push to `main` that touches
+`db/migrations/`, using the same forward-only, checksummed runner a developer
+runs locally. `0008` and `0009` were applied that way after PR #11 merged, and
+`/api/health` confirmed it. `0010_beta_onboarding.sql` and
+`0011_pending_enrollment.sql` will be applied the same way when this branch
+merges.
+
+- **`0010_beta_onboarding.sql`** — `positions`, `teams`, `rotation_patterns`
+  and their members, `pattern_exceptions`, `block_structure_exceptions`,
+  `shift_provenance` and four columns on `shifts`, `enrollment_links`,
+  `enrollment_events`, `program_email_domains`, `held_shift_rows`. Without it
+  the importer cannot hold a row, nobody can join by a link, and no shift can
+  say where it came from.
+- **`0011_pending_enrollment.sql`** — `users.enrollment_status`. Without it
+  every account that joins by a link is a full member of the program from the
+  moment it is created, which is the one thing an enrollment link must not do.
+
+The rule that a *session* never reaches the production database has not changed
+and is not weakened by this: nothing an agent runs touches it. What changed is
+that applying a reviewed, merged migration is not a human step either. It used
+to be, and the consequence nobody intended was that every schema change waited
+on somebody noticing — the one time it mattered, the person was on a phone and
+the administration pages were down until they got to a computer.
 
 `0007_notification_route.sql` **was applied**, by hand in the Neon SQL Editor on
 31 July 2026 — reported, with the confirmation named: the `route` column exists
@@ -172,7 +190,6 @@ own data, or an identity that requires a human with a payment method.
 | # | The artefact | Where it comes from | Time | Until then |
 | --- | --- | --- | --- | --- |
 | 1 | A `preview` branch in Neon, and `DATABASE_URL` set for Vercel's Preview environment only | Neon → Branches → New branch; then Vercel → Settings → Environment Variables → Preview | 10 min | **Every pull-request preview reads and writes the live programme.** Previews are SSO-protected so nobody outside the team can reach one — this stops being merely untidy the moment a second person opens a pull request. |
-| 2 | `0008_scheduler_foundation.sql`, then `0009_schedule_operations.sql`, applied to production | Already in `db/migrations/`. `DATABASE_URL='<production>' npm run db:migrate` applies both in order | 5 min | Without `0008`, every schedule query fails. Without `0009`, publishing a schedule, recording availability and correcting a published shift all fail. The build refuses to run queries against a schema behind it and names the file — see `/admin/diagnostics`. |
 | 3 | The residents' email addresses | The institution's roster. Any format: commas, semicolons, one per line, a spreadsheet column | You have it or you don't | Nobody can be invited, so nobody can sign in. `npm run demo:seed` exists so no development waits for this. |
 | 4 | The block schedule, as CSV or XLSX | The institution's scheduling office. Column set documented in `docs/ONBOARDING.md` | You have it or you don't | There is no schedule to switch shifts on. |
 
@@ -520,6 +537,95 @@ in the end-to-end suite.
 Choices made without asking, as `/CLAUDE.md` requires. Each says what was
 chosen, why, and what was rejected, so any of them can be revisited by someone
 who disagrees rather than rediscovered.
+
+### The two supplied schedules disagree about the academic year
+
+**Chosen:** the year is a **parameter**, asked for once when a programme sets up
+its services, and never inferred.
+
+The two published schedules this work was built against describe different
+academic years, and neither states which one on every page. There is no reading
+of them that makes both true, and picking one would mean anchoring every
+rotation cycle in the product to a guess about a document — with the symptom
+appearing months later as a day off on the wrong day of the week.
+
+`block_structures.academic_year` already existed and already meant this: the
+calendar year the year *starts* in, 2026 for the 2026–27 year. So nothing new
+was needed in the schema. What was needed was for nothing to default it:
+`applyStartingConfiguration` takes it, `/admin/setup` asks for it with the most
+likely value pre-filled and editable, and the API refuses a request without one.
+
+**Rejected:** inferring it from today's date alone. It is right for nine months
+of the year and silently wrong for the three when a programme is setting up next
+year's schedule — which is exactly when a programme sets up next year's
+schedule.
+
+**Also decided here:** cycles are anchored to the **first Monday on or after 1
+July** of that year, rather than to 1 July itself. A seven-day cycle whose sixth
+position is `off` means Saturday; anchored to an arbitrary weekday it would mean
+whatever day 1 July happened to be. That is wrong in the way that looks right in
+a database and wrong on somebody's phone.
+
+### A guessed default may not generate anything
+
+**Chosen:** every part of the shipped starting configuration is marked STATED or
+ASSUMED, and an ASSUMED default is **inert** — the importer will not fill a
+blank Start from it, and the entry form offers it only as a suggestion nobody
+has checked. It becomes usable when a person with `services.manage` confirms it,
+which is recorded with their name.
+
+The failure being prevented is specific: the wrongest schedule is the confident
+one. Three hundred shifts generated overnight from an hour this software
+invented look exactly as authoritative, on a resident's phone, as three hundred
+that came from the programme's own file. Marking the guess as a guess and
+refusing to build on it is the only mechanism that distinguishes them.
+
+`positions.provenance`, `rotation_patterns.provenance` and
+`block_structures.provenance` carry it; `listUnconfirmedDefaults` is the queue;
+`/admin/setup` is where somebody empties it.
+
+**Rejected:** shipping only what the documents state. It would leave a programme
+with an Emergency Department position and no Wards position, which is not more
+honest — it is less useful and equally silent about the gap.
+
+**Rejected:** shipping the guesses unmarked, with a note in the documentation.
+Nobody reads the documentation at 11pm, which is when a coordinator sets a
+programme up.
+
+### Confirming a shift is a separate capability from correcting one
+
+**Chosen:** `shifts.confirm`, held by chief residents and above, distinct from
+`shifts.self_report`, held by everybody with a schedule.
+
+A resident typing their own hours is telling the product what they believe. A
+resident marking those hours *confirmed* would be telling the programme's other
+forty people that the programme had checked something it had not. The two acts
+have different meanings to everybody except the person performing them, so they
+have different capabilities — and an imported file cannot confer the authority
+either: a Status of `confirmed` uploaded by somebody without `shifts.confirm`
+lands as an ordinary imported shift.
+
+**Rejected:** folding confirmation into `schedule.manage`. A programme that
+wants somebody editing the schedule without the authority to declare it settled
+could not then say so.
+
+### An account that joins by a link without a recognised address joins pending
+
+**Chosen:** they get an account, their program, and whatever schedule was
+waiting for them — and see nothing about anybody else until somebody admits
+them. Enforced once, in `requireCapability`, via `allowsWhilePending`.
+
+**Rejected:** refusing them. It sends a real resident away at the one moment
+they were willing to sign up, and does it silently.
+
+**Rejected:** admitting them fully. An enrollment link is handed to a class and
+anybody holding it can open it; the programme's own email domains are the only
+evidence of belonging the product actually has, and without that evidence it
+should not claim any.
+
+**Rejected:** a separate "limited" role. Roles are what a programme calls
+people; this is a fact about whether somebody has been vouched for, and putting
+it in the role matrix would mean every future role needing a pending twin.
 
 ### The three questions each role arrives with
 

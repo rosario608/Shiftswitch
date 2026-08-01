@@ -135,6 +135,8 @@ const EXPECTED: Record<string, Capability | "session" | "resident"> = {
   "shifts/mine": "shifts.self_report",
   "shifts/[shiftId]/correct": "shifts.self_report",
   "shifts/[shiftId]/confirm": "shifts.confirm",
+  "admin/starting-configuration": "services.manage",
+  "admin/starting-configuration/confirm": "services.manage",
   "admin/enrollment/domains": "program.manage",
   "admin/enrollment/links": "invitations.manage",
   "admin/enrollment/links/[id]/revoke": "invitations.manage",
