@@ -1033,22 +1033,22 @@ Three of the defects above were found this way and by nothing else.
 
 **`npm run verify` exits 0.** That is the whole answer, and the only one worth
 quoting — it runs every row below in one command with one exit code. Last full
-run: 10 steps, 664 seconds.
+run: 10 steps, 956 seconds.
 
 | Step | Result |
 |---|---|
 | Typecheck (`tsc --noEmit`) | clean |
 | Lint, server + web | clean |
 | Lint, native client | clean |
-| Server unit + integration (`vitest run`) | **544 passed**, 28 files |
+| Server unit + integration (`vitest run`) | **642 passed**, 34 files |
 | Native client unit (`npm --prefix mobile run test`) | **37 passed**, 6 files |
 | Production build (`next build`) | succeeds |
-| Web end-to-end (`playwright test`) | **134 passed**, mobile + desktop projects |
+| Web end-to-end (`playwright test`) | **146 passed**, mobile + desktop projects |
 | Native end-to-end (`--config playwright.mobile.config.ts`) | **16 passed**, including the 9 screenshot specs |
-| Migrations from scratch (`migrate.ts --reset`) | **0001–0008 apply to an empty database** |
-| Integration suite against the rebuilt schema | **328 passed**, 15 files |
+| Migrations from scratch (`migrate.ts --reset`) | **0001–0009 apply to an empty database** |
+| Integration suite against the rebuilt schema | **383 passed**, 20 files |
 
-715 distinct tests. The final 328 is the integration subset re-run against the
+841 distinct tests. The final 383 is the integration subset re-run against the
 freshly rebuilt schema, which is why it is not added again.
 
 Also verified by execution, not inspection:
@@ -1104,7 +1104,7 @@ Also verified by execution, not inspection:
   double-tapped renames and deactivations settle; repeated role changes leave
   one resident record; and audit entries and shift assignments survive the
   deactivation of the people in them.
-- **Migrations from empty** — `0001`–`0008` applied to a brand-new database, as
+- **Migrations from empty** — `0001`–`0009` applied to a brand-new database, as
   a step of `npm run verify`, with the integration suite then run against the
   rebuilt schema. An earlier session additionally compared the resulting schema
   field by field against the development database and against production and
