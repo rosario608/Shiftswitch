@@ -361,9 +361,34 @@ export async function findUsableInvitation(
   };
 }
 
+/**
+ * Why a redemption did not work.
+ *
+ * Four different things used to arrive as one word, "invalid" — and this is the
+ * very first thing a real resident ever does with this product. "Something went
+ * wrong" at that moment costs the account: they do not try again, they ask a
+ * colleague, and the colleague says the app does not work.
+ *
+ * Being specific here is safe in a way it is not on the public invitation page.
+ * That page is reachable by anybody holding a URL, so it stays deliberately
+ * neutral — saying "expired" there would let somebody probe which tokens exist.
+ * By the time this runs the caller has produced the token *and* completed
+ * Google sign-in as the invited address, so there is nothing left to leak: they
+ * already know the invitation is theirs.
+ */
+export type AcceptFailure =
+  /** No invitation has ever had this token. A mistyped or truncated link. */
+  | "unknown"
+  /** It existed and the window closed. A new one can be sent. */
+  | "expired"
+  /** Somebody already signed in with it — often this person, twice. */
+  | "already_accepted"
+  /** An administrator took it back. */
+  | "revoked";
+
 export type AcceptOutcome =
   | { outcome: "accepted"; user: UserRow }
-  | { outcome: "invalid" }
+  | { outcome: "invalid"; reason: AcceptFailure }
   | { outcome: "email_mismatch"; invitedEmail: string };
 
 /**
@@ -382,7 +407,20 @@ export async function acceptInvitation(
       [hashToken(token)],
       client,
     );
-    if (!row || statusOf(row) !== "pending") return { outcome: "invalid" as const };
+    if (!row) return { outcome: "invalid" as const, reason: "unknown" as const };
+    const status = statusOf(row);
+    if (status !== "pending") {
+      /* Logged with the invitation's id, never its token: the token is a
+         credential and the id is what an administrator searches by. */
+      logger.warn("invitation.redemption_refused", {
+        invitationId: row.id,
+        reason: status,
+      });
+      return {
+        outcome: "invalid" as const,
+        reason: (status === "accepted" ? "already_accepted" : status) as AcceptFailure,
+      };
+    }
 
     if (row.email.trim().toLowerCase() !== identity.email.trim().toLowerCase()) {
       // Deliberately not consumed: the real invitee must still be able to use

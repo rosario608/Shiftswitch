@@ -20,6 +20,17 @@ const ERROR_MESSAGES: Record<string, string> = {
   id_token: "We couldn't verify your Google account. Please try again.",
   invite_mismatch:
     "That invitation was sent to a different email address. Sign in with the Google account the invitation was addressed to, or ask your program administrator to re-send it to the address you use.",
+  /* One message per cause. "Expired or cancelled" made somebody who had simply
+     already signed in try again and fail again, and told the person whose
+     invitation had lapsed to check a link that was never the problem. */
+  invite_expired:
+    "That invitation has expired. Ask your program administrator to send you a new one — it only takes them a moment.",
+  invite_used:
+    "That invitation has already been used. If it was you, you already have an account: sign in with Continue with Google below.",
+  invite_revoked:
+    "That invitation was cancelled by your program. Ask your program administrator whether you should have a new one.",
+  invite_unknown:
+    "That invitation link isn't one we recognise. It may have been cut short when it was copied — try opening it again from the original message, or ask for a new one.",
   invite_invalid:
     "That invitation link has expired or been cancelled. Ask your program administrator to send you a new one.",
   email_unverified:
