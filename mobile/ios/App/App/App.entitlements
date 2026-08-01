@@ -13,12 +13,19 @@
 	<!--
 		Universal Links. The host must serve
 		/.well-known/apple-app-site-association (the server generates it) and
-		must match VITE_API_URL. Replace app.example.org with the real host
-		before the first TestFlight build — see docs/MOBILE_RELEASE.md.
+		must match VITE_API_URL in mobile/.env.production — iOS compares the
+		host in this file against the one the link came from, exactly.
+
+		This carried the generated placeholder host from the day the project was
+		created — something no build would reject and no test could see: the app
+		compiles, installs, runs, and silently opens its own links in Safari.
+		`mobile/src/native/ios-config.test.ts` fails if a placeholder ever
+		returns, which is why that test refuses any example host anywhere in
+		this file, comments included.
 	-->
 	<key>com.apple.developer.associated-domains</key>
 	<array>
-		<string>applinks:app.example.org</string>
+		<string>applinks:shiftswitch.vercel.app</string>
 	</array>
 </dict>
 </plist>
