@@ -11,7 +11,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/field";
 import { apiFetch } from "@/lib/api-client";
 import { useAction, useOnline } from "@/lib/use-action";
-import type { ShiftView } from "@/lib/views";
+import { PROVENANCE_LABEL_OWN, type ShiftView } from "@/lib/views";
 
 export interface OfferView {
   id: string;
@@ -175,6 +175,9 @@ export function OfferDecisionList({
                   {sourceShift.timeRange}
                 </span>
               </p>
+              <p className="mt-1 text-sm text-ink-subtle">
+                {PROVENANCE_LABEL_OWN[sourceShift.provenance]}
+              </p>
             </div>
             <div className="flex justify-center text-ink-subtle">
               <ArrowLeftRight className="h-5 w-5" aria-hidden="true" />
@@ -190,7 +193,23 @@ export function OfferDecisionList({
                   {confirming.offeredShift.timeRange}
                 </span>
               </p>
+              {/* Both sides, before anything is written. A resident taking
+                  somebody's Saturday is entitled to know whether the program
+                  confirmed those hours or the person typed them in — and the
+                  moment to say so is here, not after the schedules moved. */}
+              <p className="mt-1 text-sm text-ink-subtle">
+                {confirming.offeredShift.provenanceLabel}
+              </p>
             </div>
+
+            {confirming.offeredShift.provenance === "self_reported" ||
+            confirming.offeredShift.provenance === "provisional" ? (
+              <Alert tone="warning">
+                Your program has not confirmed the hours on the shift you would be
+                taking. Check them with{" "}
+                {confirming.offeringResidentName.split(" ")[0]} before you accept.
+              </Alert>
+            ) : null}
 
             {requiresApproval || confirming.requiresApproval ? (
               <Alert tone="warning" title="Chief approval required">

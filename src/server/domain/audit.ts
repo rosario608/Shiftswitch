@@ -30,6 +30,8 @@ export type AuditAction =
   | "rotation.updated"
   | "shift.deleted"
   | "shift.reassigned"
+  | "shift.self_reported"
+  | "shift.confirmed"
   | "schedule.imported"
   | "schedule.held_rows_discarded"
   | "schedule.held_rows_claimed"

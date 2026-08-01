@@ -1,7 +1,7 @@
 import { can } from "@/server/auth/roles";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CalendarDays, Clock, MapPin, Users } from "lucide-react";
+import { ArrowLeft, CalendarDays, Clock, MapPin, ShieldCheck, Users } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Card, CardBody } from "@/components/ui/card";
 import { ShiftStatusBadge } from "@/components/app/shift-card";
@@ -14,7 +14,9 @@ import {
   listOfferableForPosting,
 } from "@/server/domain/schedule-actions";
 import { isUuid } from "@/lib/cn";
-import { toShiftView } from "@/lib/views";
+import { CorrectHoursButton } from "@/components/app/correct-hours";
+import { ConfirmShiftButton } from "@/components/app/confirm-shift";
+import { PROVENANCE_LABEL, PROVENANCE_LABEL_OWN, toShiftView } from "@/lib/views";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +35,7 @@ export default async function ShiftDetailPage({
   const isOwner = context.resident?.id === shift.resident_id;
   // Anybody who runs the schedule may look at one they are not part of.
   const elevated = can(context.user.role, "schedule.manage");
+  const canConfirm = can(context.user.role, "shifts.confirm");
   if (!isOwner && !elevated) notFound();
 
   const view = toShiftView(shift, context.program.timezone);
@@ -85,6 +88,11 @@ export default async function ShiftDetailPage({
             {view.residentName ?? "Unassigned"}
             {view.residentPgy ? ` · PGY-${view.residentPgy}` : ""}
           </Row>
+          <Row icon={<ShieldCheck className="h-4 w-4" />} label="Where this came from">
+            {isOwner
+              ? PROVENANCE_LABEL_OWN[view.provenance]
+              : PROVENANCE_LABEL[view.provenance]}
+          </Row>
           <Row icon={<Users className="h-4 w-4" />} label="Eligible levels">
             PGY-{view.requiredPgyMin}
             {view.requiredPgyMax !== view.requiredPgyMin
@@ -99,6 +107,29 @@ export default async function ShiftDetailPage({
           A switch involving this shift only takes effect once a chief resident
           approves it.
         </Alert>
+      ) : null}
+
+      {/* Correcting comes before posting, deliberately: somebody who opens a
+          shift because the hours look wrong should not have to scroll past the
+          button that offers it to everybody. */}
+      {isOwner && !activePost ? (
+        <Card>
+          <CardBody className="space-y-2">
+            <CorrectHoursButton shift={view} />
+            <p className="text-sm text-ink-subtle">
+              If your program uploaded the wrong times, fix them here. Yours is the
+              version everybody sees.
+            </p>
+          </CardBody>
+        </Card>
+      ) : null}
+
+      {canConfirm && view.provenance !== "confirmed" ? (
+        <Card>
+          <CardBody>
+            <ConfirmShiftButton shiftId={view.id} />
+          </CardBody>
+        </Card>
       ) : null}
 
       {isOwner ? (

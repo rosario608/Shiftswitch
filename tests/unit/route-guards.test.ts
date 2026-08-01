@@ -130,6 +130,11 @@ const EXPECTED: Record<string, Capability | "session" | "resident"> = {
   "admin/coverage": "scheduling.plan",
   "admin/coverage/[coverageId]": "scheduling.plan",
   "admin/export": "session",
+  /* A resident's own schedule. Its own capability so that an account waiting
+     to be confirmed can still put its week in — see PENDING_MAY in guards.ts. */
+  "shifts/mine": "shifts.self_report",
+  "shifts/[shiftId]/correct": "shifts.self_report",
+  "shifts/[shiftId]/confirm": "shifts.confirm",
   "admin/enrollment/domains": "program.manage",
   "admin/enrollment/links": "invitations.manage",
   "admin/enrollment/links/[id]/revoke": "invitations.manage",
