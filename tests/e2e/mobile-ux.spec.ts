@@ -147,13 +147,20 @@ test("the web app manifest describes an installable app", async ({ page }) => {
   expect(source).toContain('url.pathname.startsWith("/api/")');
 });
 
-test("empty states explain what to do next", async ({ page }) => {
+test("empty states teach the next action rather than reporting emptiness", async ({
+  page,
+}) => {
   await signIn(page, ACCOUNTS.alice);
   await page.goto("/switches?tab=history");
   await expect(page.getByText(/no completed switches yet/i)).toBeVisible();
+
+  /* Every empty state a resident can reach has a way forward on it. Reporting
+     that a list is empty tells somebody the app is working; it does not tell
+     them what to do, which at 3am is the only thing they wanted. */
   await page.goto("/notifications");
+  await expect(page.getByText(/nothing to catch up on/i).first()).toBeVisible();
   await expect(
-    page.getByText(/no notifications yet|you.re all caught up/i).first(),
+    page.getByRole("link", { name: /see shifts you can take/i }),
   ).toBeVisible();
 });
 

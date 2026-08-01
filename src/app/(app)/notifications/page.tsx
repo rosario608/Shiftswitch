@@ -46,8 +46,16 @@ export default async function NotificationsPage() {
       {notifications.length === 0 ? (
         <EmptyState
           icon={<Bell className="h-5 w-5" aria-hidden="true" />}
-          title="No notifications yet"
-          description="You'll be notified when someone offers on your shift, when an offer is accepted, and when a switch completes."
+          title="Nothing to catch up on"
+          description="You'll hear from ShiftSwitch when somebody offers on a shift you posted, when an offer of yours is accepted, and when a switch completes."
+          action={
+            <Link
+              href="/switches"
+              className="inline-flex min-h-[2.75rem] items-center rounded-xl bg-brand px-4 font-semibold text-white"
+            >
+              See shifts you can take
+            </Link>
+          }
         />
       ) : (
         <ul className="space-y-2">
