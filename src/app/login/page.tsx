@@ -68,7 +68,7 @@ export default async function LoginPage({
         </span>
         <h1 className="text-3xl font-semibold text-ink">{APP_NAME}</h1>
         <p className="mt-2 text-ink-muted">
-          Swap residency shifts from your phone — validated against your program&rsquo;s
+          Switch residency shifts from your phone — checked against your program&rsquo;s
           rules, with the coordinator email written for you.
         </p>
       </div>

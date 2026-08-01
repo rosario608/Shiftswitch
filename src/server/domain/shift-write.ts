@@ -1,4 +1,5 @@
 import { query, queryOne, type Queryable } from "@/server/db/pool";
+import type { ShiftProvenance } from "@/server/db/types";
 
 /**
  * Putting a shift into the schedule.
@@ -70,11 +71,10 @@ export async function resolveRotationId(
   return { id: created!.id, created: true };
 }
 
-export type ShiftProvenance =
-  | "provisional"
-  | "self_reported"
-  | "imported"
-  | "confirmed";
+/* Re-exported rather than redeclared: the column's four values live with the
+   row that carries them, and a second copy here would be a second thing to
+   remember to change. */
+export type { ShiftProvenance } from "@/server/db/types";
 
 export interface PlaceShiftInput {
   programId: string;

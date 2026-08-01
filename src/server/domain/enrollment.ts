@@ -650,3 +650,45 @@ export async function admitMember(
   });
   return row;
 }
+
+export interface EnrollmentOffer {
+  programName: string;
+  institution: string;
+  label: string;
+  /** Whether an address inside a listed domain joins outright. */
+  hasDomains: boolean;
+}
+
+/**
+ * What the public join page shows before anybody signs in.
+ *
+ * The programme's name and institution, so the link does not read as phishing,
+ * and nothing else. A link that is expired, revoked, used up or simply wrong
+ * returns null and renders one neutral message: distinguishing them on a public
+ * page would only help somebody guessing tokens.
+ */
+export async function findUsableEnrollmentLink(
+  token: string,
+  executor?: Queryable,
+): Promise<EnrollmentOffer | null> {
+  if (!token || token.length < 20) return null;
+  const row = await queryOne<
+    EnrollmentLinkRow & { program_name: string; institution: string; domains: number }
+  >(
+    `SELECT l.*, p.name AS program_name, p.institution,
+            (SELECT count(*)::int FROM program_email_domains d
+              WHERE d.program_id = l.program_id) AS domains
+       FROM enrollment_links l
+       JOIN programs p ON p.id = l.program_id
+      WHERE l.token_hash = $1`,
+    [hashToken(token)],
+    executor,
+  );
+  if (!row || linkStatusOf(row) !== "active") return null;
+  return {
+    programName: row.program_name,
+    institution: row.institution,
+    label: row.label,
+    hasDomains: row.domains > 0,
+  };
+}

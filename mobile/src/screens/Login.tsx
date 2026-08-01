@@ -30,7 +30,7 @@ export function LoginScreen() {
           </div>
           <h1 className="text-3xl font-bold text-ink">ShiftSwitch</h1>
           <p className="mt-2 text-ink-muted">
-            Swap shifts with your co-residents, with your program&rsquo;s rules
+            Switch shifts with your co-residents, with your program&rsquo;s rules
             checked before anything is agreed.
           </p>
 
