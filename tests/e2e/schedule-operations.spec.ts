@@ -105,6 +105,36 @@ test("a chief reaches the grid, and it shows coverage rather than a table", asyn
   await expect(page.getByText(/nothing matches/i)).toHaveCount(0);
 });
 
+test("a chief sets the coverage the generator reads, without managing services", async ({
+  page,
+}) => {
+  await signIn(page, ACCOUNTS.chief);
+  await page.goto("/admin/services");
+
+  /* The chief reaches the list — it is the way to each service's coverage —
+     but the services themselves are program leadership's to add and rename. */
+  await expect(page.getByRole("heading", { level: 1, name: "Services" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /add service/i })).toHaveCount(0);
+
+  await page.getByRole("link", { name: /configure/i }).first().click();
+
+  /* The identity half is a summary, not a form with dead controls. */
+  await expect(page.getByRole("heading", { name: /what this service is/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^save$/i })).toHaveCount(0);
+
+  /* The coverage half is theirs, and it writes. This is the whole point: a
+     coverage requirement is the generator's primary input, and the person who
+     runs the generator is the person who has to be able to state it. */
+  await page.getByRole("button", { name: /add a requirement/i }).first().click();
+  const sheet = page.getByRole("dialog");
+  await sheet.getByLabel("At least", { exact: true }).fill("3");
+  await sheet.getByRole("button", { name: /^save$/i }).click();
+
+  await expect(page.getByText(/needs 3 or more people/i).first()).toBeVisible({
+    timeout: 20_000,
+  });
+});
+
 test("publishing is refused until somebody signs the schedule off", async ({ page }) => {
   await signIn(page, ACCOUNTS.chief);
   await page.goto("/admin/scheduler");

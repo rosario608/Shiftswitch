@@ -12,46 +12,54 @@ export const dynamic = "force-dynamic";
  * should be able to find "where do I add a service" without being told, and the
  * only reliable way to do that is to put it next to the other program setup.
  */
-const GROUPS: Array<{
-  heading: string;
-  links: Array<{ href: string; label: string; capability: Capability }>;
-}> = [
+interface NavLink {
+  href: string;
+  label: string;
+  /** Any one of these opens it, matching the guard on the page itself. */
+  capabilities: [Capability, ...Capability[]];
+}
+
+const GROUPS: Array<{ heading: string; links: NavLink[] }> = [
   {
     heading: "Day to day",
     links: [
-      { href: "/admin", label: "Overview", capability: "audit.view" },
-      { href: "/admin/scheduler", label: "Scheduler", capability: "scheduling.plan" },
-      { href: "/admin/coverage", label: "Coverage", capability: "scheduling.plan" },
-      { href: "/admin/approvals", label: "Approvals", capability: "approvals.decide" },
-      { href: "/admin/schedule", label: "Schedule", capability: "schedule.manage" },
-      { href: "/admin/corrections", label: "Corrections", capability: "schedule.manage" },
-      { href: "/admin/import", label: "Import", capability: "schedule.manage" },
+      { href: "/admin", label: "Overview", capabilities: ["audit.view"] },
+      { href: "/admin/scheduler", label: "Scheduler", capabilities: ["scheduling.plan"] },
+      { href: "/admin/coverage", label: "Coverage", capabilities: ["scheduling.plan"] },
+      { href: "/admin/approvals", label: "Approvals", capabilities: ["approvals.decide"] },
+      { href: "/admin/schedule", label: "Schedule", capabilities: ["schedule.manage"] },
+      { href: "/admin/corrections", label: "Corrections", capabilities: ["schedule.manage"] },
+      { href: "/admin/import", label: "Import", capabilities: ["schedule.manage"] },
     ],
   },
   {
     heading: "People",
     links: [
-      { href: "/admin/roster", label: "Roster", capability: "scheduling.plan" },
-      { href: "/admin/directory", label: "Directory", capability: "residents.contact_info" },
-      { href: "/admin/availability", label: "Availability", capability: "scheduling.plan" },
-      { href: "/admin/users", label: "Users & roles", capability: "users.manage" },
-      { href: "/admin/cohorts", label: "Cohorts & blocks", capability: "scheduling.plan" },
+      { href: "/admin/roster", label: "Roster", capabilities: ["scheduling.plan"] },
+      { href: "/admin/directory", label: "Directory", capabilities: ["residents.contact_info"] },
+      { href: "/admin/availability", label: "Availability", capabilities: ["scheduling.plan"] },
+      { href: "/admin/users", label: "Users & roles", capabilities: ["users.manage"] },
+      { href: "/admin/cohorts", label: "Cohorts & blocks", capabilities: ["scheduling.plan"] },
     ],
   },
   {
     heading: "Program setup",
     links: [
-      { href: "/admin/services", label: "Services", capability: "services.manage" },
-      { href: "/admin/rules", label: "Rules", capability: "rules.manage" },
-      { href: "/admin/contacts", label: "Contacts", capability: "contacts.manage" },
-      { href: "/admin/program", label: "Program settings", capability: "program.manage" },
+      {
+        href: "/admin/services",
+        label: "Services",
+        capabilities: ["services.manage", "scheduling.plan"],
+      },
+      { href: "/admin/rules", label: "Rules", capabilities: ["rules.manage"] },
+      { href: "/admin/contacts", label: "Contacts", capabilities: ["contacts.manage"] },
+      { href: "/admin/program", label: "Program settings", capabilities: ["program.manage"] },
     ],
   },
   {
     heading: "Review",
     links: [
-      { href: "/admin/analytics", label: "Analytics", capability: "analytics.view" },
-      { href: "/admin/audit", label: "Audit log", capability: "audit.view" },
+      { href: "/admin/analytics", label: "Analytics", capabilities: ["analytics.view"] },
+      { href: "/admin/audit", label: "Audit log", capabilities: ["audit.view"] },
     ],
   },
 ];
@@ -64,7 +72,9 @@ export default async function AdminLayout({
   const context = await requirePageCapability("audit.view");
   const groups = GROUPS.map((group) => ({
     ...group,
-    links: group.links.filter((link) => can(context.user.role, link.capability)),
+    links: group.links.filter((link) =>
+      link.capabilities.some((capability) => can(context.user.role, capability)),
+    ),
   })).filter((group) => group.links.length > 0);
 
   return (

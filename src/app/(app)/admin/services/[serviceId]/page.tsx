@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { ServiceConfig } from "@/components/app/service-config";
-import { requirePageCapability } from "@/server/auth/page-guards";
+import { requireAnyPageCapability } from "@/server/auth/page-guards";
 import { can } from "@/server/auth/roles";
 import { listRulesForService } from "@/server/domain/admin";
 import { listCoverage } from "@/server/domain/coverage";
@@ -28,7 +28,10 @@ export default async function ServiceConfigPage({
 }: {
   params: Promise<{ serviceId: string }>;
 }) {
-  const context = await requirePageCapability("services.manage");
+  /* Two halves, two capabilities. Program leadership says what the service
+     *is*; whoever builds the schedule says how many people it needs. Both
+     arrive here, and each sees their own half editable. */
+  const context = await requireAnyPageCapability(["services.manage", "scheduling.plan"]);
   const { serviceId } = await params;
 
   const [services, sites, coverage, rules] = await Promise.all([
@@ -38,6 +41,8 @@ export default async function ServiceConfigPage({
     listRulesForService(context.program.id, serviceId),
   ]);
   const mayEditRules = can(context.user.role, "rules.manage");
+  const mayEditService = can(context.user.role, "services.manage");
+  const mayEditCoverage = can(context.user.role, "scheduling.plan");
 
   const service = services.find((record) => record.id === serviceId);
   if (!service) notFound();
@@ -63,6 +68,8 @@ export default async function ServiceConfigPage({
       </header>
 
       <ServiceConfig
+        mayEditService={mayEditService}
+        mayEditCoverage={mayEditCoverage}
         service={{
           id: service.id,
           name: service.name,

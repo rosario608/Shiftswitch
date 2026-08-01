@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 type Params = { params: Promise<{ coverageId: string }> };
 
 export const PATCH = apiHandler(async (request: Request, { params }: Params) => {
-  const context = await requireCapability("services.manage");
+  const context = await requireCapability("scheduling.plan");
   const { coverageId } = await params;
   const input = await parseJson(request, coverageSchema);
   const requirement = await updateCoverage(context, coverageId, input);
@@ -16,7 +16,7 @@ export const PATCH = apiHandler(async (request: Request, { params }: Params) => 
 });
 
 export const DELETE = apiHandler(async (_request: Request, { params }: Params) => {
-  const context = await requireCapability("services.manage");
+  const context = await requireCapability("scheduling.plan");
   const { coverageId } = await params;
   await deleteCoverage(context, coverageId);
   return ok({ deleted: true });

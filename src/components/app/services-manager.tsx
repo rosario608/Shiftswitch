@@ -62,19 +62,34 @@ const COPY: Record<
 export function ServicesManager({
   services,
   rotations,
+  mayManage,
 }: {
   services: ServiceRow[];
   rotations: ServiceRow[];
+  /**
+   * `services.manage`. Without it the screen is still useful — it is the route
+   * to each service's coverage requirements, which belong to `scheduling.plan`
+   * — but nothing on it may be added, renamed or deactivated.
+   */
+  mayManage: boolean;
 }) {
   return (
     <div className="space-y-8">
-      <Section kind="service" rows={services} />
-      <Section kind="rotation" rows={rotations} />
+      <Section kind="service" rows={services} mayManage={mayManage} />
+      <Section kind="rotation" rows={rotations} mayManage={mayManage} />
     </div>
   );
 }
 
-function Section({ kind, rows }: { kind: Kind; rows: ServiceRow[] }) {
+function Section({
+  kind,
+  rows,
+  mayManage,
+}: {
+  kind: Kind;
+  rows: ServiceRow[];
+  mayManage: boolean;
+}) {
   const copy = COPY[kind];
   const [adding, setAdding] = React.useState(false);
   const active = rows.filter((row) => row.active);
@@ -87,10 +102,12 @@ function Section({ kind, rows }: { kind: Kind; rows: ServiceRow[] }) {
           <h2 className="text-lg font-semibold text-ink">{copy.many}</h2>
           <p className="mt-1 text-sm text-ink-muted">{copy.blurb}</p>
         </div>
-        <Button onClick={() => setAdding(true)}>
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          {copy.add}
-        </Button>
+        {mayManage ? (
+          <Button onClick={() => setAdding(true)}>
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            {copy.add}
+          </Button>
+        ) : null}
       </div>
 
       {rows.length === 0 ? (
@@ -100,7 +117,7 @@ function Section({ kind, rows }: { kind: Kind; rows: ServiceRow[] }) {
       ) : (
         <ul className="space-y-2">
           {active.map((row) => (
-            <Row key={row.id} kind={kind} row={row} />
+            <Row key={row.id} kind={kind} row={row} mayManage={mayManage} />
           ))}
           {inactive.length > 0 && (
             <li className="pt-2 text-xs font-semibold tracking-wide text-ink-subtle uppercase">
@@ -108,7 +125,7 @@ function Section({ kind, rows }: { kind: Kind; rows: ServiceRow[] }) {
             </li>
           )}
           {inactive.map((row) => (
-            <Row key={row.id} kind={kind} row={row} />
+            <Row key={row.id} kind={kind} row={row} mayManage={mayManage} />
           ))}
         </ul>
       )}
@@ -123,7 +140,15 @@ function Section({ kind, rows }: { kind: Kind; rows: ServiceRow[] }) {
   );
 }
 
-function Row({ kind, row }: { kind: Kind; row: ServiceRow }) {
+function Row({
+  kind,
+  row,
+  mayManage,
+}: {
+  kind: Kind;
+  row: ServiceRow;
+  mayManage: boolean;
+}) {
   const router = useRouter();
   const [editing, setEditing] = React.useState(false);
 
@@ -187,10 +212,12 @@ function Row({ kind, row }: { kind: Kind; row: ServiceRow }) {
           {toggle.error && <Alert tone="error">{toggle.error}</Alert>}
 
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
-              <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-              Edit
-            </Button>
+            {mayManage ? (
+              <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
+                <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                Edit
+              </Button>
+            ) : null}
             {kind === "service" ? (
               <Link
                 href={`/admin/services/${row.id}`}
@@ -200,24 +227,26 @@ function Row({ kind, row }: { kind: Kind; row: ServiceRow }) {
                 Configure
               </Link>
             ) : null}
-            <Button
-              size="sm"
-              variant="ghost"
-              loading={toggle.pending}
-              onClick={toggle.run}
-            >
-              {row.active ? (
-                <>
-                  <X className="h-3.5 w-3.5" aria-hidden="true" />
-                  Deactivate
-                </>
-              ) : (
-                <>
-                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                  Reactivate
-                </>
-              )}
-            </Button>
+            {mayManage ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={toggle.pending}
+                onClick={toggle.run}
+              >
+                {row.active ? (
+                  <>
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                    Deactivate
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    Reactivate
+                  </>
+                )}
+              </Button>
+            ) : null}
           </div>
         </CardBody>
       </Card>

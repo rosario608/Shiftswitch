@@ -66,31 +66,53 @@ interface Service {
   shiftCount: number;
 }
 
+/**
+ * Two halves under two capabilities.
+ *
+ * `services.manage` says what the service *is* — its site, its PGY range,
+ * whether its shifts may be swapped. `scheduling.plan` says how many people it
+ * needs, which is the generator's primary input. A chief resident holds the
+ * second and not the first, so they see the identity as a read-only summary
+ * and the coverage as something they can change. Rendering a summary rather
+ * than a disabled form is deliberate: a greyed-out field invites somebody to
+ * hunt for the permission that would ungrey it, and there isn't one — this is
+ * simply not their half of the screen.
+ */
 export function ServiceConfig({
   service,
   sites,
   coverage,
+  mayEditService,
+  mayEditCoverage,
 }: {
   service: Service;
   sites: Array<{ id: string; name: string }>;
   coverage: Coverage[];
+  mayEditService: boolean;
+  mayEditCoverage: boolean;
 }) {
   const [editing, setEditing] = React.useState<Coverage | null>(null);
   const [adding, setAdding] = React.useState(false);
 
   return (
     <div className="space-y-6">
-      <ServiceFields service={service} sites={sites} />
+      {mayEditService ? (
+        <ServiceFields service={service} sites={sites} />
+      ) : (
+        <ServiceSummary service={service} sites={sites} />
+      )}
 
       <section>
         <div className="mb-2 flex items-center justify-between gap-3 px-1">
           <h2 className="text-sm font-semibold tracking-wide text-ink-muted uppercase">
             Coverage
           </h2>
-          <Button size="sm" onClick={() => setAdding(true)}>
-            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-            Add a requirement
-          </Button>
+          {mayEditCoverage ? (
+            <Button size="sm" onClick={() => setAdding(true)}>
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              Add a requirement
+            </Button>
+          ) : null}
         </div>
 
         {coverage.length === 0 ? (
@@ -101,7 +123,11 @@ export function ServiceConfig({
                 ? "This service is marked as needing coverage, but nothing says how many people. Nothing will warn you when it is short."
                 : "Say how many people this service needs, and when. You can vary it by weekday, by a date range, or for one specific day."
             }
-            action={<Button onClick={() => setAdding(true)}>Add a requirement</Button>}
+            action={
+              mayEditCoverage ? (
+                <Button onClick={() => setAdding(true)}>Add a requirement</Button>
+              ) : undefined
+            }
           />
         ) : (
           <ul className="space-y-2">
@@ -132,13 +158,15 @@ export function ServiceConfig({
                       </div>
                       <Badge tone="neutral">{SCOPE_LABEL[requirement.scope]}</Badge>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setEditing(requirement)}
-                    >
-                      Edit
-                    </Button>
+                    {mayEditCoverage ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setEditing(requirement)}
+                      >
+                        Edit
+                      </Button>
+                    ) : null}
                   </CardBody>
                 </Card>
               </li>
@@ -198,6 +226,66 @@ function describeRequirement(requirement: Coverage): string {
 
 function sameDays(a: number[], b: number[]): boolean {
   return a.length === b.length && [...a].sort().join() === [...b].sort().join();
+}
+
+/** The identity half, for somebody who may read it but not change it. */
+function ServiceSummary({
+  service,
+  sites,
+}: {
+  service: Service;
+  sites: Array<{ id: string; name: string }>;
+}) {
+  const site = sites.find((candidate) => candidate.id === service.siteId);
+  const rows: Array<[string, string]> = [
+    ["Site", site?.name ?? "No site"],
+    [
+      "Training levels",
+      service.pgyMin === service.pgyMax
+        ? `PGY-${service.pgyMin}`
+        : `PGY-${service.pgyMin} to PGY-${service.pgyMax}`,
+    ],
+    [
+      "Typical shift",
+      service.typicalShiftHours == null
+        ? "No typical length"
+        : `${service.typicalShiftHours} hours`,
+    ],
+    [
+      "Coverage",
+      service.coverageMandatory
+        ? "Must be staffed every day it runs"
+        : "A gap here is not flagged as a problem",
+    ],
+    [
+      "Switching",
+      service.tradeable
+        ? "Residents may swap these shifts"
+        : "These shifts cannot be swapped",
+    ],
+  ];
+
+  return (
+    <Card>
+      <CardBody className="space-y-3">
+        <h2 className="font-semibold text-ink">What this service is</h2>
+        <dl className="space-y-2 text-sm">
+          {rows.map(([term, value]) => (
+            <div key={term} className="flex flex-wrap gap-x-2">
+              <dt className="min-w-[9rem] text-ink-muted">{term}</dt>
+              <dd className="font-medium text-ink">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        {service.notes ? (
+          <p className="text-sm whitespace-pre-line text-ink-muted">{service.notes}</p>
+        ) : null}
+        <p className="text-sm text-ink-subtle">
+          Program leadership sets these. Coverage below is yours to change.
+        </p>
+      </CardBody>
+    </Card>
+  );
 }
 
 function ServiceFields({
