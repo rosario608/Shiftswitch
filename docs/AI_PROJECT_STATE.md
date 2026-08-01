@@ -1278,6 +1278,41 @@ below are earlier sessions, newest first. They are kept rather than summarised
 because several of them explain *why* a piece of code looks the way it does, and
 a later session that does not know will simplify the defect back in.
 
+### Defects found and fixed (resilience session)
+
+Four, all found by running the thing rather than reading it — three of them by
+`npm run verify` refusing the tree the resilience work had just produced.
+
+1. **Two screens still rendered a mid-flight failure as a flat refusal.** The
+   mechanical pass that replaced `Alert tone="error"` with `ActionAlert` missed
+   `corrections-panel.tsx` and `draft-shift-editor.tsx`, because neither took
+   the message from a `useAction` state in the shape the sweep matched — the
+   corrections sheet took a `string | null` prop and the draft editor hand-rolls
+   its own request state. So the one case the whole change exists for, a
+   connection dropping mid-write, appeared in red as *it failed* on the two
+   screens that move a real resident's shift. Both now carry the action itself.
+2. **A correction was never announced.** The result banner had no live region,
+   so a chief using a screen reader submitted the sheet, watched it close, and
+   was told nothing — including who had been notified, which is the part they
+   need. It is `role="status"` now. Found because the end-to-end assertion could
+   not tell the banner from the badge on the row it had just created.
+3. **The red-team indistinguishability check was broken by the request id.**
+   Every response now carries one, so two refusals necessarily differ — the test
+   compared whole bodies and failed. The property it defends is still right, so
+   it now asserts the reference separately (present, six characters, and
+   *different* between the two requests, which is what proves it is not derived
+   from the resource) and compares everything else.
+4. **`npm run verify` could be defeated by a dev server somebody left running.**
+   `next dev` and `next build` share `.next`, so the build step corrupts the
+   running server, and what surfaces four minutes later is a handful of
+   end-to-end tests failing on `ECONNRESET` and phantom strict-mode violations —
+   indistinguishable from flakes, and it cost this session a full twelve-minute
+   run before the cause was clear. The script's own header already reasoned
+   about this ordering; it just never checked. `preflight()` now refuses the run
+   and says why. The Playwright web-server timeout went from two minutes to
+   four at the same time, because a cold start on this filesystem after a build
+   can outrun the default, and that too reads as "the suite is broken".
+
 ### Defects found and fixed (baseline audit)
 
 1. **Program leadership could not reach administration.** The app shell, the

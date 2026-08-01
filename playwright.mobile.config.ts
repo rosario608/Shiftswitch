@@ -48,7 +48,10 @@ export default defineConfig({
       command: `npm run dev -- -p ${API_PORT}`,
       url: `${apiURL}/api/session`,
       reuseExistingServer: !process.env.CI,
-      timeout: 120_000,
+      /* Four minutes, matching the web config: `next dev` compiles on demand
+         and a cold start after `npm run build` has rewritten `.next` outruns
+         the default on a slow filesystem. */
+      timeout: 240_000,
       env: {
         ALLOW_TEST_LOGIN: "true",
         // The native origin during this run. In a real build the origins are

@@ -290,8 +290,13 @@ test("a chief corrects a published shift and the record says why", async ({ page
 
   /* The result says what it did to the schedule, who was told, and it is on
      the list afterwards with the reason a reader can act on. */
-  await expect(page.getByText(/^corrected$/i)).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(/told:/i)).toBeVisible();
+  /* Scoped to the announcement, not to the word. Once the correction lands the
+     page says "Corrected" twice — once as the result of what was just done and
+     once as the badge on the row it created — and the two mean different
+     things. The result is the one under test here. */
+  const announcement = page.getByRole("status").filter({ hasText: "Corrected" });
+  await expect(announcement).toBeVisible({ timeout: 20_000 });
+  await expect(announcement.getByText(/told:/i)).toBeVisible();
   await expect(page.getByText(/sick leave from monday/i).first()).toBeVisible();
   await expect(page.getByText(/nothing has been corrected/i)).toHaveCount(0);
 });
