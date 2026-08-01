@@ -25,7 +25,7 @@ export default function PrivacyPolicyPage() {
 
       <h2>The short version</h2>
       <p>
-        ShiftSwitch helps resident physicians swap work shifts with each other.
+        ShiftSwitch helps resident physicians switch work shifts with each other.
         To do that it needs to know who you are, which program you belong to,
         and which shifts you are assigned. That is essentially all it holds.
       </p>

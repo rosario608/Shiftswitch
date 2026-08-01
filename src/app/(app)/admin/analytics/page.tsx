@@ -115,7 +115,7 @@ export default async function AnalyticsPage() {
       <Card>
         <CardBody>
           <h2 className="mb-3 font-semibold text-ink">
-            Most common reasons trades fail
+            Most common reasons switches are blocked
           </h2>
           {analytics.failedValidationReasons.length === 0 ? (
             <EmptyState

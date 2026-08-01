@@ -75,7 +75,7 @@ export default async function TradeDetailPage({
         className="inline-flex min-h-[2.5rem] items-center gap-1.5 text-sm font-semibold text-brand-ink"
       >
         <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-        Trades
+        Switches
       </Link>
 
       <header>

@@ -355,7 +355,7 @@ function ServiceSheet({
             <span className="text-sm">
               <span className="font-medium text-ink">Residents may switch these shifts</span>
               <span className="mt-0.5 block text-ink-muted">
-                Turn this off for sessions the program does not allow to be swapped,
+                Turn this off for sessions the program does not allow to be switched,
                 such as continuity clinic.
               </span>
             </span>

@@ -71,7 +71,13 @@ const REJECTED = /\b(trade|trades|traded|trading|tradeable|tradable|swap|swaps|s
  */
 const NOT_PROSE = [
   /^[a-z0-9_.:/[\]-]+$/, // event keys, table and column names, route paths, ids
-  /^@?[a-z0-9@/._-]+$/i, // import specifiers
+  /* Import specifiers must actually look like one — a scope, a relative path,
+     or something with a slash in it. An earlier version of this list was
+     `/^@?[a-z0-9@/._-]+$/i`, which is case-insensitive and therefore matched
+     any single capitalised word: it quietly excused the `<h1>Trades</h1>` at
+     the top of the board, which is the largest text on the screen. A guard's
+     allowlist is where its blind spots live. */
+  /^(@[a-z0-9@/._-]+|\.{1,2}\/[a-z0-9@/._-]+|[a-z0-9._-]+\/[a-z0-9@/._-]+)$/i,
   /\b(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|JOIN|VALUES)\b/, // SQL
 ];
 
@@ -119,9 +125,22 @@ function prose(source: string): Array<{ line: number; text: string }> {
       const text = match[1] ?? match[2] ?? match[3];
       found.push({ line: index + 1, text });
     }
-    // JSX text between tags: >Some words here<
+    // JSX text between tags on one line: >Some words here<
     for (const match of code.matchAll(/>([^<>{}"']{4,300})</g)) {
       found.push({ line: index + 1, text: match[1] });
+    }
+
+    /* JSX text on a line of its own, which is how anything inside a multi-line
+       element is written — including the back-link at the top of every detail
+       screen, which said "Trades" for a whole commit after the rest of the
+       product stopped. Prose only: no punctuation that belongs to code. */
+    if (
+      /^[A-Za-z][A-Za-z0-9 ,.'\u2019\u2014-]{3,200}$/.test(trimmed) &&
+      // At least two words, or it is an identifier on its own line, not prose.
+      /\s/.test(trimmed) &&
+      !/[;:={}()<>"'`[\]]/.test(trimmed)
+    ) {
+      found.push({ line: index + 1, text: trimmed });
     }
   });
 

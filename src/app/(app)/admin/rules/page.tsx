@@ -45,7 +45,7 @@ export default async function RulesPage() {
       <header>
         <h1 className="text-2xl font-semibold text-ink">Switch rules</h1>
         <p className="mt-1 text-sm text-ink-muted">
-          Every rule here is evaluated on the server whenever a trade is offered,
+          Every rule here is evaluated on the server whenever a switch is offered,
           accepted, and finalised.
         </p>
       </header>

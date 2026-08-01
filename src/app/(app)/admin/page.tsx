@@ -167,7 +167,7 @@ export default async function AdminHomePage() {
             <div>
               <p className="font-semibold text-ink">Housekeeping</p>
               <p className="mt-1 text-sm text-ink-muted">
-                Expire stale trade posts and offers, and close out shifts that
+                Expire stale posted shifts and offers, and close out shifts that
                 have already been worked. Safe to run at any time.
               </p>
             </div>

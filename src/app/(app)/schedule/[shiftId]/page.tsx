@@ -112,7 +112,7 @@ export default async function ShiftDetailPage({
                 href={`/switches/${activePost.id}`}
                 className="flex min-h-[2.75rem] items-center justify-center rounded-xl bg-brand px-4 font-semibold text-white"
               >
-                View trade post
+                View this posting
               </Link>
             </CardBody>
           </Card>

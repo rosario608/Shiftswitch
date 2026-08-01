@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronRight, Repeat } from "lucide-react";
+import { CalendarPlus, ChevronRight, Repeat } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -17,12 +17,14 @@ import {
   type ResolvedOutcome,
 } from "@/server/domain/trades";
 import { REQUEST_STATUS_LABELS, OFFER_STATUS_LABELS } from "@/server/domain/status";
+import { PostShiftButton } from "@/components/app/post-shift-sheet";
+import { listOfferableForPosting } from "@/server/domain/schedule-actions";
 import { toShiftView } from "@/lib/views";
 import { fmtTimestamp } from "@/lib/format";
 import type { TradeRequestStatus, TradeOfferStatus } from "@/server/db/types";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Trades" };
+export const metadata = { title: "Switches" };
 
 const BAND_TONE: Record<MatchBand, "positive" | "brand" | "caution" | "neutral"> = {
   strong: "positive",
@@ -91,6 +93,9 @@ export default async function TradesPage({
     | "history";
   const timezone = context.program.timezone;
   const residentId = context.resident?.id ?? null;
+  const postable = context.resident
+    ? await listOfferableForPosting(context.resident.id)
+    : [];
 
   const available =
     tab === "available"
@@ -139,11 +144,24 @@ export default async function TradesPage({
 
   return (
     <div className="space-y-5">
-      <header>
-        <h1 className="text-2xl font-semibold text-ink">Trades</h1>
-        <p className="mt-1 text-sm text-ink-muted">
-          Offer one of your shifts for a colleague&rsquo;s posted shift.
-        </p>
+      {/* The heading names the screen; the button is the one thing a resident
+          can start from here. Everything below it is somebody else's posting,
+          which they can only respond to. */}
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-ink">Switches</h1>
+          <p className="mt-1 text-sm text-ink-muted">
+            Offer one of your shifts for a colleague&rsquo;s posted shift.
+          </p>
+        </div>
+        {context.resident ? (
+          <PostShiftButton
+            shifts={postable.map((shift) => toShiftView(shift, timezone))}
+            label="Post a shift"
+            variant="secondary"
+            icon={<CalendarPlus className="h-4 w-4" aria-hidden="true" />}
+          />
+        ) : null}
       </header>
 
       <nav aria-label="Switch views" className="flex gap-2">

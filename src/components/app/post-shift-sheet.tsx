@@ -167,7 +167,7 @@ export function PostShiftButton({
                   </span>
                   {shift.approvalRequired ? (
                     <span className="mt-1 block text-sm text-caution">
-                      Trading this shift needs chief approval.
+                      Switching this shift needs chief approval.
                     </span>
                   ) : null}
                 </span>

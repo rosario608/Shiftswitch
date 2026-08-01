@@ -196,7 +196,7 @@ export function ShiftEditorButton({
             checked={tradeable}
             onChange={(event) => setTradeable(event.target.checked)}
           />
-          Residents may trade this shift
+          Residents may switch this shift
         </label>
 
         <label className="mb-3 flex items-center gap-2 text-sm text-ink">
@@ -222,7 +222,7 @@ export function ShiftEditorButton({
         {disruptive ? (
           <>
             <Alert tone="warning" className="mb-3">
-              This change invalidates any pending trade offers for this shift. The
+              This change invalidates any pending offers for this shift. The
               residents involved will be notified with the reason.
             </Alert>
             <Field

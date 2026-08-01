@@ -510,6 +510,59 @@ Choices made without asking, as `/CLAUDE.md` requires. Each says what was
 chosen, why, and what was rejected, so any of them can be revisited by someone
 who disagrees rather than rediscovered.
 
+### What the product costs in taps
+
+Counted in a real browser at phone size, not estimated:
+`tests/e2e/taps.spec.ts` installs a click listener in the capture phase and
+reads the total out of `sessionStorage` after each flow, so what is measured is
+what the *browser* saw. The ceilings are asserted, so a change that adds a step
+fails the suite and names the flow.
+
+| From a cold open, signed in | Before | After |
+| --- | --- | --- |
+| Post a shift | **2** | **2** |
+| Offer one of yours on a posted shift | **3** | **2** |
+| Accept an offer | **3** | **2** |
+
+**Posting was already at its floor and stays there.** Two taps: the button on
+the next-shift card, and the confirmation. The sheet is not ceremony — it is
+where the resident sees which shift they are giving away and can add the note
+that gets them a better offer.
+
+**Offering lost the tap that only re-showed a decision already made.** The sheet
+picked the best eligible shift for you and then asked you to confirm that pick;
+the candidates are now loaded when the screen loads instead of when the sheet
+opens, so the button can *name* the shift it will offer — "Offer Tue, Aug 11 ·
+MICU". Choosing a different one is still one tap away and the ranked list behind
+it is unchanged. Offering is reversible until it is accepted, which is why it
+gets a direct button.
+
+**Accepting lost a tap of transport, not of safety.** A single waiting offer is
+now decided on the home screen, because one offer is a yes-or-no and navigating
+somewhere to answer it spends a tap on getting there. *Several* offers still
+link out: choosing between them is a comparison, and the switch screen is built
+for comparing. The confirmation that spells out "You give / You receive" is
+untouched in both cases — accepting hands somebody else your call shift, and
+that is the one tap on this list worth paying for.
+
+### The resident's first ten seconds
+
+The home screen answers two questions before anything is tapped: **what am I
+working next**, and **does anything need me**. It used to open with "Hello,
+Alice" and a sentence describing itself, which is two lines of the most valuable
+space on a phone spent on neither. The heading is now the answer — "Needs you"
+when something does, "Next shift" when nothing does, "No upcoming shifts" when
+there is nothing at all — so a resident reads one line and knows.
+
+Rejected: keeping the greeting and moving it below the content, which is the
+usual compromise and still costs a line to say nothing. Also rejected: a
+notification-style badge count in the heading, which tells somebody there is a
+number without telling them what it is about.
+
+The "Quick actions" card is gone. Three links, two of which duplicated the
+bottom navigation and one of which duplicated the button on the card directly
+above it.
+
 ### Failure, and what counts as an error worth reporting
 
 The judgements behind `docs/FAILURE_PATHS.md`, `src/server/health/` and
