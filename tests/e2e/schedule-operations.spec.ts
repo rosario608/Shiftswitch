@@ -223,7 +223,13 @@ test("a chief can build the rest of a draft again, which is what locking is for"
      chief has to be able to tell why the generator did what it did, and a bare
      "done" does not answer that. */
   await expect(page.getByText(/filled \d+ of \d+ slot/i)).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText(/quality score \d+ out of 100/i)).toBeVisible();
+  /* `\d+(\.\d+)?`, not `\d+`: the score is rounded to one decimal place by
+     `round()` in `constraints/scoring.ts`, so it is a whole number only when it
+     happens to land on one. This assertion was written as `\d+` and passed for
+     weeks on scores like `95`, then failed the first time the generator
+     returned `95.2` — the test was flaky in the data, not in the timing, which
+     is the kind that looks like a real regression when it finally goes off. */
+  await expect(page.getByText(/quality score \d+(\.\d+)? out of 100/i)).toBeVisible();
   await expect(page.getByText(/^seed \d+ · /i)).toBeVisible();
 
   await page.goto("/admin/scheduler/");
