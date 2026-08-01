@@ -11,11 +11,13 @@ import { listResidentSchedule } from "@/server/domain/schedule";
 import { extractSchedule } from "@/server/domain/assisted-import/extract";
 import {
   effectiveRow,
+  listRecentExtractions,
   loadExtraction,
   reviewRow,
   rowsForCommit,
   markCommitted,
   saveExtraction,
+  saveUnreadable,
 } from "@/server/domain/assisted-import/store";
 import { commitImport } from "@/server/domain/import";
 import { listUnmatched } from "@/server/domain/held-rows";
@@ -392,6 +394,48 @@ describe("import accepts what programmes actually send", () => {
     await expect(rowsForCommit(program.program.id, id)).rejects.toThrowError(
       /already been imported/,
     );
+  });
+
+  it("lists recent uploads with how many rows still need checking", async () => {
+    const { id } = await extractMergedWeek();
+
+    /* The only caller of this query is the GET route that draws the import
+       screen's history, so nothing else would have exercised it. A `LEFT JOIN`
+       with a filtered aggregate is exactly the shape that fails quietly — or
+       loudly, in production, on a page nobody tested. */
+    const before = await listRecentExtractions(program.program.id);
+    expect(before).toHaveLength(1);
+    expect(before[0]).toMatchObject({
+      id,
+      filename: "merged-week.xlsx",
+      status: "proposed",
+      rows: 8,
+      unread: 3,
+    });
+
+    const stored = await loadExtraction(program.program.id, id);
+    for (const row of stored!.rows.filter((row) => row.needsReview)) {
+      await reviewRow(chief.context, id, row.id, null);
+    }
+    const after = await listRecentExtractions(program.program.id);
+    expect(after[0].unread).toBe(0);
+
+    /* An upload that could not be read has no rows at all, and must still
+       appear — a coordinator who uploaded three files and got nowhere needs to
+       see that something happened. */
+    await saveUnreadable(
+      chief.context,
+      { filename: "whiteboard.jpg", byteSize: 1024, mediaKind: "image" },
+      "The names in the left column are not legible.",
+    );
+    const withFailure = await listRecentExtractions(program.program.id);
+    expect(withFailure).toHaveLength(2);
+    expect(withFailure[0]).toMatchObject({
+      filename: "whiteboard.jpg",
+      status: "unreadable",
+      rows: 0,
+      unread: 0,
+    });
   });
 
   it("does not leak an extraction to another program", async () => {
