@@ -28,6 +28,33 @@ test("no page scrolls horizontally on a phone-sized viewport", async ({ page }) 
   }
 });
 
+test("no scheduling screen scrolls horizontally on a phone either", async ({ page }) => {
+  /* The admin screens are the dense ones — a grid with services down the side
+     and days across the top — and they are used on a phone between rounds as
+     often as on a laptop. A page that scrolls sideways as a *page* rather than
+     inside its own table is one where the navigation walks off the edge. */
+  await signIn(page, ACCOUNTS.chief);
+  for (const path of [
+    "/admin",
+    "/admin/scheduler",
+    "/admin/coverage",
+    "/admin/availability",
+    "/admin/directory",
+    "/admin/corrections",
+    "/admin/services",
+  ]) {
+    await page.goto(path);
+    await page.waitForLoadState("networkidle");
+    const overflow = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(overflow.scrollWidth, `${path} overflows horizontally`).toBeLessThanOrEqual(
+      overflow.clientWidth + 1,
+    );
+  }
+});
+
 test("primary controls meet a 44px tap target", async ({ page }) => {
   await signIn(page, ACCOUNTS.alice);
   await page.goto("/");

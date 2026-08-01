@@ -4,8 +4,8 @@ Three suites, each with a different job.
 
 | Suite       | Runner     | Talks to               | What it proves |
 | ----------- | ---------- | ---------------------- | -------------- |
-| Unit        | Vitest     | nothing                | Pure logic: time/DST, rules, validation ordering, scoring, email formatting and encoding |
-| Integration | Vitest     | a real PostgreSQL database | The domain services: posting, offers, acceptance, atomic finalisation, approval, overrides, expiry, invalidation, provisioning, sessions, import/export, analytics, concurrency |
+| Unit        | Vitest     | nothing                | Pure logic: time/DST, rules, validation ordering, scoring, email formatting and encoding — plus two suites that read the *source* rather than run it: `route-guards` (every handler's capability) and `action-messages` (what a failed mutation shows) |
+| Integration | Vitest     | a real PostgreSQL database | The domain services: posting, offers, acceptance, atomic finalisation, approval, overrides, expiry, invalidation, provisioning, sessions, import/export, analytics, and concurrency for both the trade lifecycle and the scheduler |
 | End-to-end  | Playwright | a running app + database   | The product: the full workflow in a browser, authorization from the outside, mobile layout, offline behaviour, edge cases |
 
 ---
@@ -116,6 +116,13 @@ never grants a role.
 | ---- | ----- |
 | Google sign-in: PKCE, state, nonce, signature, audience, issuer, expiry, unverified email, workspace domain | `tests/integration/oidc.test.ts` — driven against a local OpenID provider with a real key pair |
 | Concurrent trade — only one succeeds | `tests/integration/concurrency.test.ts` |
+| Two schedulers editing one draft; two publications of one draft | `tests/integration/scheduler-concurrency.test.ts` |
+| Overlapping drafts published at once — the overlap holds one schedule | `tests/integration/scheduler-concurrency.test.ts` |
+| Publication racing an accept; a correction racing an accept | `tests/integration/scheduler-concurrency.test.ts` |
+| Two regenerations into one draft — the loser is told, not discarded | `tests/integration/scheduler-concurrency.test.ts` |
+| Approval withdrawn as a schedule publishes | `tests/integration/scheduler-concurrency.test.ts` |
+| Every route's guard, and page/API capability agreement | `tests/unit/route-guards.test.ts` |
+| A failed action shows what it wrote, not "something went wrong" | `tests/unit/action-messages.test.ts` |
 | Already-traded / obsolete offer rejected | `tests/integration/trade-workflow.test.ts`, `tests/e2e/edge-cases.spec.ts` |
 | Schedule changed under a pending trade | `tests/integration/trade-workflow.test.ts` ("administrator reassigned a shift underneath") |
 | Insufficient rest rejected with an explanation | `tests/unit/validation.test.ts`, `tests/integration/trade-workflow.test.ts` |
@@ -221,6 +228,11 @@ never grants a role.
 | Nobody in two places at once, reconstructed from assignment history | `assertDatabaseConsistent` in `tests/integration/helpers.ts` |
 | No shift orphaned between a schedule version and a trade | `assertDatabaseConsistent` |
 | Every correction records what it replaced | `assertDatabaseConsistent` |
+| A live shift published with an unfilled slot is accepted; one *emptied* with nothing to account for it is not | `assertDatabaseConsistent`, asserted both ways in `tests/integration/scheduler-concurrency.test.ts` |
+| Clearing a draft cell leaves no assignment row, so an `ended` row means one thing | `tests/integration/scheduler-concurrency.test.ts` |
+| The live schedule's editor refuses a draft shift, and the draft editor refuses a published one | `tests/integration/scheduler.test.ts` |
+| The same seed gives the same schedule with the improvement search running, not only with it skipped | `tests/unit/generator.test.ts` |
+| Regeneration covers the draft's own period, whatever window the caller names | `tests/integration/schedule-workflow.test.ts` |
 
 ---
 

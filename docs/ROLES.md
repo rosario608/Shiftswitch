@@ -35,13 +35,13 @@ guess.
 | `schedule.export_program` | Export the whole programme's schedule | | ● | ● | ● | ● |
 | `analytics.view` | Programme analytics | | ● | ● | ● | ● |
 | `audit.view` | The audit log | | ● | ● | ● | ● |
-| `services.manage` | Services and rotations | | | ● | ● | ● |
+| `services.manage` | Services and rotations — what a service *is* | | | ● | ● | ● |
 | `invitations.manage` | Invite, resend, revoke | | | ● | ● | ● |
 | `users.manage` | Change roles, activate and deactivate | | | ● | ● | ● |
 | `rules.manage` | The rules engine | | | ● | ● | ● |
 | `contacts.manage` | Programme notification contacts | | | ● | ● | ● |
 | `program.manage` | Name, institution, timezone, approved domains | | | | ● | ● |
-| `scheduling.plan` | Cohorts, block years, coverage planning, draft schedules | | ● | ● | ● | ● |
+| `scheduling.plan` | Cohorts, block years, coverage requirements, draft schedules | | ● | ● | ● | ● |
 | `schedule.publish` | Approve a draft and make it the live schedule | | ● | ● | ● | ● |
 | `residents.contact_info` | Read a resident's phone number | | ● | ● | ● | ● |
 | `maintenance.run` | Housekeeping: expire stale posts, recompute | | | | | ● |
@@ -54,6 +54,16 @@ one. `scheduling.plan` is about the shape of the programme's year: cohorts,
 blocks, coverage requirements and draft schedules. A **chief resident holds
 both**, because in most programmes the chief is the person who actually builds
 the schedule, and a scheduler screen a chief cannot open is not a scheduler.
+
+Coverage requirements sit here rather than under `services.manage` — a
+requirement is the generator's primary input ("MICU needs three people on a
+weekday, one of them a PGY-3"), not part of what a service *is*. The distinction
+is not academic: for a while the routes said `services.manage` while every
+document said this, so the one person who runs the generator could not state
+what it should aim for. The service configuration screen carries both halves and
+opens to either capability, showing each caller the half that is theirs;
+`tests/unit/route-guards.test.ts` pins the pairing so the two cannot drift
+again.
 
 **`schedule.publish`** is separate again from `scheduling.plan`, and separate
 for a reason that is about consequence rather than difficulty. Building a draft

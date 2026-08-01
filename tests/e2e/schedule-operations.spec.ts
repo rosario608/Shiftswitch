@@ -127,10 +127,10 @@ test("a chief sets the coverage the generator reads, without managing services",
      runs the generator is the person who has to be able to state it. */
   await page.getByRole("button", { name: /add a requirement/i }).first().click();
   const sheet = page.getByRole("dialog");
-  await sheet.getByLabel("At least", { exact: true }).fill("3");
+  await sheet.getByLabel("At least", { exact: true }).fill("2");
   await sheet.getByRole("button", { name: /^save$/i }).click();
 
-  await expect(page.getByText(/needs 3 or more people/i).first()).toBeVisible({
+  await expect(page.getByText(/needs 2 or more people/i).first()).toBeVisible({
     timeout: 20_000,
   });
 });
@@ -171,6 +171,65 @@ test("publishing is refused until somebody signs the schedule off", async ({ pag
   await page.getByRole("button", { name: /discard draft/i }).click();
   await page.getByRole("button", { name: /yes, discard this draft/i }).click();
   await expect(page).toHaveURL(/\/admin\/scheduler$/);
+});
+
+test("a chief can build the rest of a draft again, which is what locking is for", async ({
+  page,
+}) => {
+  /* The regression this guards: locks were reachable, listed, and described as
+     surviving "the next regeneration" — and there was no control anywhere that
+     regenerated an existing draft. The only route to the generator built a new
+     one, so a scheduler could lock a resident's month and never find the button
+     the lock was for. */
+  await signIn(page, ACCOUNTS.chief);
+
+  /* A second service, so this does not stack a requirement on top of the one
+     the coverage test above already set — two weekday requirements on one
+     service ask the programme for more people than it has, and an infeasible
+     run is a different test. */
+  await page.goto("/admin/services");
+  await page.getByRole("link", { name: /configure/i }).nth(1).click();
+  await page.getByRole("button", { name: /add a requirement/i }).first().click();
+  const requirement = page.getByRole("dialog");
+  await requirement.getByLabel("At least", { exact: true }).fill("1");
+  await requirement.getByRole("button", { name: /^save$/i }).click();
+  await expect(page.getByText(/needs 1 or more people/i).first()).toBeVisible({
+    timeout: 20_000,
+  });
+
+  await page.goto("/admin/scheduler");
+  await page.getByRole("button", { name: /start a draft/i }).click();
+  const draft = page.getByRole("dialog");
+  await draft.getByLabel("Name").fill("Regenerate test");
+  await draft.getByLabel("Covers from").fill("2029-04-02");
+  await draft.getByLabel("To", { exact: true }).fill("2029-04-06");
+  await draft.getByRole("button", { name: /create draft/i }).click();
+
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Regenerate test" }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: /open the grid/i }).click();
+
+  await page.getByRole("button", { name: /build the rest again/i }).click();
+
+  /* It says what it will keep before it does anything, because "regenerate"
+     without that sentence is a button nobody presses on a schedule they have
+     spent an evening on. */
+  await expect(page.getByText(/nothing is locked, so the whole draft is rebuilt/i)).toBeVisible();
+
+  await page.getByRole("button", { name: /^build it$/i }).click();
+
+  /* What it filled, how good it is, and the seed that would reproduce it — a
+     chief has to be able to tell why the generator did what it did, and a bare
+     "done" does not answer that. */
+  await expect(page.getByText(/filled \d+ of \d+ slot/i)).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/quality score \d+ out of 100/i)).toBeVisible();
+  await expect(page.getByText(/^seed \d+ · /i)).toBeVisible();
+
+  await page.goto("/admin/scheduler/");
+  await page.getByRole("link", { name: /regenerate test/i }).first().click();
+  await page.getByRole("button", { name: /discard draft/i }).click();
+  await page.getByRole("button", { name: /yes, discard this draft/i }).click();
 });
 
 test("the directory shows numbers as links, and only to somebody entitled to them", async ({

@@ -52,15 +52,46 @@ as best.
 
 ## Determinism
 
-Same inputs, same seed, byte-identical output. Every iteration order is
-explicit, every tie is broken by a stable key — resident id, content-addressed
-slot id — and the only randomness is a seeded Mulberry32 whose seed is recorded
-in the report.
+Same inputs, same seed, byte-identical output — **provided the run finishes its
+search**. Every iteration order is explicit, every tie is broken by a stable key
+(resident id, content-addressed slot id), and the only randomness is a seeded
+Mulberry32 whose seed is recorded in the report.
 
-`tests/unit/generator.test.ts` asserts it two ways: two runs compared directly,
-and a run over a roster in reverse order producing the same assignments. A
-scheduler who runs it twice and gets two different schedules cannot tell whether
-their edit caused the difference, and stops trusting it.
+The proviso is load-bearing and used to be missing. The improvement phase was
+bounded by wall-clock time, so a fast machine performed more swaps than a loaded
+one and the same seed produced two different schedules. The unit tests did not
+catch it because they run with a budget of `0`, which skips the search
+altogether; what caught it was `schedule-lifecycle` failing under load and
+passing alone — the shape of a "flaky test" that is really a wrong claim.
+
+The search is now bounded by **iterations first, time second**:
+
+| | |
+|---|---|
+| Iterations | 8 per movable slot, capped at 5,000 |
+| Budget | A safety valve, not the bound |
+
+`tests/unit/generator.test.ts` asserts it three ways: two runs compared
+directly, a run over a roster in reverse order producing the same assignments,
+and — the one that would have caught this — the same seed under a generous and a
+tight budget producing identical output.
+
+### What is not yet reproducible, and why
+
+Each iteration re-scores the whole schedule, which costs a few milliseconds at a
+fortnight's scale and grows with the schedule. A **large** programme therefore
+still hits the budget before finishing its iterations, and such a run is *not*
+reproducible.
+
+That is reported rather than hidden. `stoppedOnBudget` means exactly "the search
+was cut short, so this result depends on how busy the server was"; the scheduler
+sees it as *"stopped at the time limit, so this is the best it found rather than
+the best there is"*, and raising the budget both improves the schedule and makes
+it repeatable.
+
+The real fix is **incremental scoring** — recomputing only the objectives the two
+swapped residents affect, instead of the whole schedule — which would make
+iterations cheap enough that any programme finishes its search. It is not done.
 
 ## The time budget
 
@@ -74,8 +105,7 @@ NP-hard; a search that runs until it is satisfied never returns.
 | In tests | Usually `0` — construction is deterministic and needs no search to be correct |
 
 Construction is not counted against the budget: it is not optional, and a
-schedule with a hole in it is not a schedule. `stoppedOnBudget` in the report
-says whether the search ran out of time.
+schedule with a hole in it is not a schedule.
 
 ## When it cannot be done
 

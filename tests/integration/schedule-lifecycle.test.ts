@@ -213,13 +213,28 @@ describe("a programme's schedule, from nothing to corrected", () => {
     // ------------------------------------------------------------------- correct
     /* Somebody who is on nothing that day, so the correction does not simply
        recreate the collision it is meant to resolve. */
+    /* Read from the database, not from `live`. That snapshot was taken before
+       the trade, and the trade is what moved people around — using it meant the
+       "spare" could be whoever now holds `partner`, and the correction was
+       refused with "That is who is already on it". It failed about one run in
+       three, which is not flakiness: it is a test asking a question about a
+       schedule that has since changed. */
     const busyOnThatDay = new Set(
-      live.filter((shift) => shift.date === partner.date).map((shift) => shift.resident_id),
+      (
+        await query<{ resident_id: string }>(
+          `SELECT a.resident_id
+             FROM shifts s
+             JOIN shift_assignments a
+               ON a.shift_id = s.id AND a.assignment_status = 'active'
+            WHERE s.program_id = $1 AND s.schedule_version_id IS NULL AND s.date = $2`,
+          [fixture.program.id, partner.date],
+        )
+      ).map((row) => row.resident_id),
     );
     const spare = residents.find(
       (resident) => !busyOnThatDay.has(resident.resident.id),
     )!;
-    expect(spare).toBeDefined();
+    expect(spare, "somebody free on that day to correct the shift to").toBeDefined();
 
     const correction = await correctPublishedShift(chief.context, partner.id, {
       residentId: spare.resident.id,

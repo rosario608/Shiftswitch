@@ -3,10 +3,19 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 1 August 2026, after turning the scheduler into an **operational
-workflow**: structured availability that feeds the constraint model, locks that
-survive a regeneration, an approval step before publication, a grid the schedule
-is actually built on, coverage checked by the constraint model when a trade is
+Last updated: 1 August 2026, after an **independent product, security,
+scheduling and pilot-readiness audit** whose brief was that `npm run verify`
+passing is the floor, not the finding. It treated this document as a claim to be
+checked rather than a description, and it found nine defects — three of them by
+racing the scheduler the way the trade lifecycle was already raced, one by
+reading every route handler off disk, and one by pressing a button in a browser
+and reading the screen. All nine are fixed at the root with a regression test.
+See **Audit, 1 August 2026**.
+
+Before that, turning the scheduler into an **operational workflow**: structured
+availability that feeds the constraint model, locks that survive a
+regeneration, an approval step before publication, a grid the schedule is
+actually built on, coverage checked by the constraint model when a trade is
 proposed, and corrections to a schedule people are already working. See
 `docs/SCHEDULE_OPERATIONS.md`.
 
@@ -35,7 +44,11 @@ ends, rule wording, notification routing, five-role gaps, and concurrency.
 
 ## Current phase
 
-`VERIFIED_BASELINE`
+`AUDITED` — the product has been through an independent audit whose brief was
+that a green test suite is the floor rather than the finding, and every defect
+it found is fixed at the root with a regression test. What remains before a
+pilot is not code: two migrations to apply, a preview database branch, and the
+institution's roster. See **User action required**.
 
 ## Current status
 
@@ -47,6 +60,14 @@ shifts in production yet.
 preparation was `npm ci && npm run setup:local`. That is the one claim about
 this repository that is checked rather than asserted, and it is checked in
 full — see **Tested**.
+
+It is also, as the audit of 1 August 2026 put it, the **floor rather than the
+finding**. Every defect that audit found was in a tree where `verify` already
+exited 0: three of them needed the scheduler to be raced against itself, one
+needed every route handler read against the documented permission matrix, and
+one needed somebody to press a button in a browser and read the screen. A green
+suite means nothing it tests is broken; it says nothing about what it does not
+test.
 
 ### Migrations
 
@@ -97,11 +118,36 @@ repository is verified by `npm run verify`.
 ## Current blocker
 
 The program has no people and no schedule. Neither can be invented: they are the
-institution's real roster and real block schedule. Nothing technical is blocked.
+institution's real roster and real block schedule, and no amount of engineering
+produces them. Nothing technical is blocked — `npm run demo:seed` builds a
+21-person programme with a month of shifts and a trade in every lifecycle state,
+which is what every feature since has been built and tested against.
+
+The audit of 1 August 2026 did not find a blocker either. What it found were
+nine defects, all fixed; what it leaves behind is a short list of things a
+session cannot do, under **User action required**, of which only the first three
+are genuine prerequisites for a pilot.
 
 ## User action required
 
-0. **Apply `db/migrations/0008_scheduler_foundation.sql` and then
+**1 to 4 are the prerequisites for a pilot.** Two of them are hosted
+infrastructure and the production database, which `/CLAUDE.md` forbids a session
+from touching; two are the institution's own data, which cannot be invented.
+5 to 7 are store accounts and identities, needed only for the mobile release.
+
+1. **Configure a separate Neon branch for preview deployments.** The Neon
+   integration set one `DATABASE_URL` across production, preview and
+   development, so **a pull-request preview writes to production data** — a
+   preview that seeds, migrates or truncates would do it to the live programme.
+   Previews are SSO-protected, so nobody outside the team can reach one, which
+   is why this has not been urgent; it stops being merely untidy the moment a
+   second person opens a pull request. Neon → Branches → create a `preview`
+   branch, then Vercel → Settings → Environment Variables → set `DATABASE_URL`
+   for the Preview environment only. A session cannot do this: it is a change to
+   hosted infrastructure, and reaching the production database to make it is
+   forbidden by `/CLAUDE.md`.
+
+2. **Apply `db/migrations/0008_scheduler_foundation.sql` and then
    `db/migrations/0009_schedule_operations.sql` to production**, before the code
    on `main` is deployed. `npm run db:migrate` against the production
    `DATABASE_URL` applies both in order. Without `0008` every schedule query
@@ -109,13 +155,15 @@ institution's real roster and real block schedule. Nothing technical is blocked.
    correcting a published shift all fail. Sessions do not do this — see
    `/CLAUDE.md`.
 
-1. **The residents' email addresses**, for **Admin → Users & roles → Invite
+3. **The residents' email addresses**, for **Admin → Users & roles → Invite
    people**. Any format: commas, semicolons, one per line, or a spreadsheet
-   column.
-2. **The block schedule**, as CSV or XLSX, for **Admin → Import**.
-3. **A Google Play developer account.** $25 plus identity verification.
-4. **An Apple Developer account.** $99/year plus identity verification.
-5. **A bundle id on a domain the institution controls**, replacing
+   column. This is the institution's real roster; it cannot be invented, and
+   `npm run demo:seed` exists so that nothing waits for it.
+4. **The block schedule**, as CSV or XLSX, for **Admin → Import**. Likewise the
+   institution's, and likewise not blocking any development.
+5. **A Google Play developer account.** $25 plus identity verification.
+6. **An Apple Developer account.** $99/year plus identity verification.
+7. **A bundle id on a domain the institution controls**, replacing
    `org.shiftswitch.app`. It can never be changed after the first store upload.
 
 Also eventually: a Mac for the iOS build, and 12 real testers for 14 days if
@@ -148,10 +196,12 @@ builds schedules later is graded against it.
 On top of *that* sits the **generator** (`docs/GENERATOR.md`): a scheduler names
 a period and gets a draft, built from the coverage requirements, the block year,
 everybody's availability and eligibility, and the configured rules — then graded
-by the validator before it is emitted. It supports locks, is deterministic under
-a recorded seed, optimises the soft objectives within a time budget, and when no
-schedule fits it names the smallest set of constraints whose relaxation would
-admit one, in a chief's words.
+by the validator before it is emitted. It supports locks, optimises the soft
+objectives over a fixed number of iterations under a recorded seed — so a run
+that finishes is reproducible on any machine — and when no schedule fits it
+names the smallest set of constraints whose relaxation would admit one, in a
+chief's words. **Build the rest again**, on the grid, runs it over an existing
+draft and keeps what is locked.
 
 On top of *that* sits the **operational workflow**
 (`docs/SCHEDULE_OPERATIONS.md`): structured availability, persisted locks, an
@@ -160,16 +210,27 @@ everybody affected, a trade coverage check that asks the constraint model, and
 corrections to a schedule people are already working — with the visible
 difference between what was published and what is true now.
 
-What is *not* built: **per-resident rotation quotas** — "every PGY-1 does at
-least two blocks of MICU" — which the configuration still cannot express, so
-neither the validator nor the generator can honour it. It is the obvious next
-thing, and inventing a default in the meantime would mean enforcing a curriculum
-no programme agreed to.
+Everything above has been through the audit of 1 August 2026 — read that section
+before changing the scheduler, because several of its conclusions are about
+*why* something is written the way it is, and a plausible-looking simplification
+reintroduces a defect it names.
 
-Also absent, and smaller: **multi-person switches** (every trade is between
-exactly two residents), and **travel time between sites** (two non-overlapping
-shifts at two hospitals an hour apart is a real problem and nothing in the
-configuration records the hour).
+What is *not* built, in the order it is worth doing:
+
+1. **Incremental scoring in the generator.** Each improvement iteration
+   re-scores the whole schedule, which is what stops a large programme's run
+   from finishing its search and therefore from being reproducible. Recomputing
+   only the objectives the two swapped residents affect would fix it. This is
+   the one item that is a *correctness of the claim*, not a feature.
+2. **Per-resident rotation quotas** — "every PGY-1 does at least two blocks of
+   MICU" — which the configuration still cannot express, so neither the
+   validator nor the generator can honour it. Inventing a default would mean
+   enforcing a curriculum no programme agreed to.
+3. **Multi-person switches.** Every trade is between exactly two residents;
+   `finaliseTrade` writes two legs and the schema would carry more.
+4. **Travel time between sites.** Two non-overlapping shifts at two hospitals an
+   hour apart is a real problem and nothing in the configuration records the
+   hour.
 
 **For onboarding the first real program** (a human sequence, not a session's):
 **Admin → Program settings** → **Admin → Services** → **Admin → Users & roles →
@@ -181,11 +242,293 @@ without real data, `npm run demo:seed` and the invitation sandbox — see
 host. Still needed: `ANDROID_PACKAGE_NAME`, `ANDROID_CERT_FINGERPRINTS`,
 `APPLE_TEAM_ID`, `IOS_BUNDLE_ID`, and FCM credentials.
 
+## Audit, 1 August 2026
+
+An independent product, security, scheduling and pilot-readiness pass. The
+brief: treat the code and its observed behaviour as the only source of truth,
+treat this document as a claim to be checked, walk every persona, attack the
+scheduler, and fix every defect at the root with a regression test.
+
+Nine defects. What is worth noticing is *how* each was found, because that is
+the argument for keeping those methods:
+
+| # | Defect | Found by |
+|---|---|---|
+| 1 | A chief could not set the coverage the generator reads | Reading every route handler against the documented matrix |
+| 2 | Two overlapping drafts published at once left two schedules live | Racing publication |
+| 3 | Withdrawing an approval could strip a *published* schedule's sign-off | Racing publication against withdrawal |
+| 4 | Two regenerations into one draft stacked into one doubled draft | Racing generation |
+| 5 | Nothing in the product ever regenerated an existing draft | Following a padlock to the button it promises |
+| 6 | Every written client-side failure message was replaced by "Something went wrong" | Pressing a button in a browser and reading the screen |
+| 7 | The generator's determinism claim was false whenever the budget was non-zero | An integration test failing under load and passing alone |
+| 8 | A single-cell draft edit was missing from the change history | Reading what the history panel queries |
+| 9 | The live schedule's editor could reach into a draft | Asking what makes an `ended` assignment row trustworthy |
+
+### 1. Coverage requirements were behind the wrong capability
+
+`/api/admin/coverage` and `/api/admin/coverage/[coverageId]` required
+`services.manage`. A **chief resident does not hold it** — a chief schedules the
+programme's services, they do not invent them — while `roles.ts`, the refusal
+message in `guards.ts`, `docs/ROLES.md` and step one of
+`docs/SCHEDULE_OPERATIONS.md` all said coverage planning is `scheduling.plan`.
+
+A coverage requirement is the generator's primary input. So the one person who
+runs the generator could not state what it should aim for, and any programme
+where chiefs build the schedule had to route every coverage change through an
+APD. Enforcement and documentation had drifted, and nothing tested the pair.
+
+Fixed at the guard. No role lost anything: APD, PD and administrator hold both
+capabilities. The service configuration screen, where the editor lives, now
+opens to either capability and shows each caller their own half —
+`services.manage` edits what a service *is*, `scheduling.plan` edits what it
+needs, and whoever lacks the first reads a summary rather than a form whose
+Save button would return 403.
+
+**`tests/unit/route-guards.test.ts`** is the generalisation: it reads every
+route handler off disk, pins the capability each one requires, keeps a written
+exemption list for the seven that authorise nothing at all — the three sign-in
+routes, the two environment-gated sandboxes, and the two `.well-known`
+documents — and asserts the class of defect directly: a workflow whose
+page one capability opens and whose API another closes. A static read rather
+than an HTTP call, because "no route lacks a guard" is a statement about every
+handler in the tree, and a request-based test only ever covers the ones somebody
+remembered.
+
+### 2. Overlapping publications left two schedules live
+
+`publishScheduleVersion` locked its own version row, which is not enough. Two
+*different* drafts whose periods overlap each lock their own row and each
+replaces its own window; under `READ COMMITTED` the second one's `DELETE` was
+planned against a snapshot in which the first draft's shifts were still drafts,
+so it never selected them. The overlapping days ended up holding **both**
+schedules — every service double-staffed, and residents rostered in two places
+on the same morning.
+
+A programme publishing next block and then a replacement week that overlaps its
+tail is an ordinary Sunday evening. Fixed with a programme-scoped advisory lock
+taken before anything is read; publishing is rare enough that a queue of one
+costs nothing.
+
+### 3. Withdrawing an approval could strip a published schedule
+
+`withdrawApproval` read the status with one statement and cleared the approval
+with another, with no lock and nothing in between. The gap was wide enough to
+drive a publication through: read "draft", somebody publishes, then clear the
+approval — leaving a **published** schedule whose record says nobody ever signed
+it off. The two-step approval exists to produce exactly that record. Now one
+transaction with the row locked.
+
+### 4. Two regenerations stacked into one draft
+
+Regeneration is a read-modify-write across seconds. Two runs interleaved into a
+single draft holding both of them — twenty shifts where the programme needs ten
+— with both chiefs told they had succeeded. Not a torn write: two correct
+transactions composing into a wrong schedule, because the second one's `DELETE`
+was planned before the first one's `INSERT`s existed.
+
+Handled by **refusing rather than queueing**. Making the second chief wait out
+the first run's budget and then silently discarding their result is worse than
+telling them what happened. A fingerprint of the draft's shift set is taken
+before the run and rechecked under an advisory lock at the moment of writing.
+
+The same investigation found that regeneration took its **period from the
+caller**. `persist` replaces every unlocked shift in the version, so a run told
+to cover a narrower window would delete the days outside it and put nothing
+back — and the grid shows at most 120 days of a longer draft, so the window on a
+scheduler's screen is a *view*, not the schedule. The period is a fact about the
+draft and is now read from the draft.
+
+### 5. Locks promised something no screen delivered
+
+A chief could lock a resident's month, see it listed, and read "locking keeps a
+placement through the next regeneration" — and there was no next regeneration to
+survive. `versionId`, `locksForGeneration` and the API all existed and were
+tested at the domain level; the only route to the generator in the interface
+created a **new** draft. Forty locks and no button they applied to.
+
+**Build the rest again** now sits on the grid beside *Repeat a week*. It says
+what it will keep before it does anything, offers the seed, reports what it
+filled and the quality score, and on an infeasible run shows the generator's own
+relaxations — smallest first, each with how many slots it would recover. A
+refusal without a next move is a screen somebody escalates rather than acts on.
+
+### 6. Every written client-side message was thrown away
+
+`useAction` is the single funnel every mutation goes through. It kept the
+message when the failure came back from the server and replaced every other one
+with *"Something went wrong. Please try again."* — including the eight places a
+component raises a written explanation before calling the server: *"Add at least
+one email address."*, *"Choose a date."*, *"Give the service a name."*, *"This
+service would be open to PGY-3 through PGY-1, which is nobody."*
+
+Each of those is the entire value of the failure, and each was invisible. Worse,
+the replacement is indistinguishable from the app genuinely breaking, so the
+honest reaction to it is to stop trusting the screen. Found by pressing a button
+in a browser and reading what appeared.
+
+Fixed in the funnel; the generic message stays for what it was for — a network
+failure, a driver error, a thrown non-`Error`. **`tests/unit/action-messages.test.ts`**
+asserts both halves, including that every message a component throws still reads
+as a sentence somebody can act on.
+
+### 7. The generator was not deterministic under a time budget
+
+`docs/GENERATOR.md` said "same inputs, same seed, byte-identical output". The
+improvement phase was bounded by wall-clock time, so a fast machine performed
+more swaps than a loaded one and the same seed produced different schedules. The
+unit tests missed it because they run with a budget of `0`, which skips the
+search entirely. What surfaced it was `schedule-lifecycle` failing under load and
+passing alone — the shape of a "flaky test" that is really a wrong claim.
+
+The search is bounded by **iterations first, time second**. A run that finishes
+its iterations is byte-identical on any machine.
+
+It is not a complete fix and the document now says so. Each iteration re-scores
+the whole schedule, so a **large** programme still hits the budget first and such
+a run is genuinely not reproducible. That is reported rather than hidden:
+`stoppedOnBudget` now means precisely "the search was cut short, so this depends
+on how busy the server was", the scheduler is told, and the seed field says the
+claim holds "as long as the run finishes". The real fix — incremental scoring, so
+only the two swapped residents' objectives are recomputed — is named and not
+done.
+
+### 8. Single-cell draft edits were missing from the history
+
+`bulkAssign` wrote an audit entry; `assignDraftShift` did not. The workspace's
+change panel reads `audit_logs`, so drag-selecting four cells was recorded and
+changing one was not — a history that is quietly selective is worse than one
+that is absent. Both write one now.
+
+### 9. The live editor was a back door into a draft
+
+`updateShift` and `deleteShift` — the verbs behind **Admin → Schedule**, the
+screen for the schedule people are working — did not exclude a shift belonging
+to a draft. `assignDraftShift` already refuses to touch a *published* shift,
+with the comment "this endpoint is not a back door into the live schedule"; the
+converse was simply missing. Sending a draft shift's id to the live editor
+skipped the draft's own status checks and edited a schedule nobody is working
+through the screen meant for one they are.
+
+Found by asking what makes an `ended` assignment row trustworthy, which is the
+question the consistency check below turns on: if the live editor can reassign a
+draft shift, an `ended` row can appear on one, and the distinction that check
+depends on stops holding. Both verbs now refuse, naming the draft and where to
+go instead.
+
+### The consistency check itself
+
+`assertDatabaseConsistent()` said "every live shift has exactly one holder",
+which was true before drafts existed and is not true now: a draft may
+legitimately be published with an unfilled slot, because approval is
+deliberately not a validity check.
+
+Loosening an invariant is exactly the change that quietly stops catching the
+thing it was written for, so it was reformulated rather than relaxed: **a live
+shift with nobody on it must be explicable** — either it never had a holder, or a
+correction records why. A first attempt drew the line with timestamps and was
+wrong, because `now()` is transaction-*start* time in PostgreSQL: a draft edit
+beginning after a publication begins and committing before it carries an
+`ended_at` later than the version's `published_at`, despite genuinely happening
+while the shift was a draft. That failed about one run in three.
+
+The line is drawn structurally instead. Clearing a draft cell **deletes** the
+assignment row rather than ending it — nobody has worked a draft shift, so there
+is no history to keep, and the draft's history is the audit log — which leaves an
+`ended` row meaning one thing only: somebody was taken off a shift they were
+working. Two tests in `scheduler-concurrency.test.ts` assert both halves
+directly: a published gap is accepted, and a shift emptied with nothing to
+account for it is still caught.
+
+### What was checked and found sound
+
+Not everything the audit looked at was broken. Recorded so a later session does
+not re-derive it:
+
+- **Every mutating route is guarded.** The seven without a capability check are
+  each defensible and are now listed with their reason.
+- **Cross-programme access, role escalation, malformed identifiers, session
+  expiry, deactivation mid-session** — covered by `red-team.spec.ts` and
+  `security.spec.ts`, and re-read against the new surfaces.
+- **Push cannot break a publication.** `notify` inserts the in-app row inside
+  the transaction and defers the push to `afterCommit`; `sendPush` swallows its
+  own failures and records every attempt in `push_deliveries` with a status. A
+  rolled-back publication cannot produce a notification, and a push outage
+  cannot roll back a publication.
+- **Nothing claims delivery that did not happen.** The default invitation
+  transport returns `{ delivered: false, reason }` and the interface says to
+  copy the link.
+- **No scheduling screen scrolls horizontally on a phone.** Previously only the
+  resident pages were checked; the admin screens — the dense ones, with a grid —
+  are now in the same test and pass.
+- **Coverage mutations are transactional and audited**, like every other
+  scheduling mutation.
+
+### Accessibility, honestly
+
+What is checked, in `tests/e2e/mobile-ux.spec.ts`: no page scrolls horizontally
+at phone width — now including the admin screens, which are the dense ones;
+primary controls and every bottom-navigation item meet a 44-pixel tap target;
+a keyboard user can reach the main content and operate a sheet; empty states say
+what to do next; and the offline banner blocks schedule changes rather than
+failing silently. Controls are labelled elements (`<label for>`, `aria-label` on
+icon-only buttons) and the navigation is a landmark with a name.
+
+What is **not** checked: there is no automated accessibility audit — no axe pass,
+no contrast measurement, and nothing has been driven with a real screen reader.
+Saying "accessible" on the strength of the tests above would be overclaiming.
+The nearest thing to a next step is an axe-core check over the primary screens
+in the end-to-end suite.
+
 ## Decisions
 
 Choices made without asking, as `/CLAUDE.md` requires. Each says what was
 chosen, why, and what was rejected, so any of them can be revisited by someone
 who disagrees rather than rediscovered.
+
+### The audit
+
+**Coverage belongs to `scheduling.plan`, not `services.manage`.** Rejected:
+granting a chief `services.manage`, which would also let them create and delete
+services — a much wider change made to fix a narrower problem. Also rejected:
+splitting the coverage editor onto its own screen, which would mean a chief
+configuring coverage and an APD renaming the service never see each other's
+half, and is how a service ends up marked as needing coverage with nothing
+saying how much. Chosen: move the guard, and let one screen open to either
+capability and show each caller the half that is theirs.
+
+**Two schedulers regenerating one draft is refused, not queued.** Rejected:
+serialising the runs, because the second chief would wait out the first run's
+time budget and then have their result silently discarded. They pressed the
+button and are looking at the screen; the useful answer is "somebody else just
+regenerated this — look at theirs, or run again".
+
+**Publication is serialised across the whole programme, not per draft.**
+Rejected: locking only the rows in the window, because which windows can collide
+is not knowable before either transaction has read anything. Publishing is rare
+enough that a queue of one costs nothing.
+
+**A draft edit that clears a cell deletes the assignment row rather than ending
+it.** Rejected: keeping the row and distinguishing draft edits from live changes
+by timestamp, which is unsound — `now()` is transaction-start time, so a draft
+edit that begins after a publication and commits before it looks later than the
+publication. Nobody has worked a draft shift, so there is no history to lose,
+and the draft's history is the audit log. This is what lets an `ended` row mean
+one thing: somebody was taken off a shift they were working.
+
+**The generator's improvement search is bounded by iterations, with time as a
+safety valve.** Rejected: leaving it time-bounded and softening the determinism
+claim in the documentation — a scheduler who runs it twice and gets two
+different schedules cannot tell whether their own edit caused the difference,
+which the documentation itself calls fatal. Accepted as a *partial* fix and
+recorded as such: a large programme still hits the budget, and the remedy —
+incremental scoring — is named rather than pretended away.
+
+**A live shift with nobody on it is legal.** Rejected: keeping "every live shift
+has exactly one holder", which was true before drafts existed. Approval is
+deliberately not a validity check, so a chief may publish a schedule with a hole
+in it when the alternative is no schedule at all, and the coverage report and
+unfilled queue exist to show it. What replaced it is stricter where it matters:
+a shift *emptied* without a correction to account for it is still caught.
 
 ### The operational workflow
 
@@ -625,9 +968,10 @@ migration `0005`.
   published. Migration `0008_scheduler_foundation.sql`.
 - **The constraint model, the validator and the generator** — 30 constraints in
   one catalogue (21 hard, 9 soft), evaluated purely over a snapshot, with a
-  deterministic per-objective score; and a seeded, time-bounded generator that
-  the validator grades and that explains what would have to give when no
-  schedule fits. No migration.
+  deterministic per-objective score; and a seeded generator that the validator
+  grades and that explains what would have to give when no schedule fits. Its
+  search is bounded by iterations, so a run that finishes is reproducible. No
+  migration.
 - **The operational workflow** — structured availability
   (`resident_absences`) that merges into the constraint model rather than
   duplicating it; persisted locks that survive a regeneration; an approval step
@@ -638,6 +982,16 @@ migration `0005`.
   and corrections to a published schedule with a reason, an impact report and a
   visible record. Migration `0009_schedule_operations.sql`.
   See `docs/SCHEDULE_OPERATIONS.md`.
+- **The independent audit** — nine defects found and fixed at the root, each
+  with a regression test: a capability that stopped a chief configuring the
+  generator's input; three scheduler races (overlapping publications,
+  approval-withdrawal against publication, two regenerations into one draft); a
+  promise the padlock made that no screen kept; every written client-side
+  failure message being replaced with "Something went wrong"; a false
+  determinism claim; and a missing history entry. Plus a scheduler concurrency
+  suite, a static guard sweep over every route handler, and a consistency
+  check reformulated to be sound rather than merely strict. No migration.
+  See **Audit, 1 August 2026**.
 
 ## Demo data
 
@@ -686,6 +1040,13 @@ Guards name a capability (`requireCapability("services.manage")`), the admin
 navigation is generated from the same matrix, and a role may only ever be
 assigned to somebody strictly junior to the assigner. Nobody may change their
 own role.
+
+`tests/unit/route-guards.test.ts` reads every route handler off disk and pins
+the capability it requires, with a written exemption list for the seven that
+authorise nothing. It exists because the matrix and its enforcement had drifted
+once — coverage requirements were guarded by `services.manage` while four
+documents said `scheduling.plan` — and nothing detected it, because a missing
+or wrong guard is a line of code that is simply not there.
 
 ## Environment safety
 
@@ -747,7 +1108,14 @@ in the dangerous direction. The hostname is now parsed and compared.
 Secrets are never in the repository. `.env.production`, `key.properties`,
 `*.jks`, `*.p8`, `*.p12` and `google-services.json` are all git-ignored.
 
-## Defects found and fixed (baseline audit)
+## Defects found and fixed, by session
+
+The most recent are under **Audit, 1 August 2026**, near the top. The sections
+below are earlier sessions, newest first. They are kept rather than summarised
+because several of them explain *why* a piece of code looks the way it does, and
+a later session that does not know will simplify the defect back in.
+
+### Defects found and fixed (baseline audit)
 
 1. **Program leadership could not reach administration.** The app shell, the
    profile page, the shift detail page and the switch detail page all tested
@@ -787,7 +1155,7 @@ Two things examined and deliberately **not** changed:
   program* is indistinguishable from one that exists nowhere, which is the
   property that matters and is now asserted.
 
-## Defects found and fixed (roles/services session)
+### Defects found and fixed (roles/services session)
 
 Reported from hands-on use, plus two the new tests surfaced:
 
@@ -816,7 +1184,7 @@ Reported from hands-on use, plus two the new tests surfaced:
    permissions expressed as `rank >= n`. Replaced with five roles and an
    explicit capability matrix.
 
-## Defects found and fixed (resident experience & trade lifecycle session)
+### Defects found and fixed (resident experience & trade lifecycle session)
 
 Twelve, all found by tests or by walking the product as a resident, all fixed at
 the root with regression coverage. The last three are the serious ones.
@@ -891,7 +1259,7 @@ the root with regression coverage. The last three are the serious ones.
     concurrency to produce — running the same sequence one call at a time never
     reaches it. The shift row is now locked first.
 
-## Defects found and fixed (demo data & lifecycle session, earlier)
+### Defects found and fixed (demo data & lifecycle session, earlier)
 
 All found by tests that did not exist before, and all fixed:
 
@@ -991,15 +1359,37 @@ cancel, withdraw, decline, an administrator reassigning or cancelling a shift,
 the expiry sweep — plus two chiefs deciding at once, and an uncoordinated storm
 of six residents firing everything in parallel.
 
+`tests/integration/scheduler-concurrency.test.ts` does the same for the
+scheduler, and the blast radius is worse: a trade that tears leaves two
+residents confused about one shift; a publication that tears leaves a month of a
+programme's schedule wrong, and nobody finds out until somebody does not turn
+up. It races two schedulers editing one draft, two publications of one draft,
+two **overlapping** drafts publishing at once, publication against an accept, a
+correction against an accept, two corrections, two regenerations, a lock landing
+mid-regeneration, an approval being withdrawn as a schedule publishes, and a
+storm of all of it at once.
+
 The assertion that matters is `assertDatabaseConsistent()` in
 `tests/integration/helpers.ts`, run at the end of each. Counting successes is not
 enough: "one accept won and one lost" is compatible with a database in which a
 shift has two holders or a switch was recorded but never applied. It checks that
-every live shift has exactly one holder, every completed switch has two legs and
-actually swapped the two residents, no offer is left accepted on a finished
-request, and no shift claims to be in a trade that does not exist.
+no shift has two holders, that a live shift with nobody on it is explicable,
+that every completed switch has two legs and actually swapped the two residents,
+that nobody is in two places at once, that no offer is left accepted on a
+finished request, and that no shift claims to be in a trade that does not exist.
 
-Three of the defects above were found this way and by nothing else.
+The invariants about *when* something was true are reconstructed from
+`shift_assignments` history rather than read off current rows, because "was this
+state ever impossible" and "is this state wrong now" are different questions and
+only the first is about atomicity.
+
+**Three of the trade defects, and three of the scheduling ones, were found this
+way and by nothing else.** The scheduling suites are run **twelve consecutive
+times** when they change; anything below 12/12 is treated as a defect rather
+than flakiness, and taking that seriously is what exposed both the unsound
+timestamp comparison in the consistency check and the generator's time-bounded
+search — each of which looked exactly like an intermittent test and was in fact
+a wrong assertion and a wrong claim. Last run: **12/12**.
 
 ## Known issues
 
@@ -1015,7 +1405,16 @@ Three of the defects above were found this way and by nothing else.
   set `DATABASE_URL` for all three targets, so a pull-request preview writes to
   production data. Previews are SSO-protected, so this is not urgent, but a
   separate Neon branch for preview should be configured before anyone else
-  works on the repository.
+  works on the repository. A session cannot do it — it is hosted infrastructure,
+  and reaching production is forbidden. Listed first under **User action
+  required**.
+- **A large programme's generated schedule is not reproducible.** The
+  improvement search is bounded by iterations, so a run that *finishes* is
+  byte-identical on any machine; each iteration re-scores the whole schedule, so
+  a large programme hits the time budget first and that run depends on how busy
+  the server was. It is reported — `stoppedOnBudget`, and the scheduler is told
+  in those words — rather than hidden. The fix is incremental scoring; see
+  `docs/GENERATOR.md`.
 - **Multi-person swaps are not implemented.** Every switch is between exactly
   two residents; `finaliseTrade` writes two legs. The schema would carry more.
   Nothing in the product claims otherwise.
@@ -1025,6 +1424,15 @@ Three of the defects above were found this way and by nothing else.
   redemption logic itself is tested directly with the identity the callback
   supplies, and the callback's signature verification against a local OpenID
   provider.
+- **One unexplained log line.** During an end-to-end run a single
+  `api.rejected … /api/admin/schedule-workspace … "The request body was not
+  valid JSON."` appeared while the browser was navigating away from the grid.
+  Every caller of that route sends `JSON.stringify(...)`, and the shape is
+  consistent with a request aborted mid-flight being logged as a client
+  validation failure — but that is a hypothesis, not something reproduced
+  deliberately. No user-visible effect; recorded rather than tidied away,
+  because an aborted request logged as a client fault is misleading in
+  production.
 - **App Links / Universal Links are unverified.** The route-parsing logic is
   unit-tested, including that it refuses foreign origins, but verification needs
   a real host and a real device.
@@ -1033,23 +1441,27 @@ Three of the defects above were found this way and by nothing else.
 
 **`npm run verify` exits 0.** That is the whole answer, and the only one worth
 quoting — it runs every row below in one command with one exit code. Last full
-run: 10 steps, 956 seconds.
+run: 10 steps, **816 seconds**, 1 August 2026, on the tree the audit left behind.
 
 | Step | Result |
 |---|---|
 | Typecheck (`tsc --noEmit`) | clean |
 | Lint, server + web | clean |
 | Lint, native client | clean |
-| Server unit + integration (`vitest run`) | **642 passed**, 34 files |
+| Server unit + integration (`vitest run`) | **672 passed**, 37 files |
 | Native client unit (`npm --prefix mobile run test`) | **37 passed**, 6 files |
 | Production build (`next build`) | succeeds |
-| Web end-to-end (`playwright test`) | **146 passed**, mobile + desktop projects |
+| Web end-to-end (`playwright test`) | **152 passed**, mobile + desktop projects |
 | Native end-to-end (`--config playwright.mobile.config.ts`) | **16 passed**, including the 9 screenshot specs |
 | Migrations from scratch (`migrate.ts --reset`) | **0001–0009 apply to an empty database** |
-| Integration suite against the rebuilt schema | **383 passed**, 20 files |
+| Integration suite against the rebuilt schema | **401 passed**, 21 files |
 
-841 distinct tests. The final 383 is the integration subset re-run against the
+877 distinct tests. The final 401 is the integration subset re-run against the
 freshly rebuilt schema, which is why it is not added again.
+
+Run **separately** from `verify`, because it is about flakiness rather than
+correctness: the two concurrency suites plus `schedule-lifecycle`, twelve
+consecutive times — **12/12**. See **Concurrency**.
 
 Also verified by execution, not inspection:
 
@@ -1208,6 +1620,9 @@ token. It has already caught three real defects.
 | Roles and the permission matrix | `docs/ROLES.md` |
 | Standing rules for every session | `/CLAUDE.md` |
 | The rules engine and how failures are worded | `docs/RULES.md` |
+| The constraint model and the schedule validator | `docs/CONSTRAINTS.md` |
+| The draft schedule generator, and what determinism does and does not hold | `docs/GENERATOR.md` |
+| Approving, publishing, correcting; availability and locks | `docs/SCHEDULE_OPERATIONS.md` |
 | What each suite covers | `docs/TESTING.md` |
 
 ## Rules for this project

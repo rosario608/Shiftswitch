@@ -152,8 +152,19 @@ export async function bulkAssign(
       const before = present.get(change.shiftId) ?? null;
       if (before === change.residentId) continue; // Nothing to do, nothing to undo.
 
+      /* Deleted, not ended. Every shift this touches is a *draft* shift — the
+         `FOR UPDATE OF s` query above selected only rows in this version — and
+         nobody has worked a draft shift, so there is no history to keep. The
+         draft's history is the audit log.
+
+         It also makes a real question answerable. `ended` rows say "somebody
+         was on this and was taken off", which on a **live** shift is either a
+         correction or a torn switch and must be accounted for. Leaving draft
+         edits in the same table made the two indistinguishable the moment the
+         draft was published: a cell cleared while building looked exactly like
+         a resident silently dropped from a schedule they were working. */
       await query(
-        `UPDATE shift_assignments SET assignment_status = 'ended', ended_at = now()
+        `DELETE FROM shift_assignments
           WHERE shift_id = $1 AND assignment_status = 'active'`,
         [change.shiftId],
         client,

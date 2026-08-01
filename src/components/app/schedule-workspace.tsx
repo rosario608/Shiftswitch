@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Lock, Undo2 } from "lucide-react";
+import { AlertTriangle, Lock, Sparkles, Undo2 } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -115,6 +115,21 @@ export interface WorkspaceData {
     softCount: number;
   };
   history: Array<{ at: string; actor: string; action: string; detail: string }>;
+}
+
+/** What the generator says would let it finish. Mirrors `Relaxation` on the
+ *  server; declared here so the client bundle does not import the domain. */
+interface Relaxation {
+  message: string;
+  slotsRecovered: number;
+}
+
+/** Why the last run produced what it did, beyond what the grid already shows. */
+interface RunNotes {
+  seed: number;
+  elapsedMs: number;
+  stoppedOnBudget: boolean;
+  needsReview: string[];
 }
 
 type View = "grid" | "calendar" | "list";
@@ -310,13 +325,26 @@ export function ScheduleWorkspace({ initial }: { initial: WorkspaceData }) {
       ) : null}
 
       {data.editable ? (
-        <RepeatPattern
-          versionId={data.versionId!}
-          onDone={async () => {
-            await reload();
-            router.refresh();
-          }}
-        />
+        <div className="space-y-3">
+          <RepeatPattern
+            versionId={data.versionId!}
+            onDone={async () => {
+              await reload();
+              router.refresh();
+            }}
+          />
+          <Regenerate
+            versionId={data.versionId!}
+            period={data.period}
+            locks={data.locks.length}
+            onDone={async () => {
+              setSelected(new Set());
+              setUndoStack([]);
+              await reload();
+              router.refresh();
+            }}
+          />
+        </div>
       ) : null}
 
       {view === "grid" ? (
@@ -643,6 +671,203 @@ function SelectionBar({
  * destination already has a shift on the same service at the same time of day;
  * it never creates one and never deletes one.
  */
+/**
+ * Build the rest of the draft again, keeping whatever is locked.
+ *
+ * This is the other half of the padlock. Locking a resident's month says "leave
+ * this alone through the next generation" — and until this control existed
+ * there was no next generation to survive: the only route to the generator
+ * created a *new* draft, so a scheduler could lock forty placements, see them
+ * listed, and never find the button the locks were for. A control whose promise
+ * cannot be redeemed is worse than one that is missing.
+ *
+ * The seed is offered rather than hidden because it is the honest answer to
+ * "why did it do that": the same seed, the same inputs and the same locks give
+ * the same schedule, and changing it is how a scheduler asks for a different
+ * arrangement of the same constraints rather than a different set of rules.
+ */
+function Regenerate({
+  versionId,
+  period,
+  locks,
+  onDone,
+}: {
+  versionId: string;
+  period: { start: string; end: string };
+  locks: number;
+  onDone: () => Promise<void>;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [seed, setSeed] = React.useState(() => Math.floor(Math.random() * 100_000));
+  const [result, setResult] = React.useState<string | null>(null);
+  const [blocked, setBlocked] = React.useState<Relaxation[]>([]);
+  const [why, setWhy] = React.useState<RunNotes | null>(null);
+
+  const regenerate = useAction(async () => {
+    setBlocked([]);
+    setWhy(null);
+    const response = await apiFetch<{
+      feasible: boolean;
+      versionId: string | null;
+      report: {
+        demand: { slots: number; filled: number; locked: number };
+        relaxations: Relaxation[];
+        needsReview: Array<{ reason: string }>;
+        score: { score: number };
+        stoppedOnBudget: boolean;
+        seed: number;
+        elapsedMs: number;
+      };
+    }>("/api/admin/schedule-generation", {
+      method: "POST",
+      body: JSON.stringify({
+        periodStart: period.start,
+        periodEnd: period.end,
+        seed,
+        versionId,
+      }),
+    });
+    if (!response.feasible) {
+      /* An infeasible run writes nothing, so the draft on screen is untouched.
+         The generator already worked out the smallest change that would let it
+         finish — that is the answer to "why did it do that", and dropping it
+         leaves a chief with a refusal and no next move. */
+      setBlocked(response.report.relaxations ?? []);
+      throw new Error(
+        "Nothing could be built that satisfies every rule, so the draft is unchanged.",
+      );
+    }
+    const report = response.report;
+    const demand = report.demand;
+    setResult(
+      `Filled ${demand.filled} of ${demand.slots} slot${demand.slots === 1 ? "" : "s"}` +
+        (demand.locked > 0 ? `, keeping ${demand.locked} locked` : "") +
+        `. Quality score ${report.score.score} out of 100.`,
+    );
+    /* The parts the grid below cannot show: whether the search finished or ran
+       out of time, and the placements the generator itself is unsure about. A
+       schedule that is merely the best found in two seconds and one that is the
+       best there is look identical on a grid. */
+    setWhy({
+      seed: report.seed,
+      elapsedMs: report.elapsedMs,
+      stoppedOnBudget: report.stoppedOnBudget,
+      needsReview: report.needsReview.map((entry) => entry.reason),
+    });
+    await onDone();
+    return response;
+  });
+
+  if (!open) {
+    return (
+      <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>
+        <Sparkles className="mr-1 h-4 w-4" aria-hidden="true" />
+        Build the rest again
+      </Button>
+    );
+  }
+
+  return (
+    <Card className="space-y-3 p-4">
+      <div>
+        <h3 className="font-semibold text-ink">Build the rest again</h3>
+        <p className="mt-0.5 text-sm text-ink-muted">
+          Runs the generator over this draft again.{" "}
+          {locks > 0
+            ? `The ${locks} lock${locks === 1 ? "" : "s"} below ${locks === 1 ? "is" : "are"} kept exactly as ${locks === 1 ? "it is" : "they are"}; everything else is rebuilt.`
+            : "Nothing is locked, so the whole draft is rebuilt. Lock what you have already settled first if you want to keep it."}
+        </p>
+      </div>
+
+      {regenerate.error ? <Alert tone="error">{regenerate.error}</Alert> : null}
+      {result ? <Alert tone="success">{result}</Alert> : null}
+
+      {why ? (
+        <div className="space-y-1.5 text-sm">
+          {why.needsReview.length > 0 ? (
+            <div>
+              <p className="text-xs font-semibold text-ink-subtle uppercase">
+                Worth a look before you publish
+              </p>
+              <ul className="mt-1 space-y-0.5 text-ink-muted">
+                {why.needsReview.slice(0, 5).map((reason, index) => (
+                  <li key={index}>{reason}</li>
+                ))}
+                {why.needsReview.length > 5 ? (
+                  <li className="text-ink-subtle">
+                    …and {why.needsReview.length - 5} more, marked on the grid.
+                  </li>
+                ) : null}
+              </ul>
+            </div>
+          ) : null}
+          <p className="text-xs text-ink-subtle">
+            Seed {why.seed} · {(why.elapsedMs / 1000).toFixed(1)}s
+            {why.stoppedOnBudget
+              ? " · stopped at the time limit, so this is the best it found rather than the best there is"
+              : ""}
+          </p>
+        </div>
+      ) : null}
+
+      {blocked.length > 0 ? (
+        <div className="rounded-xl border border-border-base p-3">
+          <p className="text-sm font-semibold text-ink">
+            The smallest changes that would let it finish
+          </p>
+          <ul className="mt-1 space-y-1.5 text-sm text-ink-muted">
+            {blocked.map((relaxation, index) => (
+              <li key={index}>
+                {relaxation.message}{" "}
+                <span className="text-ink-subtle">
+                  (would fill {relaxation.slotsRecovered} more slot
+                  {relaxation.slotsRecovered === 1 ? "" : "s"})
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="max-w-[12rem]">
+        <Label htmlFor="regen-seed">Seed</Label>
+        <Input
+          id="regen-seed"
+          type="number"
+          min={0}
+          value={seed}
+          onChange={(event) => setSeed(Number(event.target.value) || 0)}
+        />
+        <p className="mt-1 text-xs text-ink-subtle">
+          The same seed and the same inputs give the same schedule, as long as
+          the run finishes — it says below if it stopped at the time limit.
+          Change the seed to see a different arrangement of the same
+          constraints.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          loading={regenerate.pending}
+          loadingLabel="Building…"
+          onClick={() => regenerate.run()}
+        >
+          Build it
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => {
+            setOpen(false);
+            setResult(null);
+          }}
+        >
+          Close
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 function RepeatPattern({
   versionId,
   onDone,

@@ -149,6 +149,37 @@ describe("locks", () => {
     }
   });
 
+  it("regenerates the draft's whole period, whatever window the caller names", async () => {
+    /* Regeneration replaces every unlocked shift in the version. A caller that
+       named a narrower window than the draft would therefore delete the days
+       outside it and put nothing back — and the workspace shows at most 120
+       days of a longer draft, so the window on a scheduler's screen is a view
+       rather than the schedule. The period is a fact about the draft, so it is
+       read from the draft and the caller's is ignored. */
+    const first = await generate();
+    const days = await query<{ date: string }>(
+      "SELECT DISTINCT date::text AS date FROM shifts WHERE schedule_version_id = $1 ORDER BY date",
+      [first.versionId],
+    );
+    expect(days).toHaveLength(7);
+
+    await generateDraftSchedule(chief.context, {
+      name: "Block draft",
+      // Two days out of seven, as a truncated view would ask for.
+      periodStart: inDays(7),
+      periodEnd: inDays(8),
+      seed: 42,
+      timeBudgetMs: 200,
+      versionId: first.versionId,
+    });
+
+    const after = await query<{ date: string }>(
+      "SELECT DISTINCT date::text AS date FROM shifts WHERE schedule_version_id = $1 ORDER BY date",
+      [first.versionId],
+    );
+    expect(after.map((row) => row.date)).toEqual(days.map((row) => row.date));
+  });
+
   it("resolves an assignment lock through the person and the day, not the shift id", async () => {
     const first = await generate();
     const shift = (await queryOne<{ resident_id: string; date: string }>(

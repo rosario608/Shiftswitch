@@ -1,3 +1,4 @@
+import type { PoolClient } from "pg";
 import { query, queryOne, withTransaction } from "@/server/db/pool";
 import type {
   ProgramContactRow,
@@ -794,6 +795,38 @@ function wallClock(instant: Date, timezone: string): string {
  * (reassignment, cancellation, or removing tradeability) invalidates the
  * dependent posts and offers and tells the affected residents why.
  */
+/**
+ * Refuses a shift that belongs to a draft.
+ *
+ * These are the *live* schedule's verbs, and a draft shift is not their
+ * business. `assignDraftShift` already refuses to touch a published shift for
+ * the mirror-image reason — "this endpoint is not a back door into the live
+ * schedule" — and the converse was missing: nothing stopped a draft shift's id
+ * being sent here, which edits a schedule nobody is working through the screen
+ * meant for one they are, skipping the draft's own status checks entirely.
+ *
+ * It also matters to what the assignment history means. Reassigning here leaves
+ * an `ended` row, which on a live shift says "somebody was taken off a shift
+ * they were working". Leaving one on a draft shift would make a cell cleared
+ * while building indistinguishable from that as soon as the draft was
+ * published, and `assertDatabaseConsistent` draws exactly that line.
+ */
+async function refuseDraftShift(shiftId: string, client: PoolClient): Promise<void> {
+  const draft = await queryOne<{ name: string }>(
+    `SELECT v.name FROM shifts s
+       JOIN schedule_versions v ON v.id = s.schedule_version_id
+      WHERE s.id = $1`,
+    [shiftId],
+    client,
+  );
+  if (draft) {
+    throw conflict(
+      `That shift is part of the draft \u201c${draft.name}\u201d. Change it on the ` +
+        "draft's grid — this screen is the schedule people are already working.",
+    );
+  }
+}
+
 export async function updateShift(
   context: AuthedContext,
   shiftId: string,
@@ -805,6 +838,7 @@ export async function updateShift(
     if (existing.program_id !== context.program.id) {
       throw forbidden("That shift belongs to a different program.");
     }
+    await refuseDraftShift(shiftId, client);
     if (existing.status === "completed" && patch.status !== undefined) {
       throw conflict("Completed shifts can no longer be changed.");
     }
@@ -982,6 +1016,7 @@ export async function deleteShift(
     if (existing.program_id !== context.program.id) {
       throw forbidden("That shift belongs to a different program.");
     }
+    await refuseDraftShift(shiftId, client);
 
     const completed = await queryOne<{ count: string }>(
       `SELECT count(*)::text AS count FROM completed_trades

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { query, queryOne } from "@/server/db/pool";
 import { createBlockStructure, generateBlocks, listBlocks } from "@/server/domain/blocks";
-import { createRule, listRulesForService } from "@/server/domain/admin";
+import { createRule, deleteShift, listRulesForService, updateShift } from "@/server/domain/admin";
 import {
   addCohortMember,
   assignCohortToBlock,
@@ -723,13 +723,52 @@ describe("editing a draft", () => {
     const after = await listDraftShifts(fixture.program.id, draft.id);
     expect(after[0].resident_id).toBeNull();
 
-    // Exactly one assignment row, ended — not deleted, so the history survives.
+    /* No assignment row at all. This used to keep an `ended` row "so the
+       history survives", and that turned out to be the wrong trade: nobody has
+       worked a draft shift, the draft's history is the audit log, and the row
+       cost something real. An `ended` row is the product's way of saying
+       "somebody was taken off a shift they were working"; once the draft is
+       published, one left behind by a cell cleared while building is
+       indistinguishable from a resident silently dropped out of a live
+       schedule, and `assertDatabaseConsistent` cannot tell them apart.
+
+       The alternative — telling them apart by comparing `ended_at` with the
+       version's `published_at` — is unsound, because `now()` is
+       transaction-start time in PostgreSQL. See the note in
+       `tests/integration/helpers.ts`. */
     const rows = await query<{ assignment_status: string }>(
       "SELECT assignment_status FROM shift_assignments WHERE shift_id = $1",
       [shift.id],
     );
-    expect(rows).toHaveLength(1);
-    expect(rows[0].assignment_status).toBe("ended");
+    expect(rows).toHaveLength(0);
+
+    // And the clearing is on the record, where a draft's history belongs.
+    const audits = await query<{ action: string }>(
+      "SELECT action FROM audit_logs WHERE entity_id = $1 AND action = 'shift.reassigned'",
+      [draft.id],
+    );
+    expect(audits).toHaveLength(1);
+  });
+
+  it("refuses to edit a draft shift through the live schedule's editor", async () => {
+    /* The mirror of the rule `assignDraftShift` already enforces: that endpoint
+       refuses a published shift because it "is not a back door into the live
+       schedule", and nothing stopped the converse — sending a draft shift's id
+       to the live editor, which would change a schedule nobody is working
+       through the screen meant for one they are. */
+    const { shift } = await draftWithOneShift();
+
+    await expect(
+      updateShift(chief.context, shift.id, { residentId: bob.resident.id }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    await expect(deleteShift(chief.context, shift.id)).rejects.toMatchObject({
+      code: "conflict",
+    });
+
+    // Named, so the refusal says where to go instead.
+    await expect(
+      updateShift(chief.context, shift.id, { residentId: bob.resident.id }),
+    ).rejects.toThrow(/draft's grid/);
   });
 
   it("refuses to assign somebody who is not available to schedule", async () => {

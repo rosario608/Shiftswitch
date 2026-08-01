@@ -39,13 +39,32 @@ import type {
  *
  *   **Improvement** then moves people around, keeping every hard constraint
  *   satisfied, to improve the validator's soft score. This is where fairness,
- *   nights and weekends get evened out. It runs until the time budget expires
- *   and returns the best it found.
+ *   nights and weekends get evened out. It runs for a fixed number of
+ *   iterations — not for a fixed length of time — and returns the best it
+ *   found.
  *
  * The output is graded by `validateSchedule` before it is returned. A run whose
  * schedule has hard violations reports infeasibility and emits nothing — the
  * generator does not get to mark its own homework.
  */
+
+/**
+ * How hard the improvement phase tries, per movable slot.
+ *
+ * An *iteration* count rather than a duration, because the result has to be a
+ * function of the inputs and the seed alone — see the note in the search loop.
+ *
+ * The value is small because each iteration re-scores the whole schedule, which
+ * costs a few milliseconds at a fortnight's scale and grows with it. Eight per
+ * movable slot keeps a small or medium programme inside the two-second default
+ * budget, so those runs finish their search and are reproducible. A large one
+ * will hit the budget first; that is reported rather than hidden, and
+ * `docs/GENERATOR.md` says plainly what it costs and what would fix it.
+ */
+const ITERATIONS_PER_SLOT = 8;
+
+/** Ceiling, so a very large programme still returns in a sensible time. */
+const MAX_SEARCH_ITERATIONS = 5_000;
 
 /** Mulberry32. Small, fast, and identical on every machine — which is the point. */
 function seeded(seed: number): () => number {
@@ -467,7 +486,28 @@ export function generateSchedule(
       .filter(({ p }) => !p.locked)
       .map(({ index }) => index);
 
-    while (Date.now() - started < options.timeBudgetMs) {
+    /* The search is bounded by **iterations first and time second**, and that
+       ordering is the whole point.
+
+       A purely time-bounded search does a different number of swaps on a fast
+       machine than on a loaded one, so the same seed and the same inputs
+       produce different schedules — which is exactly the failure this file's
+       determinism is for: a scheduler who runs it twice and gets two different
+       answers cannot tell whether their edit caused the difference, and stops
+       trusting it. It is not hypothetical; it made the lifecycle test fail
+       under load while passing alone.
+
+       With a fixed iteration count, any machine that finishes the search
+       returns byte-identical output. The time budget stays as a safety valve so
+       one request cannot pin a worker, and `stoppedOnBudget` now carries a
+       sharper meaning: the run was cut short, so it is *not* reproducible and a
+       larger budget would both improve it and make it repeatable. */
+    const maxIterations = Math.min(
+      MAX_SEARCH_ITERATIONS,
+      movableIndexes.length * ITERATIONS_PER_SLOT,
+    );
+
+    while (iterations < maxIterations && Date.now() - started < options.timeBudgetMs) {
       iterations += 1;
 
       /* One swap at a time: exchange the two residents on two movable slots.
@@ -506,12 +546,11 @@ export function generateSchedule(
         working[b] = swapped[b];
       }
 
-      if (Date.now() - started >= options.timeBudgetMs) {
-        stoppedOnBudget = true;
-        break;
-      }
     }
-    stoppedOnBudget = stoppedOnBudget || Date.now() - started >= options.timeBudgetMs;
+    /* Only *time* running out makes a run irreproducible. Finishing the
+       iterations is the search completing, however long it took. */
+    stoppedOnBudget =
+      iterations < maxIterations && Date.now() - started >= options.timeBudgetMs;
     current = best;
   }
 

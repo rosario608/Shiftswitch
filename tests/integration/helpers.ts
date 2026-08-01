@@ -310,14 +310,10 @@ export async function notificationsFor(userId: string, type?: string) {
 export async function assertDatabaseConsistent(): Promise<void> {
   const problems: string[] = [];
 
-  /* 1. No **published** shift has two people on it, and none has been left with
-        nobody.
+  /* 1. No **published** shift has two people on it.
 
-        Scoped to published shifts because a draft shift with nobody on it is
-        not a defect — it is a schedule being built, and the unfilled queue
-        exists precisely to hold those. Applying the trade invariant to drafts
-        would make every generator test that leaves a slot open look like a torn
-        write. */
+        Scoped to published shifts for the "nobody" half below; two holders is
+        checked here and in 1b because it is never acceptable anywhere. */
   const assignments = await query<{ shift_id: string; holders: string }>(
     `SELECT s.id AS shift_id,
             (SELECT count(*)::text FROM shift_assignments a
@@ -326,9 +322,65 @@ export async function assertDatabaseConsistent(): Promise<void> {
       WHERE s.status <> 'cancelled' AND s.schedule_version_id IS NULL`,
   );
   for (const row of assignments) {
-    if (row.holders !== "1") {
+    if (Number(row.holders) > 1) {
       problems.push(`shift ${row.shift_id} has ${row.holders} active assignments`);
     }
+  }
+
+  /* 1a. A live shift with nobody on it must be *explicable*.
+
+        "Every live shift has exactly one holder" was true before drafts
+        existed and is not true now: a draft may legitimately be published with
+        an unfilled slot, because approval is deliberately not a validity check
+        — a chief who publishes a schedule with a hole in it, because the
+        alternative is no schedule at all, is making a real decision and the
+        product's job is to record it. A gap is what the coverage report and the
+        unfilled queue are *for*.
+
+        What is still never acceptable is a shift somebody *was* on, in a
+        schedule people are working, that now has nobody — with no record of the
+        change. That is a torn switch, and it is the thing the original
+        invariant was written to catch.
+
+        So the distinction is drawn structurally rather than by time: an
+        **`ended` assignment row only ever means a live change**. Clearing a
+        draft cell deletes the row instead of ending it — nobody has worked a
+        draft shift, so there is no history to keep — which leaves a shift
+        published with an empty cell holding no assignment rows at all, exactly
+        like one that was never filled.
+
+        Timestamps cannot draw this line, and trying was wrong: `now()` is
+        transaction-*start* time in PostgreSQL, so a draft edit that begins
+        after a publication begins and commits before it carries an `ended_at`
+        later than the version's `published_at` despite genuinely happening
+        while the shift was a draft. Comparing them made this check fail about
+        one run in three, which is the shape of a "flaky test" that is really a
+        wrong assertion.
+
+        A completed switch is deliberately *not* an excuse. Finalisation ends
+        one assignment and inserts the replacement in the same transaction, so a
+        switch that worked leaves an active row and never reaches this query at
+        all; one that reached here is a switch that tore, which is precisely
+        what this was written to catch. */
+  const emptied = await query<{ shift_id: string; ended: string }>(
+    `SELECT s.id AS shift_id, max(a.ended_at)::text AS ended
+       FROM shifts s
+       JOIN shift_assignments a ON a.shift_id = s.id
+      WHERE s.status <> 'cancelled'
+        AND s.schedule_version_id IS NULL
+        AND a.assignment_status = 'ended'
+        AND NOT EXISTS (
+          SELECT 1 FROM shift_assignments b
+           WHERE b.shift_id = s.id AND b.assignment_status = 'active')
+        AND NOT EXISTS (
+          SELECT 1 FROM schedule_corrections c WHERE c.shift_id = s.id)
+      GROUP BY s.id`,
+  );
+  for (const row of emptied) {
+    problems.push(
+      `shift ${row.shift_id} was emptied at ${row.ended} with nobody put on it, ` +
+        "and no correction or completed switch accounts for it",
+    );
   }
 
   /* 1b. A draft shift may still not have *two* holders. "Nobody yet" is a

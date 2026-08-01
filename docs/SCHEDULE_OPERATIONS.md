@@ -51,6 +51,11 @@ Undo is not machinery. Every bulk operation returns what it replaced, so undo is
 the inverse operation sent back — which is exactly why it exists for a draft
 edit and nowhere near publish.
 
+Both editing verbs — the single cell and the bulk selection — write an audit
+entry, which is what the change history panel reads. Only the bulk one used to,
+so drag-selecting four cells was recorded and changing one was not; a history
+that is quietly selective is worse than one that is absent.
+
 ### Lock
 
 `schedule_version_locks`. Five kinds: an assignment, a resident, a cohort, a
@@ -67,11 +72,36 @@ scheduler loses the placement they were most careful about.
 
 ### Regenerate
 
-Generation into an existing draft reads that draft's locks unless the caller
-passes some explicitly. That default is what makes "regenerate the remainder" a
-thing somebody can do: lock the six placements you care about, run it again with
-a different seed, keep the six — with the same row identifiers, not merely the
+**Build the rest again**, on the grid, next to *Repeat a week*. Generation into
+an existing draft reads that draft's locks unless the caller passes some
+explicitly. That default is what makes "regenerate the remainder" a thing
+somebody can do: lock the six placements you care about, run it again with a
+different seed, keep the six — with the same row identifiers, not merely the
 same people.
+
+The **period is the draft's own**, never the caller's. Regeneration replaces
+every unlocked shift in the version, so a run told to cover a narrower window
+would delete the days outside it and put nothing back; and the grid shows at
+most 120 days of a longer draft, so the window on screen is a view rather than
+the schedule.
+
+The **seed is offered rather than hidden**, because it is the honest answer to
+"why did it do that": same seed, same inputs, same locks, same schedule —
+provided the run finishes its search, which it says below the button if it did
+not. Changing the seed asks for a different arrangement of the same constraints
+rather than different constraints. What "provided it finishes" costs, and what
+would remove the proviso, is in `docs/GENERATOR.md`.
+
+An **infeasible run writes nothing and says what would help** — the generator's
+own relaxations, smallest first, each with how many slots it would recover. A
+refusal without a next move is a screen somebody escalates rather than acts on.
+
+Two schedulers regenerating one draft at once is **refused, not queued**. The
+run is a read-modify-write across seconds, and two of them used to interleave
+into one draft holding both — twenty shifts where the programme needs ten, with
+both chiefs told they had succeeded. The loser is told somebody else changed the
+draft; making them wait out the other run and then discarding their result
+silently would be worse.
 
 ### Approve
 
@@ -106,6 +136,27 @@ never do is let that happen invisibly.
 
 There is no combined "approve and publish". The pause is the feature.
 
+**Publication is serialised across the whole programme**, by an advisory lock
+taken before anything is read. Locking the version row is not enough: two
+*different* drafts whose periods overlap each lock their own row, and each then
+replaces its own window. Under `READ COMMITTED` the second one's `DELETE` was
+planned against a snapshot in which the first draft's shifts were still drafts,
+so it never selected them — and the overlapping days ended up holding both
+schedules at once, every service double-staffed and residents rostered in two
+places on the same morning. A programme publishing next block and then a
+replacement week that overlaps its tail is an ordinary Sunday evening, not an
+exotic case. Publishing is rare enough that a queue of one costs nothing.
+
+Withdrawing an approval is likewise **one transaction with the row locked**. The
+status check and the clearing used to be two statements, and the gap was wide
+enough to drive a publication through — leaving a published schedule whose
+record said nobody had signed it off. The two-step exists to produce that
+record, so destroying it after the fact is worse than failing to withdraw.
+
+All three are covered by `tests/integration/scheduler-concurrency.test.ts`,
+which races them the way `concurrency.test.ts` races the trade lifecycle and
+ends every case in `assertDatabaseConsistent()`.
+
 ### Correct
 
 `correctPublishedShift`. The most expensive verb in the product, on purpose:
@@ -121,6 +172,15 @@ There is no combined "approve and publish". The pause is the feature.
   stored on the correction. Computed after the change is committed: a number
   worked out from the pre-change state and labelled as the result would be a lie
   a chief would act on.
+
+The two screens do not overlap, in either direction. `assignDraftShift` refuses
+a published shift — "this endpoint is not a back door into the live schedule" —
+and `updateShift`/`deleteShift`, the live schedule's own verbs behind **Admin →
+Schedule**, refuse a shift belonging to a draft. The second half of that used to
+be missing, so a draft shift's id sent to the live editor changed a schedule
+nobody was working through the screen meant for one they are, skipping the
+draft's status checks. It also mattered to what an `ended` assignment row means:
+see the invariants below.
 
 `listCorrections` is the visible difference between what was published and what
 is true now. Not a diff of two versions — the published version's rows *became*
@@ -227,9 +287,22 @@ scheduling invariants, expressed the way the trade ones already are: **about the
 state at the moment of the transaction, reconstructed from history**, not about
 current holders.
 
-1. **One holder per published shift.** Scoped to published shifts — a draft
-   shift with nobody on it is a schedule being built, not a torn write. A draft
-   shift with *two* holders is still a defect.
+1. **Never two holders**, in a draft or a published schedule. And a **live
+   shift with nobody on it must be explicable**: either it never had a holder —
+   a draft may legitimately be published with an unfilled slot, because approval
+   is not a validity check — or a correction records why it was emptied.
+
+   That distinction is drawn structurally, not by timestamp. Clearing a draft
+   cell **deletes** the assignment row rather than ending it: nobody has worked
+   a draft shift, so there is no history to keep, and the draft's history is the
+   audit log. An `ended` row therefore means exactly one thing — somebody was
+   taken off a shift they were working — and needs an account.
+
+   Timestamps cannot draw it. `now()` is transaction-*start* time in PostgreSQL,
+   so a draft edit beginning after a publication begins and committing before it
+   carries an `ended_at` later than the version's `published_at` despite
+   genuinely happening while the shift was a draft. An earlier attempt compared
+   the two and failed about one run in three.
 2. **Nobody in two places at once.** Two shifts overlap *and* their two
    assignments were live at the same time. Comparing current holders would
    report an administrator who resolved an overlap as having caused one.
@@ -257,5 +330,6 @@ disagree about what a shift is.
 | Bulk edits and pattern reuse | `src/server/domain/schedule-bulk.ts` |
 | The grid's payload | `src/server/domain/schedule-workspace.ts` |
 | Corrections | `src/server/domain/schedule-corrections.ts` |
+| The live schedule's shift editor, which refuses draft shifts | `src/server/domain/admin.ts` |
 | Coverage for a trade | `src/server/domain/trade-coverage.ts` |
 | The grid | `src/components/app/schedule-workspace.tsx` |

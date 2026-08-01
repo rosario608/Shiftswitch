@@ -27,9 +27,9 @@ import type { UserRole } from "@/server/db/types";
  *     who builds the schedule deliberately does not have.
  *
  * A static read rather than an HTTP call because the property is about the
- * source: "no route lacks a guard" is a statement about all 77 files, and a
- * request-based test can only ever assert it about the ones somebody
- * remembered to write a case for.
+ * source: "no route lacks a guard" is a statement about every handler in the
+ * tree, and a request-based test can only ever assert it about the ones
+ * somebody remembered to write a case for.
  */
 
 const API_ROOT = join(process.cwd(), "src", "app", "api");
@@ -99,7 +99,7 @@ const NO_GUARD: Record<string, string> = {
 
 /**
  * What each route requires. The point of writing it out is that a reader can
- * check it against `docs/ROLES.md` without opening 77 files, and a widening
+ * check it against `docs/ROLES.md` without opening every file, and a widening
  * shows up as a diff on this table.
  *
  * `"session"` means any signed-in account, including one not yet configured

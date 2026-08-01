@@ -165,6 +165,51 @@ describe("determinism", () => {
     expect(second.report.score).toEqual(first.report.score);
   });
 
+  it("produces byte-identical output with the improvement search running too", () => {
+    /* The claim in docs/GENERATOR.md is "same inputs, same seed, byte-identical
+       output", and the test above only ever exercised construction: the default
+       budget in this file is zero, so the search never ran. With a budget it
+       used to be false — the loop was bounded by wall-clock time, so a fast
+       machine did more swaps than a loaded one and the same seed gave two
+       different schedules. It made the schedule-lifecycle integration test fail
+       under load and pass alone, which reads like flakiness and is not.
+
+       The search is bounded by iterations now, so this holds. Two different
+       budgets deliberately: if the result still depended on time, generous
+       versus tight would diverge. */
+    const build = () => {
+      const snapshot = empty();
+      snapshot.coverage = [coverage({ min_staff: 2 })];
+      return snapshot;
+    };
+    const generous = generateSchedule(
+      build(),
+      options(build(), { seed: 7, timeBudgetMs: 10_000 }),
+    );
+    const tight = generateSchedule(
+      build(),
+      options(build(), { seed: 7, timeBudgetMs: 2_000 }),
+    );
+
+    expect(generous.report.stoppedOnBudget).toBe(false);
+    expect(tight.report.stoppedOnBudget).toBe(false);
+    expect(generous.report.iterations).toBeGreaterThan(0);
+    expect(tight.report.iterations).toBe(generous.report.iterations);
+    expect(JSON.stringify(tight.assignments)).toEqual(
+      JSON.stringify(generous.assignments),
+    );
+    expect(tight.report.score).toEqual(generous.report.score);
+  });
+
+  it("says so when the budget cut the search short, because then it is not reproducible", () => {
+    const snapshot = empty();
+    snapshot.coverage = [coverage({ min_staff: 2 })];
+    /* One millisecond: construction still completes — it is not optional and is
+       not counted against the budget — and the search stops immediately. */
+    const cut = generateSchedule(snapshot, options(snapshot, { seed: 7, timeBudgetMs: 1 }));
+    expect(cut.report.stoppedOnBudget).toBe(true);
+  });
+
   it("records the seed it was given", () => {
     const snapshot = empty();
     expect(generateSchedule(snapshot, options(snapshot, { seed: 42 })).report.seed).toBe(42);

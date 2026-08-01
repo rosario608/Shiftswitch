@@ -517,30 +517,61 @@ export async function approveScheduleVersion(
   });
 }
 
-/** Takes an approval back, so an edited draft has to be looked at again. */
+/**
+ * Takes an approval back, so an edited draft has to be looked at again.
+ *
+ * The status check and the clearing are one transaction, with the row locked.
+ * They used to be two statements with nothing between them, and the gap was
+ * wide enough to drive a publication through: read "draft", somebody publishes,
+ * then clear the approval — leaving a *published* schedule whose record says
+ * nobody ever signed it off. The two-step approval exists to produce exactly
+ * that record, so destroying it after the fact is worse than failing to
+ * withdraw.
+ */
 export async function withdrawApproval(
   context: AuthedContext,
   versionId: string,
 ): Promise<ScheduleVersion> {
-  const version = await getScheduleVersion(context.program.id, versionId);
-  if (!version) throw notFound("That draft schedule no longer exists.");
-  if (version.status !== "draft") throw conflict("Only a draft can be un-approved.");
+  await withTransaction(async (client) => {
+    const version = await queryOne<{ status: string; approved_by_name: string | null }>(
+      `SELECT v.status::text AS status, au.full_name AS approved_by_name
+         FROM schedule_versions v
+         LEFT JOIN users au ON au.id = v.approved_by
+        WHERE v.id = $1 AND v.program_id = $2
+        FOR UPDATE OF v`,
+      [versionId, context.program.id],
+      client,
+    );
+    if (!version) throw notFound("That draft schedule no longer exists.");
+    if (version.status !== "draft") {
+      throw conflict(
+        version.status === "published"
+          ? "This schedule has already been published. Changing it now is a correction, one shift at a time, with a reason."
+          : "Only a draft can be un-approved.",
+      );
+    }
 
-  await query(
-    `UPDATE schedule_versions
-        SET approved_by = NULL, approved_at = NULL, approval_notes = '',
-            approval_report = NULL
-      WHERE id = $1`,
-    [versionId],
-  );
-  await recordAudit({
-    programId: context.program.id,
-    actorUserId: context.user.id,
-    actorLabel: context.user.email,
-    action: "schedule_version.approval_withdrawn",
-    entityType: "schedule_version",
-    entityId: versionId,
-    previousState: { approvedBy: version.approved_by_name },
+    await query(
+      `UPDATE schedule_versions
+          SET approved_by = NULL, approved_at = NULL, approval_notes = '',
+              approval_report = NULL
+        WHERE id = $1`,
+      [versionId],
+      client,
+    );
+
+    await recordAudit(
+      {
+        programId: context.program.id,
+        actorUserId: context.user.id,
+        actorLabel: context.user.email,
+        action: "schedule_version.approval_withdrawn",
+        entityType: "schedule_version",
+        entityId: versionId,
+        previousState: { approvedBy: version.approved_by_name },
+      },
+      client,
+    );
   });
 
   return (await getScheduleVersion(context.program.id, versionId))!;
@@ -569,6 +600,26 @@ export async function publishScheduleVersion(
   options: { force?: boolean } = {},
 ): Promise<{ published: number; replaced: number; notified: number }> {
   const outcome = await withTransaction(async (client) => {
+    /* Publication is serialised across the whole programme, not just per draft.
+       Locking the version row is not enough: two *different* drafts whose
+       periods overlap each lock their own row, and each then replaces its own
+       window. Under READ COMMITTED the second one's DELETE was planned against
+       a snapshot in which the first draft's shifts were still drafts, so it
+       never selected them — and the overlapping days ended up holding both
+       schedules at once. Every service double-staffed, and residents rostered
+       in two places on the same morning.
+
+       That is not a hypothetical: a programme publishes next block and then a
+       replacement week that overlaps its tail, and Sunday evening is exactly
+       when both get signed off. Keyed on the programme because the windows that
+       can collide are not knowable before either transaction has read anything,
+       and publishing is rare enough that a queue of one is free. */
+    await query(
+      "SELECT pg_advisory_xact_lock(hashtext($1))",
+      [`schedule:publish:${context.program.id}`],
+      client,
+    );
+
     const version = await queryOne<ScheduleVersion>(
       "SELECT * FROM schedule_versions WHERE id = $1 AND program_id = $2 FOR UPDATE",
       [versionId, context.program.id],
@@ -860,8 +911,12 @@ export async function assignDraftShift(
       }
     }
 
+    /* Deleted rather than ended, for the same reason as `bulkAssign`: this
+       reaches draft shifts only, nobody has worked one, and an `ended` row on a
+       shift that later gets published is indistinguishable from a resident
+       dropped out of a live schedule. See the note there. */
     await query(
-      `UPDATE shift_assignments SET assignment_status = 'ended', ended_at = now()
+      `DELETE FROM shift_assignments
         WHERE shift_id = $1 AND assignment_status = 'active'`,
       [shiftId],
       client,
@@ -873,6 +928,23 @@ export async function assignDraftShift(
         client,
       );
     }
+
+    /* Audited, so a single-cell edit shows up in the workspace's change history
+       beside the bulk ones. It did not, which made the history quietly
+       selective: drag-select four cells and the panel recorded it, change one
+       and it recorded nothing. */
+    await recordAudit(
+      {
+        programId: context.program.id,
+        actorUserId: context.user.id,
+        actorLabel: context.user.email,
+        action: "shift.reassigned",
+        entityType: "schedule_version",
+        entityId: versionId,
+        newState: { shifts: 1, bulk: false },
+      },
+      client,
+    );
   });
 }
 
