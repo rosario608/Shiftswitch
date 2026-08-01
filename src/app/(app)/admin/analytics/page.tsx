@@ -1,3 +1,4 @@
+import { Alert } from "@/components/ui/alert";
 import { Card, CardBody } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { requirePageCapability } from "@/server/auth/page-guards";
@@ -29,13 +30,44 @@ export default async function AnalyticsPage() {
 
   const maxWeek = Math.max(1, ...analytics.tradesOverTime.map((row) => row.count));
 
+  /* Eight equal tiles answer nothing — they are a data dump, and whoever
+     arrives has to decide for themselves which number was the point. The
+     question an APD or a PD actually arrives with is "is switching working for
+     us", so that gets said in a sentence, in words, and the tiles become the
+     detail underneath it. */
+  const posted = analytics.totals.tradeRequests;
+  const completed = analytics.totals.completedTrades;
+  const headline =
+    posted === 0
+      ? "Nobody has posted a shift yet"
+      : `${completed} of ${posted} posted shift${posted === 1 ? "" : "s"} found a switch`;
+  const slowApprovals =
+    analytics.averageApprovalHours != null && analytics.averageApprovalHours > 24;
+
   return (
     <div className="space-y-5">
       <header>
-        <h1 className="text-2xl font-semibold text-ink">Analytics</h1>
-        <p className="mt-1 text-sm text-ink-muted">{context.program.name}</p>
+        <h1 className="text-2xl font-semibold text-ink">{headline}</h1>
+        <p className="mt-1 text-sm text-ink-muted">
+          {context.program.name}
+          {posted > 0 ? ` · ${analytics.completionRate}% completion rate` : ""}
+          {analytics.averageApprovalHours != null
+            ? ` · chiefs take ${analytics.averageApprovalHours.toFixed(1)} h to decide on average`
+            : ""}
+        </p>
       </header>
 
+      {slowApprovals ? (
+        <Alert tone="warning" title="Approvals are taking more than a day">
+          A posted shift expires while it waits. The longer a switch sits with a
+          chief, the more likely it is that the offer is withdrawn or the shift
+          starts.
+        </Alert>
+      ) : null}
+
+      <h2 className="px-1 text-sm font-semibold tracking-wide text-ink-muted uppercase">
+        The numbers
+      </h2>
       <div className="grid grid-cols-2 gap-3">
         {tiles.map((tile) => (
           <Card key={tile.label}>

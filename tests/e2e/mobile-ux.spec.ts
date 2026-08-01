@@ -178,3 +178,107 @@ test("keyboard users can reach the main content and operate a sheet", async ({ p
   await page.keyboard.press("Escape");
   await expect(sheet).toBeHidden();
 });
+
+test("nothing breaks at the smallest width a phone still ships with", async ({
+  page,
+}) => {
+  /* 320 CSS pixels: an iPhone SE in display-zoom, and the width every mobile
+     guideline still treats as the floor. Pixel 7 is 412, so the whole suite
+     above can pass while the narrowest real phone in the programme has the
+     navigation walking off the edge. */
+  await page.setViewportSize({ width: 320, height: 640 });
+  await signIn(page, ACCOUNTS.chief);
+
+  for (const path of [...PAGES, "/admin", "/admin/coverage", "/admin/scheduler"]) {
+    await page.goto(path);
+    await page.waitForLoadState("networkidle");
+
+    const overflow = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(overflow.scrollWidth, `${path} overflows at 320px`).toBeLessThanOrEqual(
+      overflow.clientWidth + 1,
+    );
+  }
+
+  // The bottom navigation still fits five items with usable targets.
+  await page.goto("/");
+  const navLinks = page.getByRole("navigation", { name: "Primary" }).getByRole("link");
+  const count = await navLinks.count();
+  for (let index = 0; index < count; index += 1) {
+    const box = await navLinks.nth(index).boundingBox();
+    expect(box?.height ?? 0, `nav item ${index} is too short at 320px`).toBeGreaterThanOrEqual(44);
+    expect(box?.width ?? 0, `nav item ${index} is too narrow at 320px`).toBeGreaterThanOrEqual(40);
+  }
+});
+
+test("body text and the primary button meet WCAG AA contrast", async ({ page }) => {
+  /* Measured from the rendered pixels rather than read off the palette, so a
+     Tailwind class that resolves differently in context is caught. AA is 4.5:1
+     for body text; the large heading is checked at the same bar rather than the
+     3:1 large-text allowance, because "large" here is 24px and the people
+     reading it are tired. */
+  await signIn(page, ACCOUNTS.alice);
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+
+  const ratios = await page.evaluate(() => {
+    /* Through a canvas, because the palette is authored in `oklch()` and that
+       is what `getComputedStyle` hands back. Parsing the three numbers out of
+       an oklch string as if they were RGB is how this test first "found" a
+       1.49:1 heading that is in fact near-black on white. The canvas normalises
+       any CSS colour the browser accepts to eight-bit RGBA, which is the space
+       the WCAG formula is defined in. */
+    const probe = document.createElement("canvas");
+    probe.width = probe.height = 1;
+    const context2d = probe.getContext("2d", { willReadFrequently: true })!;
+    const toRgb = (colour: string): [number, number, number] => {
+      context2d.clearRect(0, 0, 1, 1);
+      context2d.fillStyle = colour;
+      context2d.fillRect(0, 0, 1, 1);
+      const [r, g, b] = context2d.getImageData(0, 0, 1, 1).data;
+      return [r, g, b];
+    };
+    const luminance = (colour: string) => {
+      const channel = (value: number) => {
+        const v = value / 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      };
+      const [r, g, b] = toRgb(colour);
+      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    };
+    /* Walks up for the first non-transparent background, exactly as a browser
+       composites it — a colour read off the element alone is meaningless when
+       the element's own background is `transparent`. */
+    const backgroundOf = (element: Element): string => {
+      let node: Element | null = element;
+      while (node) {
+        const colour = getComputedStyle(node).backgroundColor;
+        if (colour && !/rgba?\([^)]*,\s*0\s*\)/.test(colour)) return colour;
+        node = node.parentElement;
+      }
+      return "rgb(255, 255, 255)";
+    };
+    const ratio = (element: Element) => {
+      const style = getComputedStyle(element);
+      const a = luminance(style.color);
+      const b = luminance(backgroundOf(element));
+      return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    };
+
+    const results: Array<{ what: string; ratio: number }> = [];
+    const heading = document.querySelector("h1");
+    if (heading) results.push({ what: "page heading", ratio: ratio(heading) });
+    const muted = document.querySelector(".text-ink-muted");
+    if (muted) results.push({ what: "secondary text", ratio: ratio(muted) });
+    const button = document.querySelector("button");
+    if (button) results.push({ what: "primary button", ratio: ratio(button) });
+    return results;
+  });
+
+  expect(ratios.length).toBeGreaterThanOrEqual(3);
+  for (const { what, ratio } of ratios) {
+    expect(ratio, `${what} contrast is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+  }
+});

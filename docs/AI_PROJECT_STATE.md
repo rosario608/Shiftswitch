@@ -510,6 +510,63 @@ Choices made without asking, as `/CLAUDE.md` requires. Each says what was
 chosen, why, and what was rejected, so any of them can be revisited by someone
 who disagrees rather than rediscovered.
 
+### The three questions each role arrives with
+
+Named so that a screen can be judged against them rather than against whether it
+works. Each has to be answerable **on arrival** — no filter to configure, no
+search to run, no report to build.
+
+**A chief resident** — on a ward, between rounds, on a phone.
+
+1. *Is anything uncovered?* → `/admin` leads with the verdict: "3 things to
+   fix", "2 things waiting on you", or "All clear", and an unfilled-positions
+   count that opens coverage.
+2. *Is anything waiting on me?* → the same line counts it: unfilled positions,
+   pending approvals, drafts to sign off, and a schedule approved but not
+   published.
+3. *Is the schedule healthy?* → a red banner when the published schedule breaks
+   a hard constraint, above everything else, because a count of completed
+   switches is interesting and a ward with nobody on it is not.
+
+**An APD** — accountable for how the programme is running, not for tonight.
+
+1. *Is switching actually working for us?* → `/admin/analytics` now says it in a
+   sentence: "14 of 22 posted shifts found a switch", with the completion rate
+   and average approval time beside it. It used to be eight equal tiles, which
+   is a data dump: whoever arrived had to decide which number was the point.
+2. *What are we refusing, and why?* → the blocked-reasons list on the same
+   screen, ranked by how often each rule fired. A rule that blocks half the
+   programme's switches is a rule to revisit, not a rule working correctly.
+3. *Is next block's schedule ready?* → the drafts tile on `/admin`, which
+   distinguishes "in progress" from "waiting for sign-off" in its label.
+
+**A PD** — accountable to the institution.
+
+1. *Is the published schedule the one people are working?* → "Changed since it
+   was published" on `/admin`, the most recent corrections with who made them,
+   and every correction's stated reason on `/admin/corrections`.
+2. *Are approvals holding anybody up?* → a warning on the analytics screen when
+   the average decision takes more than a day, in the terms that matter: a
+   posted shift expires while it waits.
+3. *Who is carrying the programme?* → **not yet answered.** There is no
+   per-resident load view; the roster holds the data and nothing renders it as a
+   comparison. Recorded here rather than papered over, and named under **Known
+   issues**.
+
+**An administrator** — accountable for the software.
+
+1. *Is it working?* → `/admin/diagnostics`, one sentence and a copyable report.
+2. *Did the invitations reach anybody?* → `/admin/users`, where an invitation
+   that could not be emailed says so and offers the link to copy, rather than
+   claiming it was sent.
+3. *What changed, and who did it?* → `/admin/audit`.
+
+Rejected throughout: a single "dashboard" with everything on it for everybody.
+Five roles with five different first questions get one screen that answers
+whichever one it was built for and none of the others. What varies is expressed
+through the capability matrix, never a role literal — every role literal ever
+written in this repository became a bug the day APD and PD were added.
+
 ### What the product costs in taps
 
 Counted in a real browser at phone size, not estimated:
@@ -1680,6 +1737,12 @@ a wrong assertion and a wrong claim. Last run: **12/12**.
   redemption logic itself is tested directly with the identity the callback
   supplies, and the callback's signature verification against a local OpenID
   provider.
+- **No per-resident load view.** A PD arriving with "who is carrying the
+  programme" cannot answer it here: the roster holds every resident's shifts and
+  nothing renders them as a comparison. Named under **Decisions → The three
+  questions each role arrives with** as the one question of the twelve that the
+  product does not answer. It is a screen, not a schema change — the data is
+  already there.
 - **No error-reporting service is configured.** With `ERROR_REPORTING_DSN`
   unset — which is the current state everywhere — reports go to the log and
   record `delivered: false` rather than pretending. The envelope transport that
