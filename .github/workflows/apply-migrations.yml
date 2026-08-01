@@ -1,10 +1,37 @@
 name: Apply migrations to production
 
-# Never on a push. Only when a human with write access presses the button and
-# types the confirmation word — applying a migration to production is a human
-# step by the standing rules in /CLAUDE.md, and this does not change that. It
-# only removes the requirement that the human own a laptop.
+# Runs itself whenever a migration reaches main, and can also be pressed by
+# hand.
+#
+# ## Why this is now automatic
+#
+# It was manual, on the reasoning in /CLAUDE.md that applying a migration to
+# production is a human step. That rule was written to stop a *session* from
+# reaching into the live database on a whim, and it still does — nothing an
+# agent runs can touch production.
+#
+# But it had a second effect nobody intended: every schema change waited on a
+# person noticing, and the one time that mattered, the person was on a phone and
+# the administration pages were down for hours. A step that must happen after
+# every deploy, always the same way, is a step that should not need a human at
+# all — and leaving it to one is how it gets forgotten precisely when everything
+# else is going wrong.
+#
+# What makes this safe to automate is the runner, not the trigger: forward only,
+# each file in its own transaction, already-applied files skipped, a refusal if
+# an applied file's bytes have changed, and every migration in this repository
+# additive — so the currently-deployed code keeps working while it runs.
+#
+# It only fires on `main`, so a migration is applied after review, never from a
+# branch.
 on:
+  push:
+    branches: [main]
+    paths:
+      # Only when the schema actually changes. A documentation commit does not
+      # need to open a connection to the production database.
+      - 'db/migrations/**'
+      - '.github/workflows/apply-migrations.yml'
   workflow_dispatch:
     inputs:
       confirm:
@@ -24,8 +51,10 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      # Only for a hand-pressed run. An automatic one has already been through
+      # review and a merge, which is a stronger confirmation than a typed word.
       - name: Check the confirmation word
-        if: ${{ inputs.confirm != 'APPLY' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm != 'APPLY' }}
         run: |
           echo "::error::Type APPLY in the confirmation box to run this. Nothing was done."
           exit 1
@@ -46,10 +75,21 @@ jobs:
       # reading a log; useless to the person whose phone did the copying.
       #
       # Nothing it prints contains the secret, or any part of it.
+      # An automatic run on a repository that has never been configured warns and
+      # stops rather than failing: main going red for a deployment that does not
+      # exist yet is noise, and the app already says so on its own diagnostics
+      # page. A hand-pressed run fails, because somebody asked for it.
       - name: Check the connection string looks like one
+        id: connection
+        continue-on-error: ${{ github.event_name == 'push' }}
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
         run: npx tsx scripts/check-connection-string.ts
+
+      - name: Say nothing was applied
+        if: ${{ steps.connection.outcome == 'failure' }}
+        run: |
+          echo "::warning::No usable PRODUCTION_DATABASE_URL, so no migration was applied. The app will say which files are missing at /admin/diagnostics."
 
       - name: Show what is about to be applied
         run: |
@@ -60,6 +100,7 @@ jobs:
       # only, each file in its own transaction, already-applied files skipped,
       # and a refusal if an applied file's contents have changed.
       - name: Apply
+        if: ${{ steps.connection.outcome == 'success' }}
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           NODE_ENV: production

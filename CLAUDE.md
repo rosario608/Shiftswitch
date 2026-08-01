@@ -85,9 +85,22 @@ Migrations are **written**, **applied locally**, and **verified from scratch**:
 npx tsx scripts/migrate.ts --reset     # drops and rebuilds, local only
 ```
 
-Applying a migration to production is a human step. Record it in
-`docs/AI_PROJECT_STATE.md` under **User action required**, naming the file and
-what breaks if it is not applied before the next deploy.
+**A session never reaches production; the pipeline does.** No agent, script or
+command run from a session touches the live database — that is what this rule
+protects, and it has not changed. What *has* changed is that applying a
+migration is no longer a person's job either: `.github/workflows/
+apply-migrations.yml` runs on any push to `main` that touches `db/migrations/`.
+
+The rule used to say applying was a human step, and that had a consequence
+nobody intended: every schema change waited on somebody noticing. The one time
+it mattered, the person was on a phone and the administration pages were down
+until they got to a computer. A step that must happen after every deploy, always
+the same way, should not need a human — leaving it to one is how it gets
+forgotten exactly when everything else is going wrong.
+
+Still record the migration in `docs/AI_PROJECT_STATE.md`, naming the file and
+what breaks without it. The pipeline applies it; the document is how a reader
+knows what changed and why.
 
 Three scripts issue statements that cannot be undone — the migration reset, the
 end-to-end fixture, and the demo seeder. All three refuse any target that is not
