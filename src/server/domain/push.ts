@@ -15,7 +15,7 @@ import type { NotificationType } from "./notifications";
 export interface PushMessage {
   title: string;
   body: string;
-  /** Deep link path inside the app, e.g. "/trades/<id>". */
+  /** Deep link path inside the app, e.g. "/switches/<id>". */
   route?: string;
   category: string;
   notificationId?: string;
@@ -405,4 +405,87 @@ export async function sendPush(dispatch: PushDispatch): Promise<PushResult[]> {
     });
     return [];
   }
+}
+
+// ---------------------------------------------------------------------------
+// The self-test
+// ---------------------------------------------------------------------------
+
+export interface SelfTestPushOutcome {
+  /** What the transport is: "fcm" when credentials are set, "noop" otherwise. */
+  transport: string;
+  configured: boolean;
+  /** One entry per registered device of this user. Empty when none exist. */
+  results: Array<{
+    deviceId: string;
+    platform: "ios" | "android" | "web";
+    status: PushResult["status"];
+    errorCode?: string;
+  }>;
+}
+
+/**
+ * Sends one notification to the caller's own devices, on purpose, and reports
+ * exactly what the transport said.
+ *
+ * This is the only push in the product that ignores the user's category
+ * preferences, and deliberately: they have just tapped a button that says "send
+ * me a test notification", which is a clearer statement of intent than a
+ * setting they changed months ago. Nothing else about it is special — the same
+ * transport, the same `push_deliveries` row, the same honesty about what
+ * happened.
+ *
+ * What it is *for* is the gap between "the code is written" and "a notification
+ * arrived on a phone". Until somebody taps this on a real device with real
+ * credentials, push delivery is untested, and the product says so.
+ */
+export async function sendSelfTestPush(userId: string): Promise<SelfTestPushOutcome> {
+  const transportImpl = getPushTransport();
+  const rows = await query<{
+    id: string;
+    platform: "ios" | "android" | "web";
+    push_token: string;
+  }>(
+    `SELECT id, platform, push_token FROM devices
+      WHERE user_id = $1 AND push_token IS NOT NULL AND disabled_at IS NULL`,
+    [userId],
+  );
+
+  const results: SelfTestPushOutcome["results"] = [];
+  for (const row of rows) {
+    const result = await transportImpl.send(
+      { deviceId: row.id, platform: row.platform, token: row.push_token },
+      {
+        title: "ShiftSwitch self-test",
+        body: "If you can read this, notifications are working on this phone.",
+        route: "/settings/self-test",
+        category: "offers",
+      },
+    );
+    /* Recorded like any other delivery, so a failure shows up in the same place
+       an operator already looks rather than in a special self-test log. */
+    await query(
+      `INSERT INTO push_deliveries (notification_id, device_id, status, provider, error_code)
+       VALUES (NULL, $1, $2, $3, $4)`,
+      [row.id, result.status, transportImpl.name, result.errorCode ?? null],
+    ).catch(() => undefined);
+    if (result.permanentFailure) {
+      await query(
+        "UPDATE devices SET disabled_at = now(), push_token = NULL WHERE id = $1",
+        [row.id],
+      ).catch(() => undefined);
+    }
+    results.push({
+      deviceId: row.id,
+      platform: row.platform,
+      status: result.status,
+      errorCode: result.errorCode,
+    });
+  }
+
+  return {
+    transport: transportImpl.name,
+    configured: transportImpl.configured,
+    results,
+  };
 }

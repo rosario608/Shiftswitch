@@ -24,14 +24,14 @@ export function TradesScreen() {
   const timezone = session?.program?.timezone ?? "UTC";
 
   const resource = useResource<TradesResponse>(
-    (signal) => api.get<TradesResponse>("/api/trades?limit=50", { signal }),
+    (signal) => api.get<TradesResponse>("/api/switches?limit=50", { signal }),
     [],
   );
 
   return (
     <Screen
       title="Switches"
-      subtitle="Shifts your co-residents want to swap"
+      subtitle="Shifts your colleagues want to switch"
       onRefresh={resource.reload}
       refreshing={resource.refreshing}
     >
@@ -64,7 +64,7 @@ export function TradesScreen() {
             <ShiftCard
               shift={trade.shift}
               timezone={timezone}
-              onClick={() => navigate(`/trades/${trade.id}`)}
+              onClick={() => navigate(`/switches/${trade.id}`)}
               footer={
                 <div className="space-y-2">
                   {trade.notes && (

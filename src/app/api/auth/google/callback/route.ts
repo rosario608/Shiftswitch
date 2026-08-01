@@ -85,7 +85,17 @@ export async function GET(request: Request) {
         return loginRedirect(request, { error: "invite_mismatch" });
       }
       if (accepted.outcome === "invalid") {
-        return loginRedirect(request, { error: "invite_invalid" });
+        /* One redirect per cause. This is the first thing a real resident ever
+           does with the product, and "something went wrong" here does not get
+           retried — it gets told to a colleague as "the app doesn't work". */
+        const REDIRECT: Record<typeof accepted.reason, string> = {
+          unknown: "invite_unknown",
+          expired: "invite_expired",
+          already_accepted: "invite_used",
+          revoked: "invite_revoked",
+        };
+        logger.warn("auth.invite_refused", { reason: accepted.reason });
+        return loginRedirect(request, { error: REDIRECT[accepted.reason] });
       }
 
       await createSession(accepted.user.id, {

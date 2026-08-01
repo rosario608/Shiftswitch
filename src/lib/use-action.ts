@@ -8,6 +8,19 @@ export interface ActionState<T> {
   pending: boolean;
   error: string | null;
   errorDetails: unknown;
+  /**
+   * True when the product cannot say whether the action happened.
+   *
+   * Only ever set by a connection that dropped mid-flight. It is deliberately
+   * separate from `error`, because the interface's response has to be
+   * different: an error offers "try again", an uncertainty has to offer "find
+   * out" first. Presenting the two identically is how a resident ends up
+   * accepting the same switch twice, or abandoning one that had already gone
+   * through.
+   */
+  uncertain: boolean;
+  /** The six characters that find this in the server's logs, when there are any. */
+  requestId: string | null;
   reset: () => void;
 }
 
@@ -24,6 +37,8 @@ export function useAction<T>(
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [errorDetails, setErrorDetails] = React.useState<unknown>(null);
+  const [uncertain, setUncertain] = React.useState(false);
+  const [requestId, setRequestId] = React.useState<string | null>(null);
   const inFlight = React.useRef(false);
   const mounted = React.useRef(true);
 
@@ -41,6 +56,8 @@ export function useAction<T>(
       setPending(true);
       setError(null);
       setErrorDetails(null);
+      setUncertain(false);
+      setRequestId(null);
       try {
         const result = await (action as (...a: unknown[]) => Promise<T>)(...args);
         options.onSuccess?.(result);
@@ -60,6 +77,10 @@ export function useAction<T>(
         if (mounted.current) {
           setError(message);
           setErrorDetails(caught instanceof ApiError ? caught.details : null);
+          setUncertain(caught instanceof ApiError && caught.uncertain);
+          setRequestId(
+            caught instanceof ApiError ? (caught.requestId ?? null) : null,
+          );
         }
         return undefined;
       } finally {
@@ -74,9 +95,11 @@ export function useAction<T>(
   const reset = React.useCallback(() => {
     setError(null);
     setErrorDetails(null);
+    setUncertain(false);
+    setRequestId(null);
   }, []);
 
-  return { run, pending, error, errorDetails, reset };
+  return { run, pending, error, errorDetails, uncertain, requestId, reset };
 }
 
 /** Tracks browser connectivity so mutations can be blocked while offline. */

@@ -21,6 +21,22 @@ export interface PendingAction {
   detail: string;
   href: string;
   cta: string;
+  /**
+   * The decision itself, when there is exactly one of it.
+   *
+   * One offer is a *decision* — yes or no — and it can be made on the home
+   * screen without opening anything, which takes accepting from three taps to
+   * two. Several offers are a *comparison*, and comparing them is what the
+   * switch screen is for, so those still link out. The confirmation before
+   * anything is written stays either way: accepting hands somebody else your
+   * call shift.
+   */
+  decide?: {
+    requestId: string;
+    sourceShift: ShiftDetail;
+    offer: TradeRequestDetail["offers"][number];
+    requiresApproval: boolean;
+  };
 }
 
 export interface ResidentDashboard {
@@ -56,13 +72,30 @@ export async function getResidentDashboard(
   for (const post of activity.posted) {
     const pendingOffers = post.offers.filter((offer) => offer.status === "pending");
     if (pendingOffers.length > 0) {
+      const only = pendingOffers.length === 1 ? pendingOffers[0] : null;
+      const snapshot = only?.validation_snapshot as
+        | { requiresApproval?: boolean }
+        | null
+        | undefined;
       pendingActions.push({
         id: `offers-${post.id}`,
         kind: "offer_received",
-        title: `${pendingOffers.length} offer${pendingOffers.length === 1 ? "" : "s"} on your ${post.shift.service_name} shift`,
-        detail: "Review what you would receive, then accept or decline.",
-        href: `/trades/${post.id}`,
-        cta: "Review offers",
+        title: only
+          ? `${only.offering_resident_name} offered you a switch`
+          : `${pendingOffers.length} offers on your ${post.shift.service_name} shift`,
+        detail: only
+          ? `Your ${post.shift.service_name} shift for theirs.`
+          : "Compare what you would receive, then accept or decline.",
+        href: `/switches/${post.id}`,
+        cta: only ? "See the details" : "Compare offers",
+        decide: only
+          ? {
+              requestId: post.id,
+              sourceShift: post.shift,
+              offer: only,
+              requiresApproval: Boolean(snapshot?.requiresApproval),
+            }
+          : undefined,
       });
     }
     if (post.status === "pending_approval") {
@@ -71,7 +104,7 @@ export async function getResidentDashboard(
         kind: "offer_accepted_pending_approval",
         title: "Waiting for chief approval",
         detail: `Your ${post.shift.service_name} switch is with the chief residents.`,
-        href: `/trades/${post.id}`,
+        href: `/switches/${post.id}`,
         cta: "View status",
       });
     }
@@ -84,7 +117,7 @@ export async function getResidentDashboard(
         kind: "offer_accepted_pending_approval",
         title: "Your offer was accepted",
         detail: "The switch is waiting for chief approval.",
-        href: `/trades/${offer.trade_request_id}`,
+        href: `/switches/${offer.trade_request_id}`,
         cta: "View status",
       });
     }
@@ -110,7 +143,7 @@ export async function getResidentDashboard(
         kind: "email_pending",
         title: "Notify your program",
         detail: `Send the coordinator the details of your completed ${row.service_name} switch.`,
-        href: `/switches/${row.id}`,
+        href: `/switches/done/${row.id}`,
         cta: "Open email",
       });
     }

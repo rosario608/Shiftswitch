@@ -210,7 +210,7 @@ test("an unconfigured account is refused everywhere, not just on the home page",
   await signIn(page, ACCOUNTS.pending);
   for (const path of [
     "/api/schedule",
-    "/api/trades",
+    "/api/switches",
     "/api/admin/users",
     "/api/admin/services",
     "/api/approvals",
@@ -250,10 +250,30 @@ test("identifiers from another program leak nothing through error messages", asy
   );
   const existingBody = await existing.json();
   const inventedBody = await invented.json();
+
+  /* Every response carries a request id so a resident can read it out and an
+     operator can find the log line. It is per *request*, so two responses
+     necessarily differ by it — and that difference says nothing about either
+     resource. Asserted separately rather than ignored: an id that were somehow
+     derived from the resource would be a leak, and this pins that it is not. */
+  expect(existingBody.error.requestId, "a refusal must still carry a reference").toMatch(
+    /^[a-z0-9]{6}$/,
+  );
+  expect(inventedBody.error.requestId).toMatch(/^[a-z0-9]{6}$/);
   expect(
-    { status: existing.status(), body: existingBody },
+    existingBody.error.requestId,
+    "the reference must be per request, not per resource",
+  ).not.toBe(inventedBody.error.requestId);
+
+  const withoutReference = (body: { error: Record<string, unknown> }) => {
+    const rest = { ...body.error };
+    delete rest.requestId;
+    return rest;
+  };
+  expect(
+    { status: existing.status(), body: withoutReference(existingBody) },
     "an id that exists elsewhere must be indistinguishable from one that exists nowhere",
-  ).toEqual({ status: invented.status(), body: inventedBody });
+  ).toEqual({ status: invented.status(), body: withoutReference(inventedBody) });
 });
 
 test("a bearer token from the native client carries the same limits", async ({

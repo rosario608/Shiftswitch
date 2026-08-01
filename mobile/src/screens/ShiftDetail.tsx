@@ -62,12 +62,12 @@ export function ShiftDetailScreen() {
     setPostError(null);
     try {
       const result = await api.post<{ tradeRequest: { id: string } }>(
-        "/api/trades",
+        "/api/switches",
         { shiftId, notes: notes.trim() || undefined },
       );
       await successFeedback();
       setSheetOpen(false);
-      navigate(`/trades/${result.tradeRequest.id}`);
+      navigate(`/switches/${result.tradeRequest.id}`);
     } catch (caught) {
       await warningFeedback();
       setPostError(
@@ -149,7 +149,7 @@ export function ShiftDetailScreen() {
 
           {isMine && !shift.tradeable && (
             <InlineNotice tone="neutral" title="Not available for switching">
-              Your program has marked this shift as not tradeable.
+              Your program has marked this shift as cannot be switched.
             </InlineNotice>
           )}
 

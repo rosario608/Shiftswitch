@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
 import { useAction } from "@/lib/use-action";
 
@@ -64,7 +65,7 @@ export function RulesManager({
 
   return (
     <div className="space-y-4">
-      {toggle.error ? <Alert tone="error">{toggle.error}</Alert> : null}
+      <ActionAlert action={toggle} />
 
       <Button block onClick={() => setCreating(true)}>
         <Plus className="h-4 w-4" aria-hidden="true" />
@@ -86,7 +87,7 @@ export function RulesManager({
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <Badge tone="neutral">{rule.categoryLabel}</Badge>
                       <Badge tone={rule.severity === "error" ? "critical" : "caution"}>
-                        {rule.severity === "error" ? "Blocks trades" : "Warning only"}
+                        {rule.severity === "error" ? "Blocks the switch" : "Warning only"}
                       </Badge>
                       {rule.scope !== "program" ? (
                         <Badge tone="neutral">Scoped to {rule.scope}</Badge>
@@ -302,7 +303,7 @@ function RuleSheet({
           value={severity}
           onChange={(event) => setSeverity(event.target.value as "error" | "warning")}
         >
-          <option value="error">Blocks the trade</option>
+          <option value="error">Blocks the switch</option>
           <option value="warning">Warning only</option>
         </Select>
       </Field>

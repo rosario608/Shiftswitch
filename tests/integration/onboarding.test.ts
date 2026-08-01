@@ -383,3 +383,117 @@ describe("removing a shift", () => {
     });
   });
 });
+
+describe("the first thing a real resident ever does", () => {
+  /**
+   * Accepting an invitation through Google has never been completed against a
+   * real account — it needs a second human Google identity, which no test can
+   * produce. What *can* be pinned is the half that fails: every way redemption
+   * can go wrong, each with its own diagnosis.
+   *
+   * These four used to arrive at the resident as one sentence, "that invitation
+   * link has expired or been cancelled". Somebody who had simply already signed
+   * in was told to check a link that was fine; somebody whose invitation had
+   * lapsed was told the same thing as somebody whose program had cancelled it.
+   * At the first minute of a resident's first contact with the product, a wrong
+   * diagnosis is not a small cost: it does not get retried, it gets reported to
+   * a colleague as "the app doesn't work".
+   */
+  const adminContextFor = async (fresh: Awaited<ReturnType<typeof createProgram>>) => {
+    const { context } = await createStaff(fresh.program, {
+      email: `admin-${fresh.program.id.slice(0, 8)}@hospital.org`,
+      name: "Program Administrator",
+      role: "admin",
+    });
+    return context;
+  };
+
+  const identity = (email: string) => ({
+    subject: "google-sub-first",
+    email,
+    name: "First Resident",
+    picture: null,
+  });
+
+  it("says a token nobody has ever issued is unrecognised", async () => {
+    const fresh = await createProgram();
+    const admin = await adminContextFor(fresh);
+    await createInvitation(admin, { email: "new@hospital.org", role: "resident" });
+
+    const result = await acceptInvitation("not-a-real-token-at-all", identity("new@hospital.org"));
+    expect(result.outcome).toBe("invalid");
+    if (result.outcome !== "invalid") throw new Error("unreachable");
+    expect(result.reason).toBe("unknown");
+  });
+
+  it("distinguishes an invitation that has run out of time", async () => {
+    const fresh = await createProgram();
+    const admin = await adminContextFor(fresh);
+    const created = await createInvitation(admin, {
+      email: "late@hospital.org",
+      role: "resident",
+    });
+    await query("UPDATE invitations SET expires_at = now() - interval '1 day' WHERE id = $1", [
+      created.invitation.id,
+    ]);
+
+    const result = await acceptInvitation(created.token, identity("late@hospital.org"));
+    expect(result.outcome).toBe("invalid");
+    if (result.outcome !== "invalid") throw new Error("unreachable");
+    expect(result.reason).toBe("expired");
+  });
+
+  it("distinguishes one that has already been used", async () => {
+    /* The commonest of the four in practice: somebody taps the link in the
+       email a second time, having already signed in. Telling them it expired
+       sends them to their administrator for a replacement they do not need. */
+    const fresh = await createProgram();
+    const admin = await adminContextFor(fresh);
+    const created = await createInvitation(admin, {
+      email: "twice@hospital.org",
+      role: "resident",
+    });
+
+    const first = await acceptInvitation(created.token, identity("twice@hospital.org"));
+    expect(first.outcome).toBe("accepted");
+
+    const second = await acceptInvitation(created.token, identity("twice@hospital.org"));
+    expect(second.outcome).toBe("invalid");
+    if (second.outcome !== "invalid") throw new Error("unreachable");
+    expect(second.reason).toBe("already_accepted");
+  });
+
+  it("distinguishes one the program took back", async () => {
+    const fresh = await createProgram();
+    const admin = await adminContextFor(fresh);
+    const created = await createInvitation(admin, {
+      email: "gone@hospital.org",
+      role: "resident",
+    });
+    const { revokeInvitation } = await import("@/server/domain/invitations");
+    await revokeInvitation(admin, created.invitation.id);
+
+    const result = await acceptInvitation(created.token, identity("gone@hospital.org"));
+    expect(result.outcome).toBe("invalid");
+    if (result.outcome !== "invalid") throw new Error("unreachable");
+    expect(result.reason).toBe("revoked");
+  });
+
+  it("still refuses a forwarded link without consuming it", async () => {
+    /* The one failure that is not about the invitation's state: the right link
+       in the wrong hands. It must not be spent — the real invitee has to be
+       able to use it afterwards. */
+    const fresh = await createProgram();
+    const admin = await adminContextFor(fresh);
+    const created = await createInvitation(admin, {
+      email: "real@hospital.org",
+      role: "resident",
+    });
+
+    const forwarded = await acceptInvitation(created.token, identity("someone.else@hospital.org"));
+    expect(forwarded.outcome).toBe("email_mismatch");
+
+    const proper = await acceptInvitation(created.token, identity("real@hospital.org"));
+    expect(proper.outcome).toBe("accepted");
+  });
+});

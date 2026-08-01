@@ -69,7 +69,7 @@ describe("api client", () => {
       }),
     });
 
-    await expect(api.post("/api/trades", {})).rejects.toMatchObject({
+    await expect(api.post("/api/switches", {})).rejects.toMatchObject({
       code: "rule_violation",
       status: 422,
       message: "That switch would leave you on call for 14 days straight.",
@@ -102,7 +102,11 @@ describe("api client", () => {
     expect(unauthorized).not.toHaveBeenCalled();
   });
 
-  it("turns a transport failure into a retryable offline error", async () => {
+  it("says it does not know when a request dies with the phone still online", async () => {
+    /* This used to call every transport failure "offline", which is a claim
+       rather than an observation: a request that dies on hospital wifi may
+       already have reached the server. Telling a resident it failed is how the
+       same switch gets accepted twice. */
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
@@ -114,7 +118,29 @@ describe("api client", () => {
     expect(error).toBeInstanceOf(ApiError);
     expect(error.code).toBe("network");
     expect(error.retryable).toBe(true);
-    expect(error.message).toMatch(/offline/i);
+    expect(error.delivery).toBe("unknown");
+    expect(error.uncertain).toBe(true);
+    expect(error.message).toMatch(/may or may not have gone through/i);
+  });
+
+  it("is certain nothing happened when the phone knew it was offline", async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, "onLine");
+    Object.defineProperty(navigator, "onLine", { value: false, configurable: true });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+    try {
+      const error = (await api.get("/api/dashboard").catch((c) => c)) as ApiError;
+      expect(error.code).toBe("offline");
+      expect(error.delivery).toBe("no");
+      expect(error.uncertain).toBe(false);
+      expect(error.message).toMatch(/nothing was sent and nothing has changed/i);
+    } finally {
+      if (descriptor) Object.defineProperty(navigator, "onLine", descriptor);
+    }
   });
 
   it("does not treat an abort as a failure to report", async () => {

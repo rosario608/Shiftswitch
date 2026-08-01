@@ -30,7 +30,8 @@
     "setup:production": "tsx scripts/setup-production.ts",
     "demo:seed": "tsx scripts/demo.ts seed",
     "demo:reset": "tsx scripts/demo.ts reset",
-    "demo:status": "tsx scripts/demo.ts status"
+    "demo:status": "tsx scripts/demo.ts status",
+    "migrations:manifest": "tsx scripts/generate-migration-manifest.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.5.7",

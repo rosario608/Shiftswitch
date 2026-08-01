@@ -57,7 +57,7 @@ export function NewDraftButton({ timezone }: { timezone: string }) {
         <Sheet open title="Start a draft schedule" onClose={() => setOpen(false)}>
           <div className="space-y-4">
             <p className="text-sm text-ink-muted">
-              A draft is invisible to residents and cannot be traded. Nothing you
+              A draft is invisible to residents and cannot be switched. Nothing you
               do in it reaches anybody until you publish it.
             </p>
 

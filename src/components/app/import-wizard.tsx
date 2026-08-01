@@ -7,6 +7,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { ScheduleCheck } from "@/components/app/schedule-check";
+import { ActionAlert } from "@/components/app/action-alert";
 import { ApiError, apiFetch } from "@/lib/api-client";
 import { useAction } from "@/lib/use-action";
 
@@ -155,7 +156,7 @@ export function ImportWizard() {
       {imported ? (
         <ScheduleCheck periodStart={imported.from} periodEnd={imported.to} />
       ) : null}
-      {commit.error ? <Alert tone="error">{commit.error}</Alert> : null}
+      <ActionAlert action={commit} />
 
       {preview ? (
         <Card>

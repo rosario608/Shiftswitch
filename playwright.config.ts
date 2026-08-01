@@ -41,6 +41,12 @@ export default defineConfig({
         command: `npm run dev -- -p ${PORT}`,
         url: baseURL,
         reuseExistingServer: true,
-        timeout: 120_000,
+        /* Four minutes, not two. `next dev` compiles the first route on
+           demand, and on a slow filesystem — which Next itself warns about in
+           this container — a cold start after `npm run build` has just
+           rewritten `.next` takes longer than the default allows. A timeout
+           here reads as "the whole suite is broken" rather than "the server was
+           still starting". */
+        timeout: 240_000,
       },
 });

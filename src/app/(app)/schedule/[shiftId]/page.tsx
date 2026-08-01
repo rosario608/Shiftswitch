@@ -106,13 +106,13 @@ export default async function ShiftDetailPage({
           <Card>
             <CardBody>
               <p className="mb-3 text-sm text-ink-muted">
-                This shift is already posted for trade.
+                This shift is already posted.
               </p>
               <Link
-                href={`/trades/${activePost.id}`}
+                href={`/switches/${activePost.id}`}
                 className="flex min-h-[2.75rem] items-center justify-center rounded-xl bg-brand px-4 font-semibold text-white"
               >
-                View trade post
+                View this posting
               </Link>
             </CardBody>
           </Card>
@@ -122,7 +122,7 @@ export default async function ShiftDetailPage({
               <PostShiftButton
                 shifts={postable.map((item) => toShiftView(item, context.program.timezone))}
                 preselectedShiftId={shift.id}
-                label="Post for trade"
+                label="Post this shift"
                 disabledReason={blockReason}
               />
             </CardBody>

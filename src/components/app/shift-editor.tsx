@@ -6,6 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
 import { useAction } from "@/lib/use-action";
 import type { ShiftView } from "@/lib/views";
@@ -195,7 +196,7 @@ export function ShiftEditorButton({
             checked={tradeable}
             onChange={(event) => setTradeable(event.target.checked)}
           />
-          Residents may trade this shift
+          Residents may switch this shift
         </label>
 
         <label className="mb-3 flex items-center gap-2 text-sm text-ink">
@@ -221,7 +222,7 @@ export function ShiftEditorButton({
         {disruptive ? (
           <>
             <Alert tone="warning" className="mb-3">
-              This change invalidates any pending trade offers for this shift. The
+              This change invalidates any pending offers for this shift. The
               residents involved will be notified with the reason.
             </Alert>
             <Field
@@ -246,7 +247,7 @@ export function ShiftEditorButton({
                 instead if it was real and is no longer happening — that keeps the
                 record and notifies the resident.
               </Alert>
-              {remove.error ? <Alert tone="error">{remove.error}</Alert> : null}
+              <ActionAlert action={remove} />
               <div className="flex gap-2">
                 <Button
                   size="sm"

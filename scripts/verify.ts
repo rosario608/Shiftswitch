@@ -38,6 +38,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { Socket } from "node:net";
 import path from "node:path";
 import { loadEnv } from "./load-env";
 
@@ -147,6 +148,24 @@ async function preflight(): Promise<boolean> {
     return false;
   }
 
+  /* A dev server already listening is the other precondition with a failure
+     mode nobody can read. `next dev` and `next build` share `.next`, so the
+     build step corrupts the running server's compiled output, and what surfaces
+     several minutes later is three or four end-to-end tests failing on
+     `ECONNRESET` and phantom strict-mode violations — which reads like flaky
+     tests rather than the one thing that actually went wrong. Playwright will
+     start its own server; it only needs this one out of the way. */
+  const port = Number(process.env.PORT ?? 3000);
+  if (await somethingIsListening(port)) {
+    process.stdout.write(
+      `[verify] Something is already listening on port ${port}.\n` +
+        "[verify] `next dev` and `next build` share .next, so a dev server left running\n" +
+        "[verify] is corrupted by the build step and the end-to-end suites fail in ways\n" +
+        "[verify] that look like flakes. Stop it and run this again.\n",
+    );
+    return false;
+  }
+
   const url = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
   if (!url) {
     process.stdout.write(
@@ -170,6 +189,22 @@ async function preflight(): Promise<boolean> {
     );
     return false;
   }
+}
+
+/** True if a TCP connection to localhost:port is accepted. */
+function somethingIsListening(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new Socket();
+    const done = (answer: boolean) => {
+      socket.destroy();
+      resolve(answer);
+    };
+    socket.setTimeout(1000);
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () => done(false));
+    socket.once("error", () => done(false));
+    socket.connect(port, "127.0.0.1");
+  });
 }
 
 async function main(): Promise<void> {

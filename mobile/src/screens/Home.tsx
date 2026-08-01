@@ -150,7 +150,7 @@ export function HomeScreen() {
                   <li key={post.id}>
                     <button
                       type="button"
-                      onClick={() => navigate(`/trades/${post.id}`)}
+                      onClick={() => navigate(`/switches/${post.id}`)}
                       className="tap w-full rounded-card border border-border-base bg-surface p-4 text-left active:bg-surface-muted"
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -191,7 +191,7 @@ export function HomeScreen() {
               action={
                 <button
                   type="button"
-                  onClick={() => navigate("/trades")}
+                  onClick={() => navigate("/switches")}
                   className="text-sm font-semibold text-brand-ink"
                 >
                   See all
@@ -213,7 +213,7 @@ export function HomeScreen() {
                     <ShiftCard
                       shift={trade.shift}
                       timezone={resource.data!.timezone}
-                      onClick={() => navigate(`/trades/${trade.id}`)}
+                      onClick={() => navigate(`/switches/${trade.id}`)}
                       footer={
                         <p className="text-xs text-ink-subtle">
                           {trade.initiator_name} · PGY-{trade.initiator_pgy} ·

@@ -209,7 +209,7 @@ export default async function DraftPage({
             </h2>
             <p className="mb-2 max-w-prose px-1 text-sm text-ink-muted">
               Changing anything here is safe: nobody can see this schedule, and
-              nothing in it can be traded until it is published.
+              nothing in it can be switched until it is published.
             </p>
             <DraftShiftEditor
               versionId={version.id}

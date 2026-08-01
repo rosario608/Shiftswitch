@@ -6,6 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
 import { useAction, useOnline } from "@/lib/use-action";
 
@@ -37,7 +38,7 @@ export function MaintenanceButton() {
       >
         Run housekeeping
       </Button>
-      {run.error ? <Alert tone="error">{run.error}</Alert> : null}
+      <ActionAlert action={run} />
       {summary ? (
         <Alert tone="success" live>
           {summary}
@@ -115,7 +116,7 @@ export function ApprovalActions({
 
   return (
     <div className="space-y-2">
-      {approve.error ? <Alert tone="error">{approve.error}</Alert> : null}
+      <ActionAlert action={approve} />
       <Field label="Notes for both residents (optional)" htmlFor={`notes-${tradeRequestId}`}>
         <Input
           id={`notes-${tradeRequestId}`}
@@ -395,7 +396,7 @@ export function UserRoleForm({
         />
         Account active
       </label>
-      {save.error ? <Alert tone="error">{save.error}</Alert> : null}
+      <ActionAlert action={save} />
       <Button
         size="sm"
         loading={save.pending}

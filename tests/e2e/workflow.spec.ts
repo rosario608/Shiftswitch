@@ -20,31 +20,32 @@ test("resident posts a shift, a colleague offers, the switch completes and the p
   // --- Alice signs in and sees her next shift -------------------------------
   await signIn(page, ACCOUNTS.alice);
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /hello, alice/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Next shift" })).toBeVisible();
+  /* The heading is the answer, not a greeting: with nothing waiting on her it
+     names what she is working next. */
+  await expect(page.getByRole("heading", { name: "Next shift", level: 1 })).toBeVisible();
 
   // --- Alice posts a shift for trade ---------------------------------------
-  await page.getByRole("button", { name: /post this shift for trade/i }).click();
+  await page.getByRole("button", { name: /post this shift/i }).click();
   const sheet = page.getByRole("dialog");
   await expect(sheet).toBeVisible();
   await expect(sheet.getByText(/which shift\?/i)).toBeVisible();
   await sheet.getByLabel(/note for your colleagues/i).fill("Family event — happy to swap.");
-  await sheet.getByRole("button", { name: /^post for trade$/i }).click();
+  await sheet.getByRole("button", { name: /^post it$/i }).click();
 
-  await page.waitForURL(/\/trades\/[0-9a-f-]{36}$/);
+  await page.waitForURL(/\/switches\/[0-9a-f-]{36}$/);
   await expect(page.getByRole("heading", { name: /your posted shift/i })).toBeVisible();
   await expect(page.getByText(/no offers yet/i)).toBeVisible();
   const tradeUrl = page.url();
 
   // The shift now shows as posted on Alice's schedule.
   await page.goto("/schedule");
-  await expect(page.getByText("Posted for trade").first()).toBeVisible();
+  await expect(page.getByText("Posted to switch").first()).toBeVisible();
 
   // --- Bob finds the trade and offers one of his shifts --------------------
   await signOut(page);
   await signIn(page, ACCOUNTS.bob);
-  await page.goto("/trades");
-  await expect(page.getByRole("heading", { name: "Trades" })).toBeVisible();
+  await page.goto("/switches");
+  await expect(page.getByRole("heading", { name: "Switches" })).toBeVisible();
   await expect(page.getByText(/family event/i)).toBeVisible();
   // The board says how well the posting fits *this* resident, in a band rather
   // than a percentage, and how many of their own shifts would work for it.
@@ -54,7 +55,9 @@ test("resident posts a shift, a colleague offers, the switch completes and the p
   await expect(page.getByText(/of your shifts fit/i).first()).toBeVisible();
 
   await page.goto(tradeUrl);
-  await page.getByRole("button", { name: /offer my shift/i }).click();
+  /* "Offer a different shift" opens the full ranked list. The primary button
+     beside it names the best match and sends it without opening anything. */
+  await page.getByRole("button", { name: /offer a different shift/i }).click();
   const offerSheet = page.getByRole("dialog");
   // The sheet shows a loading state while eligibility is checked, then the
   // ranked list of shifts the resident is actually allowed to offer.
@@ -132,18 +135,20 @@ test("a switch that needs approval waits for a chief and then completes", async 
   // Carol posts a shift that the program flagged as approval-required.
   await signIn(page, ACCOUNTS.carol);
   await page.goto("/schedule");
-  await page.getByRole("button", { name: /post a shift for trade/i }).first().click();
+  await page.getByRole("button", { name: /post a shift/i }).first().click();
   const sheet = page.getByRole("dialog");
   await sheet.getByText(/chief approval/i).first().waitFor();
-  await sheet.getByRole("button", { name: /^post for trade$/i }).click();
-  await page.waitForURL(/\/trades\/[0-9a-f-]{36}$/);
+  await sheet.getByRole("button", { name: /^post it$/i }).click();
+  await page.waitForURL(/\/switches\/[0-9a-f-]{36}$/);
   const tradeUrl = page.url();
 
   // Bob offers.
   await signOut(page);
   await signIn(page, ACCOUNTS.bob);
   await page.goto(tradeUrl);
-  await page.getByRole("button", { name: /offer my shift/i }).click();
+  /* "Offer a different shift" opens the full ranked list. The primary button
+     beside it names the best match and sends it without opening anything. */
+  await page.getByRole("button", { name: /offer a different shift/i }).click();
   const offerSheet = page.getByRole("dialog");
   await expect(offerSheet.getByText(/needs chief approval/i).first()).toBeVisible({
     timeout: 20_000,
@@ -178,6 +183,6 @@ test("a switch that needs approval waits for a chief and then completes", async 
   // Carol sees the completed switch in her history.
   await signOut(page);
   await signIn(page, ACCOUNTS.carol);
-  await page.goto("/trades?tab=history");
+  await page.goto("/switches?tab=history");
   await expect(page.getByText(/notify program/i).first()).toBeVisible();
 });

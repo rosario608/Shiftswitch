@@ -55,7 +55,7 @@ export function TabBar({
       icon: (a) => <Icon path={ICONS.calendar} active={a} />,
     },
     {
-      to: "/trades",
+      to: "/switches",
       label: "Switches",
       icon: (a) => <Icon path={ICONS.swap} active={a} />,
     },

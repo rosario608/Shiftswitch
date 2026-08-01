@@ -2,26 +2,50 @@ import { NextResponse } from "next/server";
 import { ZodError, type ZodType } from "zod";
 import { AppError, translateDatabaseError, validationFailed } from "./errors";
 import { logger } from "@/server/observability/logger";
+import { reportError } from "@/server/observability/report";
+import {
+  REQUEST_ID_HEADER,
+  requestIdFrom,
+  withRequestId,
+} from "@/server/observability/request-id";
+import {
+  assertSchemaCurrent,
+  isSchemaGateExempt,
+} from "@/server/health/schema-gate";
 
 export interface ApiErrorBody {
   error: {
     code: string;
     message: string;
     details?: unknown;
+    /**
+     * The six characters that join this response to the server's logs.
+     *
+     * On the error envelope rather than only in a header because the client
+     * shows it to the resident, and a resident reading it off a screen is the
+     * fastest route from "it broke" to the log line that says why.
+     */
+    requestId?: string;
   };
 }
 
-export function jsonError(error: AppError): NextResponse<ApiErrorBody> {
-  return NextResponse.json(
+export function jsonError(
+  error: AppError,
+  requestId?: string,
+): NextResponse<ApiErrorBody> {
+  const response = NextResponse.json(
     {
       error: {
         code: error.code,
         message: error.message,
         ...(error.details === undefined ? {} : { details: error.details }),
+        ...(requestId ? { requestId } : {}),
       },
     },
     { status: error.status },
   );
+  if (requestId) response.headers.set(REQUEST_ID_HEADER, requestId);
+  return response;
 }
 
 function toAppError(error: unknown): AppError {
@@ -51,34 +75,62 @@ export function apiHandler<Args extends unknown[]>(
 ): (...args: Args) => Promise<Response> {
   return async (...args: Args) => {
     const started = Date.now();
-    try {
-      return await handler(...args);
-    } catch (error) {
-      const appError = toAppError(error);
-      const request = args[0] as Request | undefined;
-      const path =
-        request && typeof request === "object" && "url" in request
-          ? new URL(request.url).pathname
-          : "unknown";
-      if (appError.status >= 500) {
-        logger.error("api.unhandled", {
-          path,
-          durationMs: Date.now() - started,
-          error:
-            error instanceof Error
-              ? { name: error.name, message: error.message, stack: error.stack }
-              : String(error),
-        });
-      } else {
-        logger.warn("api.rejected", {
-          path,
-          code: appError.code,
-          status: appError.status,
-          message: appError.message,
-        });
+    const request = args[0] as Request | undefined;
+    const hasRequest =
+      request instanceof Request ||
+      (typeof request === "object" && request !== null && "url" in request);
+    const path = hasRequest ? new URL(request!.url).pathname : "unknown";
+    const requestId = hasRequest ? requestIdFrom(request!.headers) : "no-request";
+
+    return withRequestId(requestId, async () => {
+      try {
+        /* Before the handler, not inside it. Every route goes through here, so
+           this is the one place that can guarantee no query runs against a
+           schema that cannot support it — and the refusal names the migration
+           instead of surfacing "column does not exist" as a 500. Exempt: the
+           routes somebody needs *while* this is failing. */
+        if (!isSchemaGateExempt(path)) await assertSchemaCurrent();
+
+        const response = await handler(...args);
+        /* On success too. A resident reporting "it was slow and then weird"
+           has an id to give even when nothing threw. */
+        response.headers.set(REQUEST_ID_HEADER, requestId);
+        return response;
+      } catch (error) {
+        const appError = toAppError(error);
+        if (appError.status >= 500) {
+          logger.error("api.unhandled", {
+            requestId,
+            path,
+            code: appError.code,
+            durationMs: Date.now() - started,
+            error:
+              error instanceof Error
+                ? { name: error.name, message: error.message, stack: error.stack }
+                : String(error),
+          });
+          /* One exception, and it is the difference between an incident and a
+             designed refusal. `schema_drift` is this build noticing, on
+             purpose, that the database is behind it — every request in flight
+             raises it, so reporting here would send one report per resident
+             per tap for as long as the drift lasts, burying whatever else is
+             wrong. The drift itself is reported once per verdict, by the gate
+             that computes it. */
+          if (appError.code !== "schema_drift") {
+            reportError(error, { requestId, route: path, kind: "api" });
+          }
+        } else {
+          logger.warn("api.rejected", {
+            requestId,
+            path,
+            code: appError.code,
+            status: appError.status,
+            message: appError.message,
+          });
+        }
+        return jsonError(appError, requestId);
       }
-      return jsonError(appError);
-    }
+    });
   };
 }
 

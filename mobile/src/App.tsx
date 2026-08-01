@@ -34,6 +34,7 @@ import { SwitchDetailScreen } from "@/screens/SwitchDetail";
 import { ApprovalsScreen } from "@/screens/Approvals";
 import { NotificationsScreen } from "@/screens/Notifications";
 import { ProfileScreen } from "@/screens/Profile";
+import { SelfTestScreen } from "@/screens/SelfTest";
 import { DeleteAccountScreen } from "@/screens/DeleteAccount";
 
 export function App() {
@@ -112,7 +113,7 @@ function Shell() {
       const atRoot = [
         "/",
         "/schedule",
-        "/trades",
+        "/switches",
         "/approvals",
         "/notifications",
         "/profile",
@@ -229,9 +230,11 @@ function Shell() {
             <Route path="/" element={<HomeScreen />} />
             <Route path="/schedule" element={<ScheduleScreen />} />
             <Route path="/schedule/:shiftId" element={<ShiftDetailScreen />} />
-            <Route path="/trades" element={<TradesScreen />} />
-            <Route path="/trades/:tradeId" element={<TradeDetailScreen />} />
-            <Route path="/switches/:tradeId" element={<SwitchDetailScreen />} />
+            <Route path="/switches" element={<TradesScreen />} />
+            {/* `done` before `:switchId`: a completed switch is a different
+                record with its own id, and the static segment has to win. */}
+            <Route path="/switches/done/:switchId" element={<SwitchDetailScreen />} />
+            <Route path="/switches/:switchId" element={<TradeDetailScreen />} />
             {elevated && (
               <Route path="/approvals" element={<ApprovalsScreen />} />
             )}
@@ -241,6 +244,7 @@ function Shell() {
             />
             <Route path="/profile" element={<ProfileScreen />} />
             <Route path="/settings" element={<ProfileScreen />} />
+            <Route path="/settings/self-test" element={<SelfTestScreen />} />
             <Route
               path="/settings/delete-account"
               element={<DeleteAccountScreen />}

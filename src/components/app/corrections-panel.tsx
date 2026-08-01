@@ -10,7 +10,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Label, Select, Textarea } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { apiFetch } from "@/lib/api-client";
-import { useAction } from "@/lib/use-action";
+import { useAction, type ActionState } from "@/lib/use-action";
+import { ActionAlert } from "@/components/app/action-alert";
 
 /**
  * Changing a schedule people are already working, and the record of every time
@@ -100,8 +101,12 @@ export function CorrectionsPanel({
         </Button>
       </div>
 
+      {/* Announced, not merely displayed. The sheet closes on success, so a
+          chief using a screen reader would otherwise be returned to the page
+          with no indication that anything happened — and the summary names who
+          was told, which is the part they need. */}
       {result ? (
-        <Alert tone={result.safe ? "success" : "warning"} title="Corrected">
+        <Alert tone={result.safe ? "success" : "warning"} title="Corrected" live>
           <p>{result.summary}</p>
           {result.notified.length > 0 ? (
             <p className="mt-1">Told: {result.notified.join(", ")}.</p>
@@ -160,7 +165,7 @@ export function CorrectionsPanel({
         shifts={shifts}
         residents={residents}
         pending={correct.pending}
-        error={correct.error}
+        action={correct}
         onSubmit={(body) => correct.run(body)}
       />
     </div>
@@ -173,7 +178,7 @@ function CorrectionSheet({
   shifts,
   residents,
   pending,
-  error,
+  action,
   onSubmit,
 }: {
   open: boolean;
@@ -181,7 +186,10 @@ function CorrectionSheet({
   shifts: CorrectableShift[];
   residents: Array<{ id: string; name: string; pgyLevel: number }>;
   pending: boolean;
-  error: string | null;
+  /* The whole action, not just its message. A correction interrupted mid-flight
+     may already have moved somebody's shift, and a red "it failed" would invite
+     a chief to do it twice. */
+  action: Pick<ActionState<unknown>, "error" | "uncertain" | "requestId">;
   onSubmit: (body: unknown) => void;
 }) {
   const [shiftId, setShiftId] = React.useState(shifts[0]?.id ?? "");
@@ -198,7 +206,7 @@ function CorrectionSheet({
           onSubmit({ shiftId, residentId: residentId || null, reason });
         }}
       >
-        {error ? <Alert tone="error">{error}</Alert> : null}
+        <ActionAlert action={action} />
 
         <div>
           <Label htmlFor="correction-shift">Which shift</Label>

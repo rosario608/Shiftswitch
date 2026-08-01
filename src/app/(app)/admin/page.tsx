@@ -59,10 +59,28 @@ export default async function AdminHomePage() {
   const awaitingApproval = openDrafts.filter((draft) => !draft.approved_at);
   const approvedAndWaiting = openDrafts.filter((draft) => draft.approved_at);
 
+  /* The heading is the verdict, not the name of the section of the app you are
+     standing in. A chief opening this between rounds gets the answer to "is
+     anything wrong and is anything waiting on me" in the first line, in the
+     same place every time, and only reads further if it is not "all clear".
+     Counted, not judged: each item is something on this page they can open. */
+  const waiting =
+    (coverage?.unfilled.length ?? 0) +
+    analytics.totals.pendingApprovals +
+    awaitingApproval.length +
+    (allows("schedule.publish") ? approvedAndWaiting.length : 0);
+  const broken = coverage?.report.hardCount ?? 0;
+  const verdict =
+    broken > 0
+      ? `${broken} thing${broken === 1 ? "" : "s"} to fix`
+      : waiting > 0
+        ? `${waiting} thing${waiting === 1 ? "" : "s"} waiting on you`
+        : "All clear";
+
   return (
     <div className="space-y-5">
       <header>
-        <h1 className="text-2xl font-semibold text-ink">Administration</h1>
+        <h1 className="text-2xl font-semibold text-ink">{verdict}</h1>
         <p className="mt-1 text-sm text-ink-muted">
           {context.program.name} · {context.program.institution}
         </p>
@@ -167,7 +185,7 @@ export default async function AdminHomePage() {
             <div>
               <p className="font-semibold text-ink">Housekeeping</p>
               <p className="mt-1 text-sm text-ink-muted">
-                Expire stale trade posts and offers, and close out shifts that
+                Expire stale posted shifts and offers, and close out shifts that
                 have already been worked. Safe to run at any time.
               </p>
             </div>

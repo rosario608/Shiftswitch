@@ -27,7 +27,15 @@ export default async function SchedulePage({
     return (
       <EmptyState
         title="No schedule for this account"
-        description="Your account is an administrator account and does not have shifts assigned. Use the admin area to view the program schedule."
+        description="This is an administrator account, so it has no shifts of its own. The program's schedule is in the admin area."
+        action={
+          <Link
+            href="/admin/schedule"
+            className="inline-flex min-h-[2.75rem] items-center rounded-xl bg-brand px-4 font-semibold text-white"
+          >
+            Open the program schedule
+          </Link>
+        }
       />
     );
   }
@@ -70,7 +78,7 @@ export default async function SchedulePage({
         <CardBody>
           <PostShiftButton
             shifts={postable.map((shift) => toShiftView(shift, timezone))}
-            label="Post a shift for trade"
+            label="Post a shift"
           />
         </CardBody>
       </Card>
@@ -98,8 +106,22 @@ export default async function SchedulePage({
 
       {shifts.length === 0 ? (
         <EmptyState
-          title={showPast ? "No shifts on record" : "No upcoming shifts"}
-          description="When your program publishes the schedule, your shifts appear here."
+          title={showPast ? "No shifts on record" : "Nothing scheduled yet"}
+          description={
+            showPast
+              ? "Shifts you have already worked will be listed here."
+              : "When your program publishes the schedule your shifts appear here. In the meantime you can see what colleagues have posted."
+          }
+          action={
+            showPast ? undefined : (
+              <Link
+                href="/switches"
+                className="inline-flex min-h-[2.75rem] items-center rounded-xl bg-brand px-4 font-semibold text-white"
+              >
+                See shifts you can take
+              </Link>
+            )
+          }
         />
       ) : (
         <div className="space-y-6">

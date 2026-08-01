@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { Sheet } from "@/components/ui/sheet";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
 import { useAction } from "@/lib/use-action";
 
@@ -140,7 +141,7 @@ export function GenerateDraftButton({ timezone }: { timezone: string }) {
                   </label>
                 </div>
 
-                {generate.error ? <Alert tone="error">{generate.error}</Alert> : null}
+                <ActionAlert action={generate} />
 
                 <div className="flex gap-2">
                   <Button

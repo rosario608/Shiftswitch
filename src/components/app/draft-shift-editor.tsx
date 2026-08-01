@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ApiError, apiFetch } from "@/lib/api-client";
+import { ActionAlert } from "@/components/app/action-alert";
 import { dayLabel, fmtRange, isoDate } from "@/lib/format";
 
 /**
@@ -53,7 +54,15 @@ export function DraftShiftEditor({
 }) {
   const router = useRouter();
   const [shifts, setShifts] = React.useState(incoming);
-  const [error, setError] = React.useState<string | null>(null);
+  /* Not a string. A dropped connection mid-edit is not the same fact as a
+     refusal, and this editor hand-rolls its own request state rather than using
+     `useAction`, so it has to carry the distinction itself — see
+     `ActionAlert`. */
+  const [failure, setFailure] = React.useState<{
+    error: string | null;
+    uncertain: boolean;
+    requestId: string | null;
+  }>({ error: null, uncertain: false, requestId: null });
   /* What the last edit did, in one sentence. Cleared on the next edit so it is
      never ambiguous which change it describes. */
   const [impact, setImpact] = React.useState<
@@ -81,19 +90,26 @@ export function DraftShiftEditor({
     run: () => Promise<{ impact?: { safe: boolean; summary: string } | null }>,
   ) {
     setBusyId(shiftId);
-    setError(null);
+    setFailure({ error: null, uncertain: false, requestId: null });
     setImpact(null);
     try {
       const response = await run();
       if (response?.impact) setImpact(response.impact);
       router.refresh();
     } catch (caught) {
-      setError(
-        caught instanceof ApiError
-          ? caught.message
-          : "Something went wrong. Please try again.",
-      );
-      // Put the row back the way the server still has it.
+      setFailure({
+        error:
+          caught instanceof ApiError
+            ? caught.message
+            : "Something went wrong. Please try again.",
+        uncertain: caught instanceof ApiError && caught.uncertain,
+        requestId: (caught instanceof ApiError ? caught.requestId : null) ?? null,
+      });
+      /* Put the row back the way the server still has it. When the outcome is
+         *uncertain* this may be showing the old value for a change that landed
+         — which is exactly why the banner offers "Reload and check" rather than
+         "Try again". Showing the optimistic value instead would be worse: it
+         would assert a change nobody has confirmed. */
       setShifts(incoming);
     } finally {
       setBusyId(null);
@@ -167,7 +183,7 @@ export function DraftShiftEditor({
         ) : null}
       </div>
 
-      {error ? <Alert tone="error">{error}</Alert> : null}
+      <ActionAlert action={failure} />
       {/* Checked immediately, and only the difference this edit made — a
           scheduler moving one person should not be handed the month's whole
           problem list. */}

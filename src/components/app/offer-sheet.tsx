@@ -10,6 +10,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { apiFetch } from "@/lib/api-client";
 import { useAction, useOnline } from "@/lib/use-action";
 import { fmtRange, dayLabel } from "@/lib/format";
+import { ActionAlert } from "@/components/app/action-alert";
 
 interface CandidateShift {
   id: string;
@@ -38,9 +39,23 @@ interface Candidate {
 }
 
 /**
- * "Offer my shift": loads the caller's eligible shifts with their match score
- * and rules result. Ineligible shifts are shown but cannot be selected, with the
- * exact reason — so a resident never submits an offer the server will reject.
+ * Offering one of your shifts, in one tap when the obvious answer is right.
+ *
+ * The candidates — every shift of the caller's, scored against this posting and
+ * checked against the rules — are loaded when the screen loads rather than when
+ * a sheet opens. That is the whole point: the best eligible one can then be
+ * *named on the button*, so a resident who agrees with the match (which is most
+ * of them, because the match is computed from the same rules the server will
+ * apply) offers without opening anything.
+ *
+ * Choosing a different shift is still one tap away, and the sheet behind it is
+ * unchanged: every shift with its score, its caveats, and the exact reason an
+ * ineligible one cannot be offered — so nobody submits an offer the server will
+ * refuse.
+ *
+ * Offering is reversible; it can be withdrawn until it is accepted. That is why
+ * it gets a direct button, and why *accepting* — which is not reversible — keeps
+ * its confirmation.
  */
 export function OfferShiftSheet({
   tradeRequestId,
@@ -56,35 +71,49 @@ export function OfferShiftSheet({
   const [open, setOpen] = React.useState(false);
   const [candidates, setCandidates] = React.useState<Candidate[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
-  const [loading, setLoading] = React.useState(false);
+  /* True from the first paint unless there is nothing to check: the button
+     starts as "Checking your shifts…" rather than flashing a generic label and
+     then changing under the resident's thumb. */
+  const [loading, setLoading] = React.useState(!disabledReason);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
 
-  async function openSheet() {
+  /* Loaded when the screen loads, not when a sheet opens, so the best match can
+     be named on the button. Written as a subscription — every state change
+     happens in a callback rather than in the effect body — because a
+     synchronous setState here would cascade a render on every mount. */
+  React.useEffect(() => {
+    if (disabledReason) return;
+    let cancelled = false;
+    apiFetch<{ candidates: Candidate[] }>(`/api/switches/${tradeRequestId}/candidates`)
+      .then((result) => {
+        if (cancelled) return;
+        setCandidates(result.candidates);
+        const firstEligible = result.candidates.find((candidate) => candidate.eligible);
+        setSelectedId(firstEligible?.shift.id ?? null);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setLoadError(
+          error instanceof Error ? error.message : "We couldn\u2019t check your shifts.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [disabledReason, tradeRequestId]);
+
+  function openSheet() {
     setOpen(true);
-    if (candidates || loading) return;
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const result = await apiFetch<{ candidates: Candidate[] }>(
-        `/api/trades/${tradeRequestId}/candidates`,
-      );
-      setCandidates(result.candidates);
-      const firstEligible = result.candidates.find((candidate) => candidate.eligible);
-      setSelectedId(firstEligible?.shift.id ?? null);
-    } catch (error) {
-      setLoadError(
-        error instanceof Error ? error.message : "We couldn't check your shifts.",
-      );
-    } finally {
-      setLoading(false);
-    }
   }
 
   const selected = candidates?.find((candidate) => candidate.shift.id === selectedId) ?? null;
 
   const submit = useAction(
     async () =>
-      apiFetch(`/api/trades/${tradeRequestId}/offers`, {
+      apiFetch(`/api/switches/${tradeRequestId}/offers`, {
         method: "POST",
         body: JSON.stringify({ offeredShiftId: selectedId }),
       }),
@@ -96,15 +125,55 @@ export function OfferShiftSheet({
     },
   );
 
+  /* The one the button names: best-scoring shift that actually passes the
+     rules. Ranking is the server's, not a re-sort here. */
+  const best = candidates?.find((candidate) => candidate.eligible) ?? null;
+  const canOfferDirectly = Boolean(best) && !disabledReason;
+
   return (
     <>
-      <Button block onClick={openSheet} disabled={Boolean(disabledReason)}>
-        <HandCoins className="h-4 w-4" aria-hidden="true" />
-        Offer my shift
-      </Button>
-      {disabledReason ? (
-        <p className="mt-2 text-center text-sm text-ink-muted">{disabledReason}</p>
-      ) : null}
+      {canOfferDirectly && best ? (
+        <>
+          <Button
+            block
+            loading={submit.pending}
+            loadingLabel="Sending offer…"
+            disabled={!online}
+            onClick={() => {
+              setSelectedId(best.shift.id);
+              submit.run();
+            }}
+          >
+            <HandCoins className="h-4 w-4" aria-hidden="true" />
+            Offer {dayLabel(best.shift.start_datetime, timezone)} ·{" "}
+            {best.shift.service_name}
+          </Button>
+          <p className="mt-1.5 text-center text-sm text-ink-muted">
+            {fmtRange(best.shift.start_datetime, best.shift.end_datetime, timezone)}
+            {best.requiresApproval ? " · needs a chief\u2019s approval" : ""}
+          </p>
+          <Button variant="secondary" block className="mt-2" onClick={openSheet}>
+            Offer a different shift
+          </Button>
+          <ActionAlert action={submit} className="mt-2" />
+        </>
+      ) : (
+        <>
+          <Button
+            block
+            onClick={openSheet}
+            disabled={Boolean(disabledReason)}
+            loading={loading && !candidates}
+            loadingLabel="Checking your shifts…"
+          >
+            <HandCoins className="h-4 w-4" aria-hidden="true" />
+            Offer my shift
+          </Button>
+          {disabledReason ? (
+            <p className="mt-2 text-center text-sm text-ink-muted">{disabledReason}</p>
+          ) : null}
+        </>
+      )}
 
       <Sheet
         open={open}

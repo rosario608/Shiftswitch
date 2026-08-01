@@ -22,9 +22,9 @@ function routeFor(notification: AppNotification): string {
   if (!notification.related_entity_id) return "/notifications";
   switch (notification.related_entity_type) {
     case "trade_request":
-      return `/trades/${notification.related_entity_id}`;
-    case "completed_trade":
       return `/switches/${notification.related_entity_id}`;
+    case "completed_trade":
+      return `/switches/done/${notification.related_entity_id}`;
     case "shift":
       return `/schedule/${notification.related_entity_id}`;
     default:

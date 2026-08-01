@@ -39,9 +39,12 @@ export function routeFor(input: NotificationInput): string {
   if (!input.relatedEntityId) return "/notifications";
   switch (input.relatedEntityType) {
     case "trade_request":
-      return `/trades/${input.relatedEntityId}`;
-    case "completed_trade":
       return `/switches/${input.relatedEntityId}`;
+    case "completed_trade":
+      /* A finished switch is a different record from the request that produced
+         it, with its own id, so it has its own path. `done` is a static
+         segment and wins over `[switchId]`. */
+      return `/switches/done/${input.relatedEntityId}`;
     case "shift":
       return `/schedule/${input.relatedEntityId}`;
     case "schedule_version":
@@ -56,7 +59,7 @@ export function routeFor(input: NotificationInput): string {
          `route`; this is the fallback for any that do not, and it lands on the
          resident's own offers rather than the board of everyone else's
          postings, which is where the old derivation sent them. */
-      return "/trades?tab=mine";
+      return "/switches?tab=mine";
     default:
       return "/notifications";
   }

@@ -367,7 +367,7 @@ describe("atomic finalisation", () => {
       [carolOffer.offer.id],
     );
     expect(carolStatus?.status).toBe("invalidated");
-    expect(carolStatus?.invalidation_reason).toContain("another completed trade");
+    expect(carolStatus?.invalidation_reason).toContain("another completed switch");
     const carolNotifications = await notificationsFor(carol.user.id);
     expect(carolNotifications.some((n) => n.type === "offer.invalidated")).toBe(true);
   });
@@ -880,7 +880,7 @@ describe("notifications lead somewhere", () => {
     await rejectOffer(alice.context, offer.id, "Need something earlier.");
 
     const [declined] = await notificationsFor(bob.user.id, "offer.rejected");
-    expect(declined.route).toBe(`/trades/${request.id}`);
+    expect(declined.route).toBe(`/switches/${request.id}`);
     // Not just the reason — a resident with two offers out could not tell which
     // one had been declined.
     expect(declined.body).toContain("Your offer for");
@@ -917,7 +917,7 @@ describe("notifications lead somewhere", () => {
     await acceptOffer(alice.context, bobOffer.offer.id);
 
     const [invalidated] = await notificationsFor(carol.user.id, "offer.invalidated");
-    expect(invalidated.route).toBe(`/trades/${request.id}`);
+    expect(invalidated.route).toBe(`/switches/${request.id}`);
     expect(invalidated.route).not.toBe("/notifications");
   });
 
@@ -963,7 +963,7 @@ describe("approval requests reach the people who can act on them", () => {
     for (const staff of [chief, apd, pd]) {
       const notes = await notificationsFor(staff.user.id, "approval.required");
       expect(notes.length, `${staff.user.email} was not told`).toBeGreaterThan(0);
-      expect(notes[0].route).toContain("/trades/");
+      expect(notes[0].route).toContain("/switches/");
     }
   });
 

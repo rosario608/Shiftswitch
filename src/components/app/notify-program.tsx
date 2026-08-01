@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { Field, Input, Textarea } from "@/components/ui/field";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
 import { useAction, useOnline } from "@/lib/use-action";
 
@@ -64,7 +65,7 @@ export function NotifyProgramPanel({
 
   const generate = useAction(
     async () =>
-      apiFetch<{ email: GeneratedEmail }>(`/api/switches/${completedTradeId}/email`, {
+      apiFetch<{ email: GeneratedEmail }>(`/api/switches/done/${completedTradeId}/email`, {
         method: "POST",
       }),
     {
@@ -167,8 +168,8 @@ export function NotifyProgramPanel({
           </Badge>
         </div>
 
-        {save.error ? <Alert tone="error">{save.error}</Alert> : null}
-        {setStatus.error ? <Alert tone="error">{setStatus.error}</Alert> : null}
+        <ActionAlert action={save} />
+        <ActionAlert action={setStatus} />
 
         <Field label="To" htmlFor="email-to" hint="Comma-separated addresses.">
           <Input

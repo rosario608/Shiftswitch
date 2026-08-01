@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input, Label, Select } from "@/components/ui/field";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
 import { useAction } from "@/lib/use-action";
 
@@ -309,10 +310,10 @@ export function ScheduleWorkspace({ initial }: { initial: WorkspaceData }) {
         ) : null}
       </div>
 
-      {assign.error ? <Alert tone="error">{assign.error}</Alert> : null}
-      {lock.error ? <Alert tone="error">{lock.error}</Alert> : null}
-      {unlock.error ? <Alert tone="error">{unlock.error}</Alert> : null}
-      {undo.error ? <Alert tone="error">{undo.error}</Alert> : null}
+      <ActionAlert action={assign} />
+      <ActionAlert action={lock} />
+      <ActionAlert action={unlock} />
+      <ActionAlert action={undo} />
 
       {selected.size > 0 && data.editable ? (
         <SelectionBar
@@ -779,7 +780,7 @@ function Regenerate({
         </p>
       </div>
 
-      {regenerate.error ? <Alert tone="error">{regenerate.error}</Alert> : null}
+      <ActionAlert action={regenerate} />
       {result ? <Alert tone="success">{result}</Alert> : null}
 
       {why ? (
@@ -922,7 +923,7 @@ function RepeatPattern({
         </p>
       </div>
 
-      {repeat.error ? <Alert tone="error">{repeat.error}</Alert> : null}
+      <ActionAlert action={repeat} />
       {result ? <Alert tone="success">{result}</Alert> : null}
 
       <div className="grid grid-cols-3 gap-2">

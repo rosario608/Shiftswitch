@@ -1,17 +1,43 @@
 import Link from "next/link";
-import { ArrowRight, CalendarPlus, ChevronRight, Search } from "lucide-react";
+import { ArrowRight, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardBody, SectionHeading } from "@/components/ui/card";
+import { Card, SectionHeading } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ShiftCard } from "@/components/app/shift-card";
 import { PostShiftButton } from "@/components/app/post-shift-sheet";
+import { OfferDecisionList, type OfferView } from "@/components/app/offer-decision";
 import { requirePageUser } from "@/server/auth/page-guards";
 import { getResidentDashboard } from "@/server/domain/dashboard";
 import { listOfferableForPosting } from "@/server/domain/schedule-actions";
 import { toShiftView } from "@/lib/views";
+import { fmtRelative } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * The first ten seconds.
+ *
+ * Two questions, both answered before anything is tapped: **what am I working
+ * next**, and **does anything need me**. Everything else on this screen sits
+ * below those two and can be scrolled to.
+ *
+ * ## What changed, and why
+ *
+ * The screen used to open with "Hello, Alice" and a sentence describing itself
+ * — two lines of the most valuable space on a phone, spent on neither question.
+ * The heading is now the *answer*: "Needs you" when something does, "Next
+ * shift" when nothing does, "No upcoming shifts" when there is nothing at all.
+ * A resident opening the app at 3am reads one line and knows.
+ *
+ * A single waiting offer is decided **here**, not on another screen: one offer
+ * is a yes-or-no, and making somebody navigate to answer it spends a tap on
+ * transport rather than on the decision. Several offers still link out, because
+ * choosing between them is a comparison and the switch screen is built for it.
+ *
+ * The old "Quick actions" card at the bottom is gone. Three links, two of which
+ * duplicated the bottom navigation and one of which duplicated the button on
+ * the shift card directly above it.
+ */
 export default async function HomePage() {
   const context = await requirePageUser();
   const timezone = context.program.timezone;
@@ -20,52 +46,95 @@ export default async function HomePage() {
     ? await listOfferableForPosting(context.resident.id)
     : [];
 
-  const firstName = (context.user.fullName || context.user.email).split(" ")[0];
+  const needsYou = dashboard.pendingActions.length > 0;
+  const heading = needsYou
+    ? "Needs you"
+    : dashboard.nextShift
+      ? "Next shift"
+      : "No upcoming shifts";
 
   return (
     <div className="space-y-7">
-      <div>
-        <h1 className="text-2xl font-semibold text-ink">Hello, {firstName}</h1>
-        <p className="mt-1 text-sm text-ink-muted">
-          {dashboard.nextShift
-            ? "Here's what's next and anything waiting on you."
-            : "You have no upcoming shifts on the schedule."}
-        </p>
-      </div>
+      <h1 className="text-2xl font-semibold text-ink">{heading}</h1>
 
-      {dashboard.pendingActions.length > 0 ? (
-        <section aria-labelledby="pending-heading">
-          <SectionHeading id="pending-heading" title="Needs your attention" />
+      {needsYou ? (
+        <section aria-label="Needs you" className="-mt-3">
           <ul className="space-y-2">
-            {dashboard.pendingActions.map((action) => (
-              <li key={action.id}>
-                <Card className="border-caution/40">
-                  <Link
-                    href={action.href}
-                    className="flex items-center gap-3 px-4 py-3.5 hover:bg-surface-muted"
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-semibold text-ink">
-                        {action.title}
-                      </span>
-                      <span className="mt-0.5 block text-sm text-ink-muted">
-                        {action.detail}
-                      </span>
-                    </span>
-                    <span className="flex shrink-0 items-center gap-1 text-sm font-semibold text-brand-ink">
+            {dashboard.pendingActions.map((action) => {
+              if (action.decide) {
+                const offer = action.decide.offer;
+                const snapshot = offer.validation_snapshot as
+                  | { requiresApproval?: boolean }
+                  | null;
+                const view: OfferView = {
+                  id: offer.id,
+                  status: offer.status,
+                  offeringResidentName: offer.offering_resident_name,
+                  offeringResidentPgy: offer.offering_resident_pgy,
+                  offeredShift: toShiftView(offer.offered_shift, timezone),
+                  matchScore: null,
+                  requiresApproval: Boolean(snapshot?.requiresApproval),
+                  expiresLabel: fmtRelative(offer.expires_at),
+                };
+                return (
+                  <li key={action.id}>
+                    {/* The decision, in place. The confirmation that spells out
+                        what you give and what you receive lives inside
+                        `OfferDecisionList` and is not skipped here — this
+                        removes the trip to another screen, not the safeguard. */}
+                    <OfferDecisionList
+                      offers={[view]}
+                      sourceShift={toShiftView(action.decide.sourceShift, timezone)}
+                      requiresApproval={action.decide.requiresApproval}
+                    />
+                    <Link
+                      href={action.href}
+                      className="mt-1.5 inline-flex min-h-[2.5rem] items-center gap-1 px-1 text-sm font-semibold text-brand-ink"
+                    >
                       {action.cta}
                       <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                    </span>
-                  </Link>
-                </Card>
-              </li>
-            ))}
+                    </Link>
+                  </li>
+                );
+              }
+              return (
+                <li key={action.id}>
+                  <Card className="border-caution/40">
+                    <Link
+                      href={action.href}
+                      className="flex items-center gap-3 px-4 py-3.5 hover:bg-surface-muted"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-semibold text-ink">
+                          {action.title}
+                        </span>
+                        <span className="mt-0.5 block text-sm text-ink-muted">
+                          {action.detail}
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1 text-sm font-semibold text-brand-ink">
+                        {action.cta}
+                        <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                      </span>
+                    </Link>
+                  </Card>
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}
 
       <section aria-labelledby="next-shift-heading">
-        <SectionHeading id="next-shift-heading" title="Next shift" />
+        {/* Only given a visible heading when it is not already the page
+            heading, so a screen reader does not hear "Next shift" twice. */}
+        {needsYou ? (
+          <SectionHeading id="next-shift-heading" title="Next shift" />
+        ) : (
+          <span id="next-shift-heading" className="sr-only">
+            Next shift
+          </span>
+        )}
         {dashboard.nextShift ? (
           <ShiftCard
             shift={toShiftView(dashboard.nextShift, timezone)}
@@ -75,12 +144,12 @@ export default async function HomePage() {
                 <PostShiftButton
                   shifts={postable.map((shift) => toShiftView(shift, timezone))}
                   preselectedShiftId={dashboard.nextShift.id}
-                  label="Post this shift for trade"
+                  label="Post this shift"
                   disabledReason={
                     dashboard.nextShift.status !== "scheduled"
-                      ? "This shift is already involved in a trade."
+                      ? "This shift is already part of a switch."
                       : !dashboard.nextShift.tradeable
-                        ? "Your program marked this shift non-tradeable."
+                        ? "Your program does not allow this shift to be switched."
                         : null
                   }
                 />
@@ -89,8 +158,8 @@ export default async function HomePage() {
           />
         ) : (
           <EmptyState
-            title="No upcoming shifts"
-            description="When your program publishes the schedule, your shifts will appear here."
+            title="Nothing scheduled yet"
+            description="When your program publishes the schedule your shifts appear here, and you can post one for a switch straight from the card."
           />
         )}
       </section>
@@ -99,7 +168,7 @@ export default async function HomePage() {
         <section aria-labelledby="upcoming-heading">
           <SectionHeading
             id="upcoming-heading"
-            title="Upcoming"
+            title="After that"
             action={
               <Link
                 href="/schedule"
@@ -123,10 +192,10 @@ export default async function HomePage() {
       <section aria-labelledby="available-heading">
         <SectionHeading
           id="available-heading"
-          title="Available trades"
+          title="Shifts you can take"
           action={
             <Link
-              href="/trades"
+              href="/switches"
               className="flex items-center gap-1 text-sm font-semibold text-brand-ink"
             >
               See all
@@ -136,8 +205,8 @@ export default async function HomePage() {
         />
         {dashboard.availableTrades.length === 0 ? (
           <EmptyState
-            title="No available trades"
-            description="There are currently no compatible shifts available. Try again later, or post one of your own shifts."
+            title="Nobody has posted a shift"
+            description="When a colleague posts one you could take it shows up here, best match first. You can post one of yours from the card above."
           />
         ) : (
           <ul className="space-y-2">
@@ -147,7 +216,7 @@ export default async function HomePage() {
                 <li key={trade.id}>
                   <Card>
                     <Link
-                      href={`/trades/${trade.id}`}
+                      href={`/switches/${trade.id}`}
                       className="block px-4 py-3.5 hover:bg-surface-muted"
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -176,35 +245,6 @@ export default async function HomePage() {
             })}
           </ul>
         )}
-      </section>
-
-      <section aria-labelledby="quick-heading">
-        <SectionHeading id="quick-heading" title="Quick actions" />
-        <Card>
-          <CardBody className="grid gap-2 sm:grid-cols-3">
-            {context.resident ? (
-              <PostShiftButton
-                shifts={postable.map((shift) => toShiftView(shift, timezone))}
-                label="Post a shift"
-                variant="secondary"
-                icon={<CalendarPlus className="h-4 w-4" aria-hidden="true" />}
-              />
-            ) : null}
-            <Link
-              href="/trades"
-              className="flex min-h-[2.75rem] items-center justify-center gap-2 rounded-xl border border-border-strong px-4 text-base font-semibold text-ink hover:bg-surface-muted"
-            >
-              <Search className="h-4 w-4" aria-hidden="true" />
-              Find a trade
-            </Link>
-            <Link
-              href="/schedule"
-              className="flex min-h-[2.75rem] items-center justify-center gap-2 rounded-xl border border-border-strong px-4 text-base font-semibold text-ink hover:bg-surface-muted"
-            >
-              My schedule
-            </Link>
-          </CardBody>
-        </Card>
       </section>
     </div>
   );

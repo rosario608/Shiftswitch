@@ -14,7 +14,7 @@ export default function OfflinePage() {
       </span>
       <h1 className="text-xl font-semibold text-ink">You&rsquo;re offline</h1>
       <p className="mt-3 text-ink-muted">
-        Schedule changes require an internet connection. Your schedule and trades will
+        Schedule changes require an internet connection. Your schedule and switches will
         load as soon as you&rsquo;re back online.
       </p>
       <Link

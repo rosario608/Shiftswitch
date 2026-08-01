@@ -18,7 +18,7 @@ export function GET() {
         {
           appIDs: [appId],
           components: [
-            { "/": "/trades/*", comment: "A posted shift or an offer on it" },
+            { "/": "/switches/*", comment: "A posted shift or an offer on it" },
             { "/": "/switches/*", comment: "A completed switch" },
             { "/": "/schedule/*", comment: "A single shift" },
             { "/": "/notifications", comment: "Notification list" },

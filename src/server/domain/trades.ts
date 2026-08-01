@@ -113,17 +113,17 @@ export async function postShiftForTrade(
     }
     if (!shift.tradeable) {
       throw validationFailed(
-        "This shift is marked non-tradeable by your program and cannot be posted.",
+        "Your program does not allow this shift to be switched, so it cannot be posted.",
       );
     }
     if (shift.start_datetime.getTime() <= Date.now()) {
-      throw validationFailed("This shift has already started and cannot be traded.");
+      throw validationFailed("This shift has already started, so it cannot be switched.");
     }
     if (shift.trade_deadline && shift.trade_deadline.getTime() <= Date.now()) {
-      throw validationFailed("The trade deadline for this shift has passed.");
+      throw validationFailed("The deadline for switching this shift has passed.");
     }
     if (shift.status !== "scheduled") {
-      throw conflict("This shift is already involved in a trade.");
+      throw conflict("This shift is already part of a switch.");
     }
 
     const expiresAt =
@@ -187,12 +187,12 @@ export async function cancelTradeRequest(
       [requestId],
       client,
     );
-    if (!request) throw notFound("That trade post no longer exists.");
+    if (!request) throw notFound("That posted shift no longer exists.");
     if (request.program_id !== context.program.id) throw forbidden();
     const isOwner = context.resident?.id === request.initiating_resident_id;
     const isElevated = can(context.user.role, "approvals.decide");
     if (!isOwner && !isElevated) {
-      throw forbidden("You can only cancel your own trade posts.");
+      throw forbidden("You can only take down a shift you posted.");
     }
     assertRequestTransition(request.status, "cancelled");
 
@@ -207,7 +207,7 @@ export async function cancelTradeRequest(
               invalidation_reason = $2
         WHERE trade_request_id = $1 AND status IN ('pending', 'accepted')
         RETURNING *`,
-      [request.id, "The resident cancelled this trade post."],
+      [request.id, "The resident took this shift down."],
       client,
     );
     /* `releaseShiftIfIdle`, not a flat reset to 'scheduled'.
@@ -225,11 +225,11 @@ export async function cancelTradeRequest(
         {
           recipientUserId: userId,
           type: "trade.cancelled",
-          title: "A trade you offered on was cancelled",
-          body: "This offer is no longer available because the resident cancelled the trade post.",
+          title: "A shift you offered on was taken down",
+          body: "This offer is no longer available because the resident took the shift down.",
           relatedEntityType: "trade_offer",
           relatedEntityId: offer.id,
-          route: `/trades/${request.id}`,
+          route: `/switches/${request.id}`,
         },
         client,
       );
@@ -272,18 +272,18 @@ export async function createOffer(
       [input.tradeRequestId],
       client,
     );
-    if (!request) throw notFound("That trade post no longer exists.");
+    if (!request) throw notFound("That posted shift no longer exists.");
     if (request.program_id !== context.program.id) throw forbidden();
     if (request.initiating_resident_id === context.resident.id) {
-      throw validationFailed("You cannot offer on your own trade post.");
+      throw validationFailed("You cannot offer on a shift you posted yourself.");
     }
     if (request.status !== "open" && request.status !== "offer_pending") {
       throw conflict(
-        "This trade is no longer accepting offers. Refresh your available trades and try again.",
+        "This shift is no longer taking offers. Refresh the board and try again.",
       );
     }
     if (request.expires_at.getTime() <= Date.now()) {
-      throw new AppError("expired", "This trade post has expired.");
+      throw new AppError("expired", "This posted shift has expired.");
     }
 
     const [sourceShift, offeredShift] = await lockShifts(
@@ -292,14 +292,14 @@ export async function createOffer(
       input.offeredShiftId,
     );
     if (!sourceShift || !offeredShift) {
-      throw notFound("One of the shifts in this trade no longer exists.");
+      throw notFound("One of the shifts in this switch no longer exists.");
     }
     if (offeredShift.resident_id !== context.resident.id) {
       throw forbidden("You can only offer shifts that are assigned to you.");
     }
     if (sourceShift.resident_id !== request.initiating_resident_id) {
       throw conflict(
-        "This shift was reassigned and is no longer available for trade.",
+        "This shift was reassigned, so it is no longer available to switch.",
       );
     }
 
@@ -314,7 +314,7 @@ export async function createOffer(
     if (!validation.valid) {
       throw new AppError(
         "rule_violation",
-        validation.failures[0]?.message ?? "This trade is not permitted.",
+        validation.failures[0]?.message ?? "This switch is not permitted.",
         { validation },
       );
     }
@@ -368,7 +368,7 @@ export async function createOffer(
         body: `${context.user.fullName} offered ${shiftLabel(offeredShift, program.timezone)} for your ${shiftLabel(sourceShift, program.timezone)}.`,
         relatedEntityType: "trade_offer",
         relatedEntityId: offer!.id,
-        route: `/trades/${request.id}`,
+        route: `/switches/${request.id}`,
       },
       client,
     );
@@ -448,7 +448,7 @@ export async function rejectOffer(
       [offer.trade_request_id],
       client,
     );
-    if (!request) throw notFound("That trade post no longer exists.");
+    if (!request) throw notFound("That posted shift no longer exists.");
     if (request.initiating_resident_id !== context.resident.id) {
       throw forbidden("Only the resident who posted the shift can decline offers.");
     }
@@ -493,7 +493,7 @@ export async function rejectOffer(
         recipientUserId: offeringUserId,
         type: "offer.rejected",
         title: "Your offer was declined",
-        route: `/trades/${request.id}`,
+        route: `/switches/${request.id}`,
         body: reason?.trim()
           ? `Your offer for ${declinedLabel} was declined: "${reason.trim()}" The shift may still be available.`
           : `Your offer for ${declinedLabel} was declined. The shift may still be available to other residents.`,
@@ -605,7 +605,7 @@ export async function acceptOffer(
       [offer.trade_request_id],
       client,
     );
-    if (!request) throw notFound("That trade post no longer exists.");
+    if (!request) throw notFound("That posted shift no longer exists.");
     if (request.program_id !== context.program.id) throw forbidden();
     if (request.initiating_resident_id !== context.resident.id) {
       throw forbidden("Only the resident who posted the shift can accept an offer.");
@@ -629,7 +629,7 @@ export async function acceptOffer(
       );
     }
     if (request.status !== "open" && request.status !== "offer_pending") {
-      throw conflict("This trade is no longer active.");
+      throw conflict("This switch is no longer active.");
     }
     /* The posting's own expiry, not just the offer's.
      *
@@ -645,7 +645,7 @@ export async function acceptOffer(
      * switch on a posting the program considered closed. */
     if (request.expires_at.getTime() <= Date.now()) {
       throw new RollbackWithFollowUp(
-        new AppError("expired", "This trade post has expired and can no longer be completed."),
+        new AppError("expired", "This posted shift expired, so the switch can no longer be completed."),
         async () => {
           /* The same cleanup the sweep does, not just a status flip: whichever
              of the two gets here first must leave the posting fully closed, or
@@ -677,7 +677,7 @@ export async function acceptOffer(
     if (!validation.valid) {
       const reason =
         validation.failures[0]?.message ??
-        "This trade is no longer permitted by program rules.";
+        "This switch is no longer permitted by your program's rules.";
       throw new RollbackWithFollowUp(
         new AppError(
           "rule_violation",
@@ -797,7 +797,7 @@ async function revalidate(
     offer.offered_shift_id,
   );
   if (!sourceShift || !offeredShift) {
-    throw notFound("One of the shifts in this trade no longer exists.");
+    throw notFound("One of the shifts in this switch no longer exists.");
   }
   if (sourceShift.resident_id !== request.initiating_resident_id) {
     throw conflict(
@@ -854,7 +854,7 @@ async function invalidateOffer(
          least able to act on — they did nothing, somebody else's offer was
          accepted first — so it has to land somewhere that explains itself.
          Without an explicit route it fell through to a generic list. */
-      route: `/trades/${offer.trade_request_id}`,
+      route: `/switches/${offer.trade_request_id}`,
     },
     client,
   );
@@ -971,7 +971,7 @@ async function finaliseTrade(
     await invalidateOffer(
       client,
       orphan,
-      "This offer is no longer available because the shift was assigned through another completed trade.",
+      "This offer is no longer available because the shift was assigned through another completed switch.",
       actorUserId,
       program.id,
     );
@@ -1147,10 +1147,10 @@ export async function approveTrade(
       [requestId],
       client,
     );
-    if (!request) throw notFound("That trade no longer exists.");
+    if (!request) throw notFound("That switch no longer exists.");
     if (request.program_id !== context.program.id) throw forbidden();
     if (request.status !== "pending_approval") {
-      throw conflict("This trade is not awaiting approval.");
+      throw conflict("This switch is not waiting for approval.");
     }
     const offer = await queryOne<TradeOfferRow>(
       `SELECT * FROM trade_offers
@@ -1160,7 +1160,7 @@ export async function approveTrade(
       [request.id],
       client,
     );
-    if (!offer) throw notFound("The accepted offer for this trade is no longer available.");
+    if (!offer) throw notFound("The offer you accepted is no longer available.");
 
     const program = await getProgram(context.program.id, client);
     const { sourceShift, offeredShift, validation } = await revalidate(
@@ -1261,7 +1261,7 @@ export async function rejectTrade(
 ): Promise<void> {
   assertApprover(context);
   if (!reason.trim()) {
-    throw validationFailed("A reason is required when rejecting a trade.");
+    throw validationFailed("Say why you are turning this switch down — both residents will read it.");
   }
   await withTransaction(async (client) => {
     const request = await queryOne<TradeRequestRow>(
@@ -1269,10 +1269,10 @@ export async function rejectTrade(
       [requestId],
       client,
     );
-    if (!request) throw notFound("That trade no longer exists.");
+    if (!request) throw notFound("That switch no longer exists.");
     if (request.program_id !== context.program.id) throw forbidden();
     if (request.status !== "pending_approval") {
-      throw conflict("This trade is not awaiting approval.");
+      throw conflict("This switch is not waiting for approval.");
     }
     const offers = await query<TradeOfferRow>(
       `UPDATE trade_offers SET status = 'rejected', invalidation_reason = $2
@@ -1345,10 +1345,10 @@ export async function requestTradeChanges(
       [requestId],
       client,
     );
-    if (!request) throw notFound("That trade no longer exists.");
+    if (!request) throw notFound("That switch no longer exists.");
     if (request.program_id !== context.program.id) throw forbidden();
     if (request.status !== "pending_approval") {
-      throw conflict("This trade is not awaiting approval.");
+      throw conflict("This switch is not waiting for approval.");
     }
 
     const offers = await query<TradeOfferRow>(
@@ -1441,11 +1441,11 @@ async function closeExpiredRequest(
     {
       recipientUserId: userId,
       type: "trade.expired",
-      title: "Your trade post expired",
+      title: "Your posted shift expired",
       body: "Nobody completed a switch before the post expired. You can post it again.",
       relatedEntityType: "trade_request",
       relatedEntityId: request.id,
-      route: `/trades/${request.id}`,
+      route: `/switches/${request.id}`,
     },
     client,
   );
@@ -1477,7 +1477,7 @@ async function closeExpiredRequest(
         body: "The posting closed before your offer was decided. You still work your own shift.",
         relatedEntityType: "trade_offer",
         relatedEntityId: offer.id,
-        route: `/trades/${request.id}`,
+        route: `/switches/${request.id}`,
       },
       client,
     );
@@ -1841,7 +1841,7 @@ export async function listCompletedTradesForResident(
 }
 
 /**
- * How long a finished-but-not-completed trade stays on "My trades".
+ * How long a finished-but-not-completed trade stays on "Mine".
  *
  * A switch that completed lives in History forever. Everything else — declined,
  * withdrawn, invalidated, expired, cancelled — has no permanent home, and used
