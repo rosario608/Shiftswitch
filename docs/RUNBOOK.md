@@ -38,6 +38,16 @@ The most likely thing to go wrong, and the reason the check exists: **the code
 was deployed and the database was not updated to match.** The message names the
 files.
 
+> **What this looks like before the check is deployed**, and what it looked like
+> in production on 1 August 2026: no message at all. The administration screen
+> simply fails, because `/admin` reads `schedule_versions` for anybody holding
+> `scheduling.plan` — which an administrator does, holding every capability —
+> and that table arrives with `0008_scheduler_foundation.sql`. Deploying the
+> scheduler without applying its migration breaks the admin area for exactly the
+> person who would go looking for a diagnosis. Applying the migrations fixes it;
+> promoting the previous deployment restores the page in the meantime without
+> touching the database.
+
 Residents see a plain sentence saying their administrator has been told, and
 scheduling refuses rather than failing halfway through. Nothing is lost and
 nothing is corrupted — the product simply declines to run queries against a
