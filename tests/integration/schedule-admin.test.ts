@@ -255,10 +255,23 @@ describe("reassigning", () => {
 });
 
 describe("the schedule source seam", () => {
-  it("advertises the spreadsheet source and nothing that is not configured", () => {
+  it("advertises the sources that exist, and nothing that is not configured", () => {
+    /* Two today: the uploaded spreadsheet and the generator. Listed rather than
+       counted, so adding MedHub later is a deliberate edit here rather than a
+       number that quietly drifts — and every one of them has to say whether it
+       can actually be used. */
     const sources = listScheduleSources();
-    expect(sources.map((source) => source.id)).toEqual(["spreadsheet"]);
-    expect(sources[0].configured).toBe(true);
+    expect(sources.map((source) => source.id).sort()).toEqual([
+      "generated",
+      "spreadsheet",
+    ]);
+    for (const source of sources) {
+      expect(source.label.length, source.id).toBeGreaterThan(0);
+      expect(source.description.length, source.id).toBeGreaterThan(20);
+      if (!source.configured) {
+        expect(source.unavailableReason, source.id).toBeTruthy();
+      }
+    }
   });
 
   it("rejects an unknown source rather than guessing", () => {

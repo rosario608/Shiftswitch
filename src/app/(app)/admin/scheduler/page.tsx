@@ -10,6 +10,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { GenerateDraftButton } from "@/components/app/generate-draft-button";
 import { NewDraftButton } from "@/components/app/new-draft-button";
 import { ScheduleCheck } from "@/components/app/schedule-check";
 import { requirePageCapability } from "@/server/auth/page-guards";
@@ -133,7 +134,10 @@ export default async function SchedulerPage() {
           >
             Draft schedules
           </h2>
-          <NewDraftButton timezone={context.program.timezone} />
+          <div className="flex gap-2">
+            <GenerateDraftButton timezone={context.program.timezone} />
+            <NewDraftButton timezone={context.program.timezone} />
+          </div>
         </div>
         {schedule.drafts.length === 0 ? (
           <EmptyState

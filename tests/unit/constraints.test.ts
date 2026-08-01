@@ -632,6 +632,60 @@ describe("violations in combination", () => {
   });
 });
 
+describe("coverage counts people, not rows", () => {
+  it("does not let one person fill two places on the same service", () => {
+    /* Found by the generator, which satisfied a two-person minimum with one
+       person twice over on a programme that had configured no overlap rule.
+       Counting rows made the ward look staffed while one of its two places was
+       empty — the exact failure this product exists to prevent. */
+    const snapshot = baseSnapshot();
+    snapshot.coverage = [coverage({ min_staff: 2, days_of_week: [1] })];
+    snapshot.assignments = [
+      shift("2026-08-03", IDS.wards, IDS.alice),
+      shift("2026-08-03", IDS.wards, IDS.alice),
+    ];
+
+    const result = validateSchedule(snapshot);
+    const short = result.violations.filter((v) => v.constraintId === "coverage-minimum");
+    expect(short).toHaveLength(1);
+    expect(short[0].message).toContain("has 1 person");
+  });
+
+  it("counts two different people as two", () => {
+    const snapshot = baseSnapshot();
+    snapshot.coverage = [coverage({ min_staff: 2, days_of_week: [1] })];
+    snapshot.assignments = [
+      shift("2026-08-03", IDS.wards, IDS.alice),
+      shift("2026-08-03", IDS.wards, IDS.ben),
+    ];
+    expect(
+      validateSchedule(snapshot).violations.filter(
+        (v) => v.constraintId === "coverage-minimum",
+      ),
+    ).toEqual([]);
+  });
+
+  it("applies the same counting to the cap and to the mix", () => {
+    const snapshot = baseSnapshot();
+    snapshot.coverage = [
+      coverage({
+        min_staff: 1,
+        max_staff: 1,
+        days_of_week: [1],
+        pgy_mix: [{ pgy: 1, min: 2, max: null }],
+      }),
+    ];
+    snapshot.assignments = [
+      shift("2026-08-03", IDS.wards, IDS.alice),
+      shift("2026-08-03", IDS.wards, IDS.alice),
+    ];
+    const reported = validateSchedule(snapshot).violations.map((v) => v.constraintId);
+    // One person twice is neither over the cap of one nor two PGY-1s.
+    expect(reported).not.toContain("coverage-maximum");
+    expect(reported).toContain("coverage-pgy-mix");
+  });
+});
+
 describe("the catalogue cannot outgrow its tests", () => {
   it("has a case for every constraint", () => {
     const tested = new Set(CASES.map((c) => c.id));

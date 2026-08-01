@@ -123,7 +123,14 @@ function* coverageCells(snapshot: ScheduleSnapshot) {
       const present = (
         byServiceDay.get(`${requirement.service_id}|${iso}`) ?? []
       ).filter((a) => countsToward(a, requirement, iso, snapshot.program.timezone));
-      yield { iso, requirement, service, present };
+      /* Counted as *people*, not as rows. One resident holding two of the
+         three places a service needs is one person on that service, and a
+         requirement that counted them twice would report a ward as staffed
+         when two of its three places are empty. Found by the generator, which
+         happily satisfied a three-person minimum with one person three times
+         over on a programme that had configured no overlap rule. */
+      const people = new Set(present.map((a) => a.residentId));
+      yield { iso, requirement, service, present, distinct: people.size };
     }
   }
 }
@@ -137,9 +144,9 @@ const coverageMinimum: Constraint = {
     "Every service has at least the number of people its coverage requirement asks for, on every day the requirement applies.",
   evaluate: (snapshot) => {
     const violations: Violation[] = [];
-    for (const { iso, requirement, service, present } of coverageCells(snapshot)) {
+    for (const { iso, requirement, service, present, distinct } of coverageCells(snapshot)) {
       const needed = effectiveMinimum(requirement);
-      if (needed === 0 || present.length >= needed) continue;
+      if (needed === 0 || distinct >= needed) continue;
       violations.push(
         violation({
           constraintId: "coverage-minimum",
@@ -148,7 +155,7 @@ const coverageMinimum: Constraint = {
           label: "Coverage minimum",
           message:
             `${dayFromIso(iso)}: ${service.name}` +
-            `${bandLabel(requirement)} has ${plural(present.length, "person", "people")} ` +
+            `${bandLabel(requirement)} has ${plural(distinct, "person", "people")} ` +
             `and needs ${needed}.`,
           serviceIds: [service.id],
           shiftIds: present.map((a) => a.shiftId),
@@ -170,9 +177,9 @@ const coverageMaximum: Constraint = {
     "No service is staffed above the cap its coverage requirement sets, so people are not spent where they are not needed.",
   evaluate: (snapshot) => {
     const violations: Violation[] = [];
-    for (const { iso, requirement, service, present } of coverageCells(snapshot)) {
+    for (const { iso, requirement, service, present, distinct } of coverageCells(snapshot)) {
       const cap = requirement.max_staff;
-      if (cap == null || present.length <= cap) continue;
+      if (cap == null || distinct <= cap) continue;
       violations.push(
         violation({
           constraintId: "coverage-maximum",
@@ -181,7 +188,7 @@ const coverageMaximum: Constraint = {
           label: "Coverage maximum",
           message:
             `${dayFromIso(iso)}: ${service.name}` +
-            `${bandLabel(requirement)} has ${plural(present.length, "person", "people")} ` +
+            `${bandLabel(requirement)} has ${plural(distinct, "person", "people")} ` +
             `and is capped at ${cap}.`,
           serviceIds: [service.id],
           shiftIds: present.map((a) => a.shiftId),
@@ -210,11 +217,12 @@ const coveragePgyMix: Constraint = {
         const atLevel = present.filter(
           (a) => a.residentId && pgyOf.get(a.residentId) === entry.pgy,
         );
+        const atLevelPeople = new Set(atLevel.map((a) => a.residentId)).size;
         const problem =
-          atLevel.length < entry.min
-            ? `has ${plural(atLevel.length, `PGY-${entry.pgy}`)} and needs at least ${entry.min}`
-            : entry.max != null && atLevel.length > entry.max
-              ? `has ${plural(atLevel.length, `PGY-${entry.pgy}`)} and allows at most ${entry.max}`
+          atLevelPeople < entry.min
+            ? `has ${plural(atLevelPeople, `PGY-${entry.pgy}`)} and needs at least ${entry.min}`
+            : entry.max != null && atLevelPeople > entry.max
+              ? `has ${plural(atLevelPeople, `PGY-${entry.pgy}`)} and allows at most ${entry.max}`
               : null;
         if (!problem) continue;
 

@@ -187,6 +187,14 @@ never grants a role.
 | A draft is validated instead of the live schedule, and compared against what it would replace | `tests/integration/schedule-validation.test.ts` |
 | One program's schedule stays out of another's validation report | `tests/integration/schedule-validation.test.ts` |
 | A chief checks a schedule and reads why it is or is not valid | `tests/e2e/scheduler.spec.ts` |
+| Every generated schedule validates clean on hard constraints, or the run reported infeasibility | `tests/unit/generator.test.ts`, `tests/integration/generator.test.ts` |
+| Two generation runs with the same seed are byte-identical | `tests/unit/generator.test.ts` |
+| Generation across both daylight-saving transitions, one-day periods, overnight bands and weekend-only requirements | `tests/unit/generator.test.ts` |
+| An infeasible run writes nothing — not the shifts, not the version row | `tests/integration/generator.test.ts` |
+| Regeneration keeps locked shifts and rebuilds the rest | `tests/unit/generator.test.ts`, `tests/integration/generator.test.ts` |
+| A manual edit is revalidated and only the newly-introduced problems are reported | `tests/integration/generator.test.ts` |
+| One draft diffed against another | `tests/integration/generator.test.ts` |
+| Nobody holds two places on one service at one time, even with no overlap rule configured | `tests/unit/generator.test.ts`, `tests/unit/constraints.test.ts` |
 
 ---
 

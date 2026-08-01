@@ -92,6 +92,12 @@ export interface ScheduleAssignment {
 export interface ScheduleResident {
   id: string;
   name: string;
+  /**
+   * Read only by the generator, which has to express its output as the same
+   * flat records an imported spreadsheet produces, and those are keyed by
+   * address. No constraint reads it, and it never leaves the server.
+   */
+  email: string;
   pgyLevel: number;
   credentials: string[];
   active: boolean;
@@ -113,6 +119,13 @@ export interface ScheduleService {
   pgyMax: number | null;
   coverageMandatory: boolean;
   active: boolean;
+  /**
+   * How long a shift on this service usually runs. Read by the generator when
+   * a coverage requirement names no time band; no constraint reads it, because
+   * how long a shift *usually* is says nothing about whether a schedule that
+   * exists is legal.
+   */
+  typicalShiftHours: number | null;
 }
 
 export interface ScheduleBlock {

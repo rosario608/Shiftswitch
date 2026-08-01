@@ -46,6 +46,7 @@ interface AssignmentRow {
 interface ResidentRow {
   id: string;
   name: string;
+  email: string;
   pgy_level: number;
   credentials: string[];
   active: boolean;
@@ -65,6 +66,7 @@ interface ServiceRow {
   pgy_max: number | null;
   coverage_mandatory: boolean;
   active: boolean;
+  typical_shift_hours: number | null;
 }
 
 export interface SnapshotOptions {
@@ -145,7 +147,7 @@ export async function loadScheduleSnapshot(
   ] = await Promise.all([
     loadAssignments(program.id, options.period, versionId),
     query<ResidentRow>(
-      `SELECT r.id, u.full_name AS name, r.pgy_level, r.credentials, r.active,
+      `SELECT r.id, u.full_name AS name, u.email, r.pgy_level, r.credentials, r.active,
               r.schedulable, r.scheduling_notes, c.id AS cohort_id,
               c.label AS cohort_label, r.preferences, r.constraints
          FROM residents r
@@ -157,7 +159,8 @@ export async function loadScheduleSnapshot(
       [program.id],
     ),
     query<ServiceRow>(
-      `SELECT id, name, site_id, pgy_min, pgy_max, coverage_mandatory, active
+      `SELECT id, name, site_id, pgy_min, pgy_max, coverage_mandatory, active,
+              typical_shift_hours
          FROM services WHERE program_id = $1 ORDER BY name`,
       [program.id],
     ),
@@ -209,6 +212,7 @@ export async function loadScheduleSnapshot(
       (row): ScheduleResident => ({
         id: row.id,
         name: row.name,
+        email: row.email,
         pgyLevel: row.pgy_level,
         credentials: row.credentials ?? [],
         active: row.active,
@@ -230,6 +234,7 @@ export async function loadScheduleSnapshot(
         pgyMax: row.pgy_max,
         coverageMandatory: row.coverage_mandatory,
         active: row.active,
+        typicalShiftHours: row.typical_shift_hours,
       }),
     ),
     coverage,

@@ -3,10 +3,15 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 1 August 2026, after building the constraint model and the
-schedule validator: every scheduling constraint the configuration can express,
-declared hard or soft, evaluated purely, with a deterministic score whose
-breakdown is per objective. See `docs/CONSTRAINTS.md`.
+Last updated: 1 August 2026, after building the **draft schedule generator**:
+a scheduler asks for a month and gets one, graded by the validator, with locks,
+a time budget, a per-objective score and an explanation when no schedule fits.
+See `docs/GENERATOR.md`.
+
+Before that, the constraint model and the schedule validator: every scheduling
+constraint the configuration can express, declared hard or soft, evaluated
+purely, with a deterministic score whose breakdown is per objective. See
+`docs/CONSTRAINTS.md`.
 
 Before that, the scheduler foundation: sites, service configuration, coverage
 requirements, cohorts, configurable block years, resident scheduling data, a
@@ -129,12 +134,19 @@ declared hard or soft, evaluated purely over a snapshot, with a deterministic
 score whose breakdown is visible per objective. It is the oracle — whatever
 builds schedules later is graded against it.
 
-What the scheduler still does not do: generate a schedule. It records what a
-programme *is* — people, cohorts, blocks, services, coverage — lets a scheduler
-build and publish a month by hand, and now says whether what they built is
-legal and how good it is. Filling a block year automatically is the next thing
-and has not been started; the validator exists so that when it is, there is
-something to grade it against.
+On top of *that* sits the **generator** (`docs/GENERATOR.md`): a scheduler names
+a period and gets a draft, built from the coverage requirements, the block year,
+everybody's availability and eligibility, and the configured rules — then graded
+by the validator before it is emitted. It supports locks, is deterministic under
+a recorded seed, optimises the soft objectives within a time budget, and when no
+schedule fits it names the smallest set of constraints whose relaxation would
+admit one, in a chief's words.
+
+What is *not* built: nothing in the scheduler's stated scope. The obvious next
+steps are a screen for locks (they exist in the API and have no UI yet), and
+per-resident rotation quotas — "every PGY-1 does at least two blocks of MICU" —
+which the configuration still cannot express, so neither the validator nor the
+generator can honour it.
 
 **For onboarding the first real program** (a human sequence, not a session's):
 **Admin → Program settings** → **Admin → Services** → **Admin → Users & roles →
@@ -236,6 +248,65 @@ underneath. Where that was not true, it was a defect to fix rather than a layout
 to accept: the coverage editor reads as a sentence ("weekdays, 07:00–19:00, 2 to
 3 people, at least one senior") rather than as a row of columns, and the roster
 leads with availability rather than with a directory.
+
+### The generator
+
+**The generator does not decide whether its own output is legal.** Every run
+ends by handing the schedule to `validateSchedule`, and a run whose schedule has
+hard violations reports infeasibility and emits *nothing*. That is why the
+validator was built first. *Rejected:* trusting the construction logic, which
+would mean the only thing standing between a bug and a ward with nobody on it is
+the bug not existing.
+
+**An infeasible run writes nothing at all — not even the version row.** A
+half-built draft is something somebody finds later and publishes. *Rejected:*
+emitting the partial schedule with a warning, which is the same thing with a
+label nobody reads.
+
+**Slots are ranked once, not after every placement.** Re-ranking is more
+accurate and quadratic: on the demo programme's 200 slots it turned a run that
+should take a second into fifty, and every one of those seconds came out of the
+budget the improvement phase never got to spend. What single-pass ranking costs
+is the occasional greedy trap, and those are repaired directly — when a slot
+cannot be filled, move one person aside to admit somebody who can. One level
+deep, bounded, every step still checked. On the demo it closes four slots out of
+two hundred.
+
+**The fast feasibility checker reads the programme's own numbers and never has
+the last word.** The search asks two hundred thousand questions in the time the
+validator answers ten, so it cannot be the validator. It takes its limits from
+the same `rules` rows the engine reads, and if it ever disagreed with the
+validator the consequence is a generator that fails loudly — never one that
+quietly produces an illegal month. A rule configured as a *warning* is skipped
+entirely: the programme has said a schedule may break it.
+
+**Nobody can hold two places at the same service at the same time, and that is
+not configuration.** It is arithmetic about people, so it is enforced
+structurally rather than through `no_overlapping_shifts`, which a programme
+might never have created. Without it the generator satisfied "three people on
+the MICU" with one person three times over — and the validator agreed, because
+`coverage-minimum` counted *rows*. Both were defects; both are fixed and have
+regression tests. **This is the clearest thing the generator has been worth so
+far**: it exercised the validator hard enough to find a hole a human reading the
+code would not have.
+
+**Somebody's leave is never proposed as a relaxation.**
+`resident-availability`, `personal-unavailability`, `service-exclusion` and
+`block-override` are facts about individuals. They are named as blockers when
+they are one, and never offered as something to give up. When the roster is
+simply too small, it says that instead, because no rule change fixes it.
+
+**The budget bounds the search, not the construction.** Construction is not
+optional — a schedule with a hole in it is not a schedule — so it runs to
+completion and `stoppedOnBudget` describes the improvement phase. The default is
+two seconds, which is enough for the search to matter and short enough that the
+integration suite runs a dozen generations without anybody noticing.
+
+**A generated schedule is a `ScheduleSource` like any other.** It produces the
+same flat records an uploaded spreadsheet produces, validated and committed by
+the same path. *Rejected:* letting the generator insert shifts directly, which
+would be a second route into the schedule model, and the second route is always
+the one that misses the rule the first one grew last month.
 
 ### The constraint model
 

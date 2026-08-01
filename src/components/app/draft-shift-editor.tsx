@@ -54,6 +54,11 @@ export function DraftShiftEditor({
   const router = useRouter();
   const [shifts, setShifts] = React.useState(incoming);
   const [error, setError] = React.useState<string | null>(null);
+  /* What the last edit did, in one sentence. Cleared on the next edit so it is
+     never ambiguous which change it describes. */
+  const [impact, setImpact] = React.useState<
+    { safe: boolean; summary: string } | null
+  >(null);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [confirmingRemoval, setConfirmingRemoval] = React.useState<string | null>(null);
   const [onlyUnstaffed, setOnlyUnstaffed] = React.useState(false);
@@ -71,11 +76,16 @@ export function DraftShiftEditor({
   const unstaffed = shifts.filter((shift) => !shift.residentId);
   const shown = onlyUnstaffed ? unstaffed : shifts;
 
-  async function mutate(shiftId: string, run: () => Promise<unknown>) {
+  async function mutate(
+    shiftId: string,
+    run: () => Promise<{ impact?: { safe: boolean; summary: string } | null }>,
+  ) {
     setBusyId(shiftId);
     setError(null);
+    setImpact(null);
     try {
-      await run();
+      const response = await run();
+      if (response?.impact) setImpact(response.impact);
       router.refresh();
     } catch (caught) {
       setError(
@@ -100,10 +110,10 @@ export function DraftShiftEditor({
       ),
     );
     void mutate(shift.id, () =>
-      apiFetch(`/api/admin/schedule-versions/${versionId}/shifts/${shift.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ residentId }),
-      }),
+      apiFetch<{ impact: { safe: boolean; summary: string } | null }>(
+        `/api/admin/schedule-versions/${versionId}/shifts/${shift.id}`,
+        { method: "PATCH", body: JSON.stringify({ residentId }) },
+      ),
     );
   }
 
@@ -111,9 +121,10 @@ export function DraftShiftEditor({
     setConfirmingRemoval(null);
     setShifts((current) => current.filter((row) => row.id !== shift.id));
     void mutate(shift.id, () =>
-      apiFetch(`/api/admin/schedule-versions/${versionId}/shifts/${shift.id}`, {
-        method: "DELETE",
-      }),
+      apiFetch<{ impact: null }>(
+        `/api/admin/schedule-versions/${versionId}/shifts/${shift.id}`,
+        { method: "DELETE" },
+      ),
     );
   }
 
@@ -157,6 +168,14 @@ export function DraftShiftEditor({
       </div>
 
       {error ? <Alert tone="error">{error}</Alert> : null}
+      {/* Checked immediately, and only the difference this edit made — a
+          scheduler moving one person should not be handed the month's whole
+          problem list. */}
+      {impact ? (
+        <Alert tone={impact.safe ? "info" : "error"} live>
+          {impact.summary}
+        </Alert>
+      ) : null}
 
       {days.map(([label, rows]) => (
         <div key={label}>

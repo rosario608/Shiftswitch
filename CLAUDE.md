@@ -175,6 +175,7 @@ worse than one that says "copy this link".
 | Roles and the permission matrix | `docs/ROLES.md` |
 | The rules engine and how failures are worded | `docs/RULES.md` |
 | The constraint model and the schedule validator | `docs/CONSTRAINTS.md` |
+| The draft schedule generator | `docs/GENERATOR.md` |
 | The demo program and its scenarios | `docs/DEMO_DATA.md` |
 | Inviting residents, importing a schedule | `docs/ONBOARDING.md` |
 | What each test suite covers | `docs/TESTING.md` |

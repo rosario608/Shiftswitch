@@ -264,15 +264,34 @@ export async function diffScheduleVersion(
   programId: string,
   versionId: string,
   timezone: string,
+  options: {
+    /**
+     * Compare against another draft instead of the live schedule.
+     *
+     * Two generated drafts of the same month differ only in who is on what, so
+     * a scheduler weighing "seed 1" against "seed 7" needs exactly this. The
+     * default — the published schedule — is the question asked before
+     * publishing, which is the common one.
+     */
+    againstVersionId?: string | null;
+  } = {},
 ): Promise<ScheduleDiff> {
   const version = await getScheduleVersion(programId, versionId);
   if (!version) throw notFound("That draft schedule no longer exists.");
 
+  const against = options.againstVersionId ?? null;
+  if (against) {
+    const other = await getScheduleVersion(programId, against);
+    if (!other) throw notFound("The schedule you are comparing against no longer exists.");
+  }
+
   const draft = await loadShifts(programId, { versionId });
   const live = await loadShifts(programId, {
-    versionId: null,
-    from: version.period_start,
-    to: version.period_end,
+    versionId: against,
+    /* Only bounded when comparing against the live schedule: another version
+       carries its own period, and clipping it to this one would report the
+       parts that do not overlap as removals. */
+    ...(against ? {} : { from: version.period_start, to: version.period_end }),
   });
 
   const key = (shift: ShiftSummary) =>

@@ -62,6 +62,7 @@ export function resident(
   return {
     id,
     name,
+    email: `${name.split(" ")[0].toLowerCase()}@test.invalid`,
     pgyLevel,
     credentials: [],
     active: true,
@@ -89,6 +90,7 @@ export function service(
     pgyMax: null,
     coverageMandatory: false,
     active: true,
+    typicalShiftHours: 12,
     ...overrides,
   };
 }

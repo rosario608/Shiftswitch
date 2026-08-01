@@ -59,6 +59,7 @@ export type AuditAction =
   | "cohort.resident_override_cleared"
   | "schedule_version.created"
   | "schedule_version.published"
+  | "schedule_version.generated"
   | "schedule_version.discarded"
   | "resident.scheduling_updated"
   | "services.template_applied"
