@@ -238,23 +238,33 @@ the same domain functions the scheduler screens call:
 |---|---|
 | Sites | Demo University Hospital and Demo VA Medical Center |
 | Service configuration | Site, PGY eligibility and typical shift length on every service |
-| Coverage | Six requirements exercising all three scopes — an ordinary week, a weekend, Thanksgiving as a named date, and the winter holiday block as a period |
+| Coverage | Six requirements exercising all three scopes — an ordinary week, a Saturday, Thanksgiving as a named date, and the winter holiday block as a period. The numbers describe the schedule the seed actually produces, not an ideal it does not meet |
 | Cohorts | Two per PGY class, paired so they alternate, with all 20 residents distributed between them |
 | Block year | Thirteen four-week blocks alternating Inpatient and Ambulatory — generated from `weeks: 4` and two kinds, not from anything that knows what "4+4" means |
-| Block assignments | Every cohort in every block, with the paired alternation visible in the grid |
+| Block assignments | Every cohort from the **second** block onward, with the paired alternation visible in the grid. The first block is the four weeks the seed already scheduled by hand — the position of every programme adopting a tool mid-year |
 | Phone numbers | All 20, validated and normalised. Visible to a chief, absent from a resident's payload entirely |
 | Not schedulable | Varga, on parental leave — active on the roster but off the schedule |
 | Site eligibility | Abiodun and Sorensen not credentialed for the VA |
-| Exception | One PGY-2 on Demo Clinic for block 1 instead of their cohort's service, with a reason — the row that would otherwise be a spreadsheet column called NOTES |
+| Exception | One PGY-2 on Demo Clinic for block 2 instead of their cohort's service, with a reason — the row that would otherwise be a spreadsheet column called NOTES |
 | Draft schedule | A fortnight copied from the published one, so the diff has something to show, and every shift in it editable |
 
-One thing is deliberately left wrong: **Demo Emergency is marked as needing
-coverage and has none**. The scheduler dashboard flags it under "Needs a
-decision", which is the point — a demo where nothing is wrong cannot show what
-the problem list is for.
+Some things are deliberately left wrong, because a demo where nothing is wrong
+cannot show what any of the checking is for.
+
+- **Demo Emergency is marked as needing coverage and has none.** The scheduler
+  dashboard flags it under "Needs a decision".
+- **The last week of the window has nothing scheduled.** The seed builds a
+  scenario set, not a complete month, and *Check this schedule* says so a day
+  at a time: "Demo Wards has 0 people and needs 4".
+- **Varga went on parental leave holding nine Clinic shifts.** Exactly the
+  situation the availability constraint exists to catch — she is on the roster,
+  off the schedule, and still on nine shifts somebody has to cover.
+- **Aliyev works eight days in a row**, against a programme limit of six.
 
 Sign in as **demo.whitfield@demo.invalid** (chief resident) and open
-**Admin → Scheduler** to meet it.
+**Admin → Scheduler** to meet it. Press **Check it** for the whole report:
+around thirty problems, each naming a date, a service and the numbers, plus a
+quality score in the high fifties with its per-objective breakdown.
 
 To see a programme with a *different* shape, build a second block year from the
 cohorts screen with a different block length. Nothing in the schema or the code

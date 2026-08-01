@@ -641,6 +641,9 @@ export async function listResidentOverrides(
     resident_name: string;
     block_id: string;
     block_label: string;
+    /* Both the id and the name: screens print the name, and the schedule
+       validator needs the id to check the exception was actually honoured. */
+    service_id: string | null;
     service_name: string | null;
     label: string;
     reason: string;
@@ -648,7 +651,8 @@ export async function listResidentOverrides(
 > {
   return query(
     `SELECT o.id, o.resident_id, u.full_name AS resident_name, o.block_id,
-            b.label AS block_label, s.name AS service_name, o.label, o.reason
+            b.label AS block_label, o.service_id, s.name AS service_name,
+            o.label, o.reason
        FROM resident_block_overrides o
        JOIN residents r ON r.id = o.resident_id
        JOIN users u ON u.id = r.user_id

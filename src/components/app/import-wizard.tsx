@@ -6,6 +6,7 @@ import { FileUp, Upload } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
+import { ScheduleCheck } from "@/components/app/schedule-check";
 import { ApiError, apiFetch } from "@/lib/api-client";
 import { useAction } from "@/lib/use-action";
 
@@ -52,6 +53,12 @@ export function ImportWizard() {
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [uploading, setUploading] = React.useState(false);
   const [result, setResult] = React.useState<string | null>(null);
+  /* The window that was just imported, so the schedule can be checked the
+     moment it lands rather than at some later point when somebody thinks to.
+     An imported month is exactly when a coverage gap is cheapest to fix. */
+  const [imported, setImported] = React.useState<{ from: string; to: string } | null>(
+    null,
+  );
 
   const commit = useAction(
     async () =>
@@ -71,6 +78,7 @@ export function ImportWizard() {
         setResult(
           `Imported ${response.result.createdShifts} shift(s). ${response.result.skippedExisting} already existed and were skipped.`,
         );
+        setImported(preview?.summary.dateRange ?? null);
         setPreview(null);
         setFileName(null);
         router.refresh();
@@ -143,6 +151,9 @@ export function ImportWizard() {
         <Alert tone="success" live>
           {result}
         </Alert>
+      ) : null}
+      {imported ? (
+        <ScheduleCheck periodStart={imported.from} periodEnd={imported.to} />
       ) : null}
       {commit.error ? <Alert tone="error">{commit.error}</Alert> : null}
 

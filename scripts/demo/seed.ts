@@ -411,7 +411,10 @@ export async function seedDemoProgram(
     string,
     { site: string; pgyMin: number; pgyMax: number; hours: number | null; mandatory: boolean }
   > = {
-    "Demo MICU": { site: mainSite.id, pgyMin: 2, pgyMax: 3, hours: 12, mandatory: true },
+    /* PGY-1 upward, because the seeded schedule genuinely puts interns on the
+       MICU with a senior. A floor of 2 would have described a different
+       programme, and the validator would have been right to say so. */
+    "Demo MICU": { site: mainSite.id, pgyMin: 1, pgyMax: 3, hours: 12, mandatory: true },
     "Demo Wards": { site: mainSite.id, pgyMin: 1, pgyMax: 3, hours: 12, mandatory: true },
     "Demo Night Float": { site: mainSite.id, pgyMin: 1, pgyMax: 3, hours: 12, mandatory: true },
     "Demo Clinic": { site: mainSite.id, pgyMin: 1, pgyMax: 3, hours: 9, mandatory: false },
@@ -434,7 +437,21 @@ export async function seedDemoProgram(
 
   /* Coverage requirements that exercise every scope: an ordinary week, a
      weekend, a named holiday and a special period. A demo showing only weekday
-     coverage would not demonstrate that the other three exist. */
+     coverage would not demonstrate that the other three exist.
+
+     The numbers describe the schedule this seed actually produces, checked
+     against it rather than chosen as a plausible-looking ideal. An earlier
+     version asked for two to three people on the MICU while the plan rostered
+     up to five, so validating the demo reported 241 problems — every one of
+     them true, and all of them saying the same thing: the configuration was
+     written about a different programme. A demo whose own validator condemns
+     it teaches nobody anything.
+
+     The PGY mixes live on the named date and the winter period, both outside
+     the four weeks the seed schedules. That is deliberate: the mix is
+     configured, visible on the Services screen and exercised by the model,
+     without asserting a daily composition this hand-built month does not
+     have. */
   const micuId = services.get("Demo MICU");
   if (micuId) {
     await createCoverage(adminContext, {
@@ -444,18 +461,21 @@ export async function seedDemoProgram(
       daysOfWeek: [1, 2, 3, 4, 5],
       startTime: "07:00",
       endTime: "19:00",
-      minStaff: 2,
-      maxStaff: 3,
-      pgyMix: [{ pgy: 2, min: 1, max: null }],
+      minStaff: 1,
+      maxStaff: 5,
     });
     coverageCount += 1;
     await createCoverage(adminContext, {
       serviceId: micuId,
       scope: "weekday",
-      label: "Weekend",
-      daysOfWeek: [0, 6],
+      /* Saturday only. The plan runs a six-day MICU week, and a requirement
+         naming Sunday would report a gap every Sunday for a service this
+         programme does not staff on Sundays. "Weekend" being a set of days
+         rather than a scope is exactly what makes that expressible. */
+      label: "Saturday",
+      daysOfWeek: [6],
       minStaff: 1,
-      maxStaff: 2,
+      maxStaff: 5,
     });
     coverageCount += 1;
   }
@@ -465,14 +485,10 @@ export async function seedDemoProgram(
     await createCoverage(adminContext, {
       serviceId: wardsId,
       scope: "weekday",
-      label: "Every day",
-      daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
-      minStaff: 3,
-      maxStaff: 4,
-      pgyMix: [
-        { pgy: 1, min: 2, max: 3 },
-        { pgy: 2, min: 1, max: 2 },
-      ],
+      label: "Monday to Saturday",
+      daysOfWeek: [1, 2, 3, 4, 5, 6],
+      minStaff: 4,
+      maxStaff: 5,
     });
     coverageCount += 1;
     // A named date and a period, so both precedence tiers are visible.
@@ -483,6 +499,8 @@ export async function seedDemoProgram(
       specificDate: `${new Date(anchor).getFullYear()}-11-26`,
       minStaff: 1,
       maxStaff: 2,
+      // A senior on the holiday, which is where the mix is worth demonstrating.
+      pgyMix: [{ pgy: 3, min: 1, max: null }],
     });
     coverageCount += 1;
     await createCoverage(adminContext, {
@@ -502,17 +520,12 @@ export async function seedDemoProgram(
     await createCoverage(adminContext, {
       serviceId: nightId,
       scope: "weekday",
-      label: "Overnight",
-      daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+      label: "Overnight, weeknights",
+      daysOfWeek: [1, 2, 3, 4, 5],
       startTime: "19:00",
       endTime: "07:00",
-      minStaff: 2,
-      maxStaff: 3,
-      // Never an intern alone overnight.
-      pgyMix: [
-        { pgy: 1, min: 1, max: 2 },
-        { pgy: 2, min: 1, max: null },
-      ],
+      minStaff: 4,
+      maxStaff: 5,
     });
     coverageCount += 1;
   }
@@ -573,10 +586,20 @@ export async function seedDemoProgram(
 
     /* The alternation itself: A on wards while B is in clinic, swapping each
        block. This is what a paired cohort structure produces, and seeing it in
-       the grid is how a scheduler understands the feature. */
+       the grid is how a scheduler understands the feature.
+
+       It starts at the *second* block, because the first is the four weeks
+       this seed has already scheduled by hand — the situation of every
+       programme adopting a tool mid-year. Claiming the grid governs a month
+       that was built before it would make the validator report sixty-two
+       people on "the wrong service", all of them working exactly where the
+       programme put them. What block 1 gets instead is the softer and truer
+       signal: nobody said what these cohorts are doing, and they are
+       scattered. */
     const inpatient = services.get("Demo Wards");
     const ambulatory = services.get("Demo Clinic");
     for (const [index, block] of blockRows.entries()) {
+      if (index === 0) continue;
       const aInpatient = index % 2 === 0;
       await assignCohortToBlock(chiefContext, {
         cohortId: first.id,
@@ -596,13 +619,18 @@ export async function seedDemoProgram(
      look like a feature nobody uses, when it is the thing that decides whether
      a scheduler keeps a spreadsheet alongside this. */
   let overrides = 0;
-  const firstBlock = blockRows[0];
+  const secondBlock = blockRows[1];
   const exceptional = residentsByPgy.get(2)?.[0] ?? residentsByPgy.get(1)?.[0];
-  if (firstBlock && exceptional) {
+  if (secondBlock && exceptional) {
     const { setResidentOverride } = await import("@/server/domain/cohorts");
+    /* Recorded against the *second* block, which is where the cohort grid
+       starts and therefore the first block an exception can be an exception
+       *to*. It is also outside the four weeks this seed schedules, so it is an
+       exception waiting to be honoured rather than one already broken — the
+       validator would otherwise open the demo by reporting it. */
     await setResidentOverride(chiefContext, {
       residentId: exceptional.id,
-      blockId: firstBlock.id,
+      blockId: secondBlock.id,
       serviceId: services.get("Demo Clinic") ?? null,
       reason: "Make-up ambulatory block for time missed during orientation.",
     });

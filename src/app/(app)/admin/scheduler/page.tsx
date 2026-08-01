@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { NewDraftButton } from "@/components/app/new-draft-button";
+import { ScheduleCheck } from "@/components/app/schedule-check";
 import { requirePageCapability } from "@/server/auth/page-guards";
 import { loadSchedulerSnapshot } from "@/server/domain/scheduler-dashboard";
 import { fmtDate } from "@/lib/format";
@@ -110,6 +111,18 @@ export default async function SchedulerPage() {
             resident is in a cohort.
           </p>
         </Card>
+      )}
+
+      {/* On demand rather than on load: it reads the whole window and runs
+          every constraint, and a chief opening the dashboard to see one number
+          should not pay for a full validation they did not ask for. */}
+      {nothingConfigured ? null : (
+        <section aria-labelledby="check-heading">
+          <h2 id="check-heading" className="sr-only">
+            Check the live schedule
+          </h2>
+          <ScheduleCheck />
+        </section>
       )}
 
       <section aria-labelledby="drafts-heading">

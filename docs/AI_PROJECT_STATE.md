@@ -117,11 +117,18 @@ Its shape was decided before it was built, and the reasoning is under
 **Decisions → The shape of the scheduler**; a session changing those screens
 should argue with that reasoning rather than work around it.
 
+On top of it sits the **constraint model and schedule validator**
+(`docs/CONSTRAINTS.md`): every constraint the configuration can express, each
+declared hard or soft, evaluated purely over a snapshot, with a deterministic
+score whose breakdown is visible per objective. It is the oracle — whatever
+builds schedules later is graded against it.
+
 What the scheduler still does not do: generate a schedule. It records what a
-programme *is* — people, cohorts, blocks, services, coverage — and lets a
-scheduler build and publish a month by hand. Filling a block year from cohort
-assignments and coverage requirements automatically is the obvious next thing
-and has not been started.
+programme *is* — people, cohorts, blocks, services, coverage — lets a scheduler
+build and publish a month by hand, and now says whether what they built is
+legal and how good it is. Filling a block year automatically is the next thing
+and has not been started; the validator exists so that when it is, there is
+something to grade it against.
 
 **For onboarding the first real program** (a human sequence, not a session's):
 **Admin → Program settings** → **Admin → Services** → **Admin → Users & roles →
@@ -223,6 +230,73 @@ underneath. Where that was not true, it was a defect to fix rather than a layout
 to accept: the coverage editor reads as a sentence ("weekdays, 07:00–19:00, 2 to
 3 people, at least one senior") rather than as a row of columns, and the roster
 leads with availability rather than with a directory.
+
+### The constraint model
+
+**Hard and soft is about what happens to a person, not about severity.** A hard
+violation means a ward is uncovered or somebody is scheduled who cannot work —
+publish it and somebody is harmed. A soft one means the month is lopsided, and
+people will still work it. That single distinction is why a resident's
+*accommodation* lives in `residents.constraints` and a resident's *wish* lives
+in `residents.preferences`: a wish must never be able to invalidate a schedule,
+and an accommodation must never be silently traded away as a wish. *Rejected:*
+one column with a severity flag, which makes it one careless edit to turn
+somebody's parental leave into a preference.
+
+**The constraints call the rules engine rather than reimplementing it.** Rest,
+consecutive days and nights, rolling workload, weekend caps, overlaps, PGY
+ranges, service eligibility and credentials are already modelled, already
+configured per programme, already tested. A second implementation would be a
+second set of numbers to keep in step, and the first time they drifted the
+product would refuse a trade for a limit the validator called fine. What is not
+reused is the wording — a rule speaks to somebody about to make a switch, the
+validator to a chief reading a schedule that already exists. *Rejected:* also
+bridging the trade-policy rules (notice, holiday tradeability, trades per
+month), which say nothing about whether a schedule is correct and would produce
+violations nobody could act on.
+
+**The model is pure; one file reads the database.** Constraints evaluate over a
+snapshot handed to them. The whole model therefore runs under
+`npm run verify:fast` in about a second, a failing test names a constraint
+rather than a fixture, and the same validator runs over a draft, a published
+schedule, an uploaded file being previewed, or a proposal held in memory.
+
+**A constraint that throws is reported, not swallowed.** The validator catches
+per constraint and emits "could not be checked — treat this schedule as
+unverified". The alternative is one malformed row in one programme's
+configuration silently producing "no problems found", which is indistinguishable
+from a good schedule and is the worst thing this code could do. It earned its
+keep immediately: the first integration run reported `Invalid time value` from
+a caller passing a `Date` where an ISO string was expected, instead of
+returning a clean bill of health.
+
+**Fairness penalties are `gap / (max + tolerance)`, not `gap / max`.** The
+obvious formula saturates at 1 the moment anybody has none, so "two shifts
+versus none" and "twelve versus none" score identically and halving a gap does
+not move the number. That is fatal for the thing the score is *for* — it is the
+oracle a generator will be graded against, and an objective with no gradient
+cannot be optimised towards.
+
+**Hard violations do not touch the score.** A schedule with one is not a
+low-scoring schedule; it is an invalid one, and putting 82 on it would invite
+publishing it anyway.
+
+**`minimise-change` matches slots, not shift ids.** A draft copied from the
+published schedule holds new rows with new ids for the same slots, so comparing
+ids found no shift in common and reported that nothing had changed however much
+had. Matched on service, start and end instead — the same pairing problem the
+publication diff already solves.
+
+**The demo's coverage numbers describe the schedule the seed actually
+produces.** They were written aspirationally — two to three on the MICU while
+the plan rostered five — so validating the demo reported 241 problems, every
+one of them true and all saying the same thing: the configuration was written
+about a different programme. A demo whose own validator condemns it teaches
+nobody anything. What is left is a coherent report: the last week of the window
+has nothing scheduled, one resident went on leave holding nine shifts, and
+somebody works eight days in a row. The block grid now starts at the *second*
+block, because the first is the four weeks the seed already scheduled by hand —
+the situation of every programme adopting a tool mid-year.
 
 **Editing a draft is cheap; editing the live schedule is expensive.** Assigning
 a draft shift is an inline `<select>` that saves on change, with no

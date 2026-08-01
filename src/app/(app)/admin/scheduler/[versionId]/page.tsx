@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DraftActions } from "@/components/app/draft-actions";
 import { DraftShiftEditor } from "@/components/app/draft-shift-editor";
+import { ScheduleCheck } from "@/components/app/schedule-check";
 import { requirePageCapability } from "@/server/auth/page-guards";
 import {
   diffScheduleVersion,
@@ -220,6 +221,15 @@ export default async function DraftPage({
                 }))}
             />
           </section>
+
+          {/* Above the publish button on purpose. The diff says what would
+              change; this says whether what it would change to is legal, and
+              that is the last question before the irreversible step. */}
+          <ScheduleCheck
+            versionId={version.id}
+            periodStart={version.period_start.toISOString().slice(0, 10)}
+            periodEnd={version.period_end.toISOString().slice(0, 10)}
+          />
 
           <DraftActions
             versionId={version.id}

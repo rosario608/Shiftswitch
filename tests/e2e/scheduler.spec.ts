@@ -212,6 +212,40 @@ test("a chief builds a draft, edits it, and sees the diff before publishing", as
   await expect(page).toHaveURL(/\/\?denied=1$/);
 });
 
+test("a chief can check a schedule and read why it is or is not valid", async ({
+  page,
+}) => {
+  await signIn(page, ACCOUNTS.chief);
+  await page.goto("/admin/scheduler");
+
+  await expect(
+    page.getByRole("heading", { name: "Check this schedule" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /^check it$/i }).click();
+
+  /* Either answer is a pass — the fixture's schedule is what it is. What must
+     be true is that the report says which, in a sentence, rather than leaving
+     a chief to infer it from an empty list. */
+  const verdict = page.getByText(
+    /nothing is wrong with it|must be fixed before this is published/i,
+  );
+  await expect(verdict).toBeVisible({ timeout: 20_000 });
+
+  // The score never arrives without its breakdown.
+  await expect(page.getByText(/quality score/i)).toBeVisible();
+  await page.getByRole("button", { name: /breakdown/i }).click();
+  await expect(page.getByText("Workload fairness").first()).toBeVisible();
+  await expect(page.getByText("Night balance").first()).toBeVisible();
+
+  /* "Nothing found" and "nothing checked" must not look the same, so the
+     report can always say what it looked at. `.first()` because a constraint's
+     name also appears on every violation it produced, which on this fixture is
+     a great many. */
+  await page.getByRole("button", { name: /what was checked/i }).click();
+  await expect(page.getByText("Coverage minimum").first()).toBeVisible();
+  await expect(page.getByText("Rest between shifts").first()).toBeVisible();
+});
+
 test("a resident cannot reach any of it", async ({ page }) => {
   await signIn(page, ACCOUNTS.alice);
   for (const path of ["/admin/scheduler", "/admin/cohorts", "/admin/services"]) {
@@ -228,6 +262,13 @@ test("a resident cannot reach any of it", async ({ page }) => {
     const response = await page.request.get(endpoint);
     expect(response.status(), endpoint).toBe(403);
   }
+
+  // Including the validator, which would otherwise hand a resident the whole
+  // programme's roster and schedule in one response.
+  const validation = await page.request.post("/api/admin/schedule-validation", {
+    data: {},
+  });
+  expect(validation.status()).toBe(403);
 });
 
 test("a chief can plan, and sees phone numbers a resident never receives", async ({

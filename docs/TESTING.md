@@ -178,6 +178,15 @@ never grants a role.
 | A service's screen lists the program-wide and service-scoped rules that govern it | `tests/integration/scheduler.test.ts`, `tests/e2e/scheduler.spec.ts` |
 | A resident block exception is recorded with a reason and can be taken back | `tests/integration/scheduler.test.ts`, `tests/e2e/scheduler.spec.ts` |
 | A whole multi-PGY programme configured from the UI alone — services, coverage, blocks, cohorts, assignments | `tests/e2e/scheduler.spec.ts` |
+| Every scheduling constraint violated individually, asserting the exact set reported | `tests/unit/constraints.test.ts` |
+| A constraint added to the catalogue with no test | `tests/unit/constraints.test.ts` — fails the suite |
+| Several independent problems reported at once, and several on one shift | `tests/unit/constraints.test.ts` |
+| Validator messages: real dates, the numbers in the sentence, no name prefix, no identifiers | `tests/unit/constraint-messages.test.ts` |
+| The score is bounded, deterministic, adds up, and ignores hard violations | `tests/unit/constraint-scoring.test.ts` |
+| A snapshot arrives with the availability, coverage, blocks and exceptions the constraints expect | `tests/integration/schedule-validation.test.ts` |
+| A draft is validated instead of the live schedule, and compared against what it would replace | `tests/integration/schedule-validation.test.ts` |
+| One program's schedule stays out of another's validation report | `tests/integration/schedule-validation.test.ts` |
+| A chief checks a schedule and reads why it is or is not valid | `tests/e2e/scheduler.spec.ts` |
 
 ---
 
