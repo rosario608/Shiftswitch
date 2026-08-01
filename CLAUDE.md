@@ -79,6 +79,38 @@ never be delivered to. See `docs/DEMO_DATA.md`.
 Not to inspect it, not to migrate it, not to "just check something". No
 exception is worth the one time it goes wrong.
 
+**This rule is about data, and only about data.** It says a session does not
+open a connection to the live database — does not read a row, does not write
+one, does not count them to see whether a migration landed. That is the whole
+of it, and it does not move.
+
+It is **not** a rule against setting up the machinery that reaches production.
+Those are different acts with different failure modes, and conflating them has
+cost this project real time — a session that will not commit a deployment
+workflow because the word "production" appears in it has not been careful, it
+has left the owner to do by hand the exact thing that keeps going wrong when
+done by hand.
+
+So, explicitly:
+
+| Doing this is expected | Doing this is forbidden |
+|---|---|
+| Writing and changing `.github/workflows/apply-migrations.yml` | Running the migration runner against the production `DATABASE_URL` from a session |
+| Writing a script the pipeline executes against production | Executing that script here with a production connection string |
+| Creating a branch ruleset, a repository secret, a preview database branch, an environment variable | Reading a value out of any of them, or putting a live credential in a tracked file |
+| Reading `/api/health` or `/admin/diagnostics` over HTTPS to learn what production reports about itself | Connecting to the database to find that out directly |
+| Saying in a document what production is believed to be, and naming how that is known | Saying it as a verified fact when the evidence is a report |
+
+The distinction is who is holding the connection. **A pipeline reaching
+production is the design. A session reaching production is the accident.** The
+pipeline is reviewed, merged, logged, gated on CI, and repeatable; a session is
+none of those, and its mistakes arrive without a diff.
+
+Provisioning that a session genuinely cannot perform belongs in **User action
+required** in `docs/AI_PROJECT_STATE.md` — but only after it has been
+*attempted* and refused, with what came back written down. An item put on that
+list without an attempt is a guess about somebody else's afternoon.
+
 Migrations are **written**, **applied locally**, and **verified from scratch**:
 
 ```

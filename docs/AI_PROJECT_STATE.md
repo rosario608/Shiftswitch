@@ -120,20 +120,21 @@ test.
 
 ### Migrations
 
-| | |
-|---|---|
-| In the repository | `0001` – `0011` |
-| Applied locally, and proven to apply to an **empty** database in order | `0001` – `0011` |
-| Applied to production by the pipeline on merge | `0008` onwards |
-| Reported applied to production by hand, 31 July 2026 | `0007_notification_route.sql` |
+| | | How that is known |
+|---|---|---|
+| In the repository | `0001` – `0011` | `ls db/migrations` |
+| Applied locally, and proven to apply to an **empty** database in order | `0001` – `0011` | step 9 of `npm run verify`, every run |
+| **Applied to production** | **`0001` – `0009`** | `0001`–`0006` reported by the session of 31 July; `0007` applied by hand the same day; **`0008` and `0009` verified by query in Neon on 1 August 2026** — all ten tables from `0008` and all three from `0009` present, `shifts.published_version_id` present, and a checksummed `schema_migrations` row for each |
+| **Not applied to production** | **`0010_beta_onboarding.sql`**, **`0011_pending_enrollment.sql`** | They are on this branch and have not merged |
 
-**Applying a migration is no longer a person's job.**
-`.github/workflows/apply-migrations.yml` runs on any push to `main` that touches
-`db/migrations/`, using the same forward-only, checksummed runner a developer
-runs locally. `0008` and `0009` were applied that way after PR #11 merged, and
-`/api/health` confirmed it. `0010_beta_onboarding.sql` and
-`0011_pending_enrollment.sql` will be applied the same way when this branch
-merges.
+`0008` and `0009` are settled. This document claimed twice that they were
+outstanding, on two different days, and both claims were wrong — which is the
+whole reason applying migrations has stopped being something a person does and
+then writes down.
+
+`0010` and `0011` will be applied by the pipeline when this branch merges. Until
+then the deployed build is behind them and says so at `/admin/diagnostics`,
+naming the files.
 
 - **`0010_beta_onboarding.sql`** — `positions`, `teams`, `rotation_patterns`
   and their members, `pattern_exceptions`, `block_structure_exceptions`,
@@ -144,6 +145,19 @@ merges.
 - **`0011_pending_enrollment.sql`** — `users.enrollment_status`. Without it
   every account that joins by a link is a full member of the program from the
   moment it is created, which is the one thing an enrollment link must not do.
+
+**Applying a migration is no longer a person's job.**
+`.github/workflows/apply-migrations.yml` fires when the **CI workflow finishes
+successfully** on the default branch — `workflow_run`, not `push`, so the tests
+are a gate rather than a coincidence — and applies whatever the database is
+missing with the same forward-only, checksummed runner a developer runs locally.
+It refuses any pending migration that would destroy data unless the file says it
+means to, names the files it applied in the job summary, and is a no-op when
+run again.
+
+Proven rather than asserted: `npm run check:migration-pipeline` builds a scratch
+database and checks all four properties. Seventeen checks, last run 1 August
+2026, all passing.
 
 The rule that a *session* never reaches the production database has not changed
 and is not weakened by this: nothing an agent runs touches it. What changed is
@@ -192,49 +206,58 @@ are genuine prerequisites for a pilot.
 
 ## User action required
 
-Every row names **the artefact**, **where it comes from**, **roughly how long**,
-and **what stays broken until it exists**. Nothing here is a session's to do:
-each is either hosted infrastructure, the production database, the institution's
-own data, or an identity that requires a human with a payment method.
+**Everything in this list was attempted from this machine and refused.** Each
+row says what was tried, what came back, the exact step that finishes it, and
+what stays broken until it does. Nothing that was not attempted is here;
+anything that was done has been deleted rather than left as a claim.
 
-### Before a pilot
+The audit behind it — what this machine actually holds — is under **What this
+machine can do**, below.
 
-| # | The artefact | Where it comes from | Time | Until then |
+### Blocked by the agent proxy
+
+| # | What I tried | What came back | The exact step | Until then |
 | --- | --- | --- | --- | --- |
-| 1 | A `preview` branch in Neon, and `DATABASE_URL` set for Vercel's Preview environment only | Neon → Branches → New branch; then Vercel → Settings → Environment Variables → Preview | 10 min | **Every pull-request preview reads and writes the live programme.** Previews are SSO-protected so nobody outside the team can reach one — this stops being merely untidy the moment a second person opens a pull request. |
-| 3 | The residents' email addresses | The institution's roster. Any format: commas, semicolons, one per line, a spreadsheet column | You have it or you don't | Nobody can be invited, so nobody can sign in. `npm run demo:seed` exists so no development waits for this. |
-| 4 | The block schedule, as CSV or XLSX | The institution's scheduling office. Column set documented in `docs/ONBOARDING.md` | You have it or you don't | There is no schedule to switch shifts on. |
+| 1 | `POST /repos/rosario608/shiftswitch/rulesets` with the branch ruleset requiring a pull request and the four CI checks | **HTTP 403 — "Write access to this GitHub API path is not permitted through this proxy."** Nothing was created. | **Settings → Rules → Rulesets → New ruleset → Import a ruleset**, and choose `.github/rulesets/main-pull-request-and-green-ci.json`. The file is committed and needs no editing. | A direct push to `main` reaches production having passed nothing. This matters more now that `apply-migrations.yml` applies migrations when CI passes on `main`: the gate is only as strong as the guarantee that code arrives through CI at all. |
+| 2 | `GET /repos/…/actions/secrets/public-key`, the first call needed to write a repository secret | **HTTP 403**, same proxy refusal. And there is no production connection string in this environment to put in one — see row 3. | **Settings → Secrets and variables → Actions → New repository secret**, named exactly `PRODUCTION_DATABASE_URL`, holding the Neon connection string. | `apply-migrations.yml` stops with a warning and applies nothing. It is written to warn rather than fail, so the default branch does not go red for a deployment that has not been configured yet. |
 
-### One repository setting
+### Blocked by a credential that is not here
 
-| # | The artefact | Where it comes from | Time | Until then |
+| # | What I tried | What came back | The exact step | Until then |
 | --- | --- | --- | --- | --- |
-| 5 | A branch ruleset on `main` requiring the four CI checks | GitHub → Settings → Rules → Rulesets → New branch ruleset. Require a pull request; require `Typecheck, lint, tests, build`, `End-to-end`, `Client — typecheck, lint, tests, build`, `Native client — end-to-end` | 5 min | CI runs and reports on every pull request, but nothing stops somebody merging past a red one. Step-by-step in `docs/RUNBOOK.md`. |
+| 3 | Searched the environment and every `.env` file for a production connection string | Only `DATABASE_URL` and `TEST_DATABASE_URL`, both pointing at `127.0.0.1`. Nothing remote anywhere. | Copy it from **Neon → your project → Connection string** into the secret in row 2. It is the one value in this list that must never be pasted into a file in this repository. | As row 2. |
+| 4 | Looked for a Neon API key or `neonctl` session, to create a `preview` branch | No `NEON_*` variable, no `neonctl`, no config on disk. `console.neon.tech` is reachable and answers **401** — the network is not the blocker, the credential is. | **Neon → Branches → New branch**, named `preview`, from `main`. | Every pull-request preview reads and writes the **live programme**. Previews are SSO-protected so nobody outside the team can reach one, which stops it being an exposure and does not stop it being a corruption. |
+| 5 | Looked for a Vercel token or CLI session, to point the Preview environment at that branch | No `VERCEL_*` variable and no CLI session on disk. A Vercel MCP connection was authenticated to the team `rosario608-2488's projects`, but its tool surface has no environment-variable management at all — and it disconnected mid-session. | **Vercel → Settings → Environment Variables**, add `DATABASE_URL` for **Preview only**, holding the `preview` branch's connection string. | As row 4. Rows 4 and 5 are one job in two places and neither half helps alone. |
 
-### Before notifications work at all
+### Not a credential problem: things only a person can be
 
-| # | The artefact | Where it comes from | Time | Until then |
-| --- | --- | --- | --- | --- |
-| 6 | `google-services.json` | Firebase console → add an Android app with the exact package name | 5 min | Android phones never register for notifications. Safe to commit — it identifies the app, it does not authorise sending. |
-| 7 | `GoogleService-Info.plist` | Firebase console → add an iOS app with the exact bundle id | 5 min | iPhones never register. Also safe to commit. |
-| 8 | `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY` in Vercel Production | Firebase → Project settings → Service accounts → Generate new private key, then three fields out of the JSON | 10 min | The server records every notification as **skipped** and says so; nothing is ever claimed as sent. **This one is a secret** — delete the downloaded file afterwards. |
-| 9 | An APNs auth key (`.p8`), its Key ID and Team ID, uploaded to Firebase | Apple Developer → Certificates, Identifiers & Profiles → Keys → + → APNs. Needs the paid membership | 10 min | iPhone notifications are accepted by Firebase and delivered nowhere. Apple lets you download the key **once**. |
-
-All four, in order, with what each failure looks like: `docs/PUSH_SETUP.md`.
-Verify with **Profile → Check this phone** on a real handset; the report names
-which step failed.
-
-### Before the app stores
-
-| # | The artefact | Where it comes from | Time | Until then |
-| --- | --- | --- | --- | --- |
-| 10 | A Google Play developer account | play.google.com/console — $25 once, plus identity verification | 20 min, then 1–3 days for verification | No Android release. The signed bundle already builds. |
-| 11 | An Apple Developer account | developer.apple.com — $99/year, plus identity verification | 20 min, then 1–2 days | No iPhone build at all: a free account cannot use push notifications. |
-| 12 | An hour on any Mac with Xcode installed | Borrowed, rented, or a colleague's | 1 hour | The iOS binary has never been compiled. Step-by-step in `docs/IOS_BUILD.md`; everything checkable without macOS is already enforced by the test suite. |
-| 13 | A bundle id on a domain the institution controls, replacing `org.shiftswitch.app` | A decision, not a download | 5 min to decide | **This cannot be changed after the first upload — not renamed, not transferred.** Decide before uploading, not after. What has to change in lockstep is listed at the end of `docs/IOS_BUILD.md`. |
-| 14 | 12 testers for 14 continuous days | Real people with Google accounts | 14 days, in parallel with everything else | Google Play may refuse a first release from a personal developer account without it. Not required for Apple. |
+| # | The artefact | Where it comes from | Until then |
+| --- | --- | --- | --- |
+| 6 | The residents' email addresses, and the block schedule as CSV or XLSX | The institution's roster and scheduling office | Nothing to onboard. `npm run demo:seed` exists so that no development waits on this, and the importer now holds rows for people who have not joined, so the file can arrive before the people do. |
+| 7 | `google-services.json`, `GoogleService-Info.plist`, and `FCM_PROJECT_ID` / `FCM_CLIENT_EMAIL` / `FCM_PRIVATE_KEY` in Vercel Production | Firebase console. The three variables are **secrets**; delete the downloaded file afterwards | Every notification is recorded **skipped** and says so. Nothing is ever claimed as sent. Step by step in `docs/PUSH_SETUP.md`. |
+| 8 | An APNs auth key (`.p8`) with its Key ID and Team ID, uploaded to Firebase | Apple Developer → Keys. Needs the paid membership. Apple lets you download the key **once** | iPhone notifications are accepted by Firebase and delivered nowhere. |
+| 9 | A Google Play developer account, an Apple Developer account, and an hour on any Mac with Xcode | $25 once and $99/year respectively, plus identity verification | No store release, and the iOS binary has never been compiled. `docs/IOS_BUILD.md` covers the Mac hour; everything checkable without macOS is already enforced by `npm run verify`. |
+| 10 | A bundle id on a domain the institution controls, replacing `org.shiftswitch.app` | A decision, not a download | **It cannot be changed after the first upload — not renamed, not transferred.** What has to change in lockstep is listed at the end of `docs/IOS_BUILD.md`. |
 
 Do not ask the user for passwords or verification codes at any point.
+
+## What this machine can do
+
+Audited 1 August 2026, by attempting each thing rather than assuming. Recorded
+because the previous version of the list above treated several of these as a
+human's job without anybody having checked.
+
+| Credential | Present | What it can actually do |
+| --- | --- | --- |
+| `gh` CLI | No | — |
+| `vercel` CLI | No | — |
+| `neonctl` | No | — |
+| `GITHUB_TOKEN` / `GH_TOKEN` | **Yes**, and it authenticates | Almost nothing. `GET /rate_limit` answers 200, but every repository endpoint returns 403 from the agent proxy: reads say *"GitHub access is not enabled for this session"* and writes say *"Write access to this GitHub API path is not permitted through this proxy."* Empty `X-OAuth-Scopes` and a 15 000/hour limit — a GitHub App installation token, narrowed further by the proxy. |
+| GitHub MCP server | **Yes**, and it works | Workflows, runs, jobs, pull requests, issues, files, commits. It has **no** tool for rulesets, repository secrets, environments or any other repository setting — which is why rows 1 and 2 above are a person's job and not a bug in this session. |
+| Vercel MCP server | Was authenticated | `list_teams` returned `rosario608-2488's projects`. No environment-variable tools on the surface at all, so row 5 was never possible through it. Disconnected mid-session. |
+| Neon API key | No | `console.neon.tech` answers 401 — reachable, unauthenticated. |
+| A production connection string | **No** | Not in the environment, not in `.env.local`, not in any `.env` file. Both database URLs present point at `127.0.0.1`. |
+| A local PostgreSQL | **Yes** | Which is what `npm run verify` and `npm run check:migration-pipeline` need, and all they need. |
 
 ## Next action
 
@@ -2219,6 +2242,7 @@ token. It has already caught three real defects.
 | When somebody cannot accept their invitation | `docs/FIRST_INVITATION.md` |
 | Building the iPhone app in an hour on a borrowed Mac | `docs/IOS_BUILD.md` |
 | Every way this can fail, and what happens then | `docs/FAILURE_PATHS.md` |
+| The branch ruleset, as a file GitHub's importer accepts | `.github/rulesets/` |
 | What each suite covers | `docs/TESTING.md` |
 
 ## Rules for this project
