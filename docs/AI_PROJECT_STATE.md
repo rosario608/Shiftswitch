@@ -3,10 +3,16 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 1 August 2026, after building the **draft schedule generator**:
-a scheduler asks for a month and gets one, graded by the validator, with locks,
-a time budget, a per-objective score and an explanation when no schedule fits.
-See `docs/GENERATOR.md`.
+Last updated: 1 August 2026, after turning the scheduler into an **operational
+workflow**: structured availability that feeds the constraint model, locks that
+survive a regeneration, an approval step before publication, a grid the schedule
+is actually built on, coverage checked by the constraint model when a trade is
+proposed, and corrections to a schedule people are already working. See
+`docs/SCHEDULE_OPERATIONS.md`.
+
+Before that, the **draft schedule generator**: a scheduler asks for a month and
+gets one, graded by the validator, with locks, a time budget, a per-objective
+score and an explanation when no schedule fits. See `docs/GENERATOR.md`.
 
 Before that, the constraint model and the schedule validator: every scheduling
 constraint the configuration can express, declared hard or soft, evaluated
@@ -147,11 +153,23 @@ a recorded seed, optimises the soft objectives within a time budget, and when no
 schedule fits it names the smallest set of constraints whose relaxation would
 admit one, in a chief's words.
 
-What is *not* built: nothing in the scheduler's stated scope. The obvious next
-steps are a screen for locks (they exist in the API and have no UI yet), and
-per-resident rotation quotas — "every PGY-1 does at least two blocks of MICU" —
-which the configuration still cannot express, so neither the validator nor the
-generator can honour it.
+On top of *that* sits the **operational workflow**
+(`docs/SCHEDULE_OPERATIONS.md`): structured availability, persisted locks, an
+approval step, the grid a schedule is built on, publication that notifies
+everybody affected, a trade coverage check that asks the constraint model, and
+corrections to a schedule people are already working — with the visible
+difference between what was published and what is true now.
+
+What is *not* built: **per-resident rotation quotas** — "every PGY-1 does at
+least two blocks of MICU" — which the configuration still cannot express, so
+neither the validator nor the generator can honour it. It is the obvious next
+thing, and inventing a default in the meantime would mean enforcing a curriculum
+no programme agreed to.
+
+Also absent, and smaller: **multi-person switches** (every trade is between
+exactly two residents), and **travel time between sites** (two non-overlapping
+shifts at two hospitals an hour apart is a real problem and nothing in the
+configuration records the hour).
 
 **For onboarding the first real program** (a human sequence, not a session's):
 **Admin → Program settings** → **Admin → Services** → **Admin → Users & roles →
@@ -601,6 +619,25 @@ migration `0005`.
   commands and a three-gate production interlock; the `ScheduleSource` seam so
   MedHub can become a source later without touching the scheduling model; and
   shift editing extended to move a shift in time.
+- **The scheduler** — sites, service configuration, coverage requirements,
+  cohorts, configurable block years, resident scheduling data, a scheduler
+  dashboard, and draft schedules that can be started, edited, diffed and
+  published. Migration `0008_scheduler_foundation.sql`.
+- **The constraint model, the validator and the generator** — 30 constraints in
+  one catalogue (21 hard, 9 soft), evaluated purely over a snapshot, with a
+  deterministic per-objective score; and a seeded, time-bounded generator that
+  the validator grades and that explains what would have to give when no
+  schedule fits. No migration.
+- **The operational workflow** — structured availability
+  (`resident_absences`) that merges into the constraint model rather than
+  duplicating it; persisted locks that survive a regeneration; an approval step
+  before publication, behind its own `schedule.publish` capability; a grid with
+  filters, bulk edits, a coverage heat map, an unfilled queue and undo;
+  publication that notifies everybody with a shift in the window; a trade
+  coverage check that asks the constraint model rather than the rules engine;
+  and corrections to a published schedule with a reason, an impact report and a
+  visible record. Migration `0009_schedule_operations.sql`.
+  See `docs/SCHEDULE_OPERATIONS.md`.
 
 ## Demo data
 

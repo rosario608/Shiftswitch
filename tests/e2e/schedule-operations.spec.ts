@@ -31,28 +31,48 @@ test("a resident records time away, and cannot confirm it themselves", async ({
 
   /* Recorded, and **requested** rather than confirmed. A resident who could
      confirm their own absence could invalidate the programme's schedule
-     unilaterally. */
-  await expect(page.getByText("Conference")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("Requested")).toBeVisible();
-  await expect(page.getByText("Confirmed")).toHaveCount(0);
+     unilaterally. The dates rather than the kind, because "Conference" is also
+     the name of an option in the picker above. */
+  await expect(page.getByText("Mon, Mar 1 – Wed, Mar 3")).toBeVisible({ timeout: 20_000 });
+  /* `exact` on both: Playwright's default is a case-insensitive substring, and
+     the explanatory copy on this screen says "once confirmed the schedule will
+     not put you on a shift". The badge is the assertion, not the prose. */
+  await expect(page.getByText("Requested", { exact: true })).toBeVisible();
+  await expect(page.getByText("Confirmed", { exact: true })).toHaveCount(0);
 
   // And no way to confirm it: the control is not rendered, not merely disabled.
   await expect(page.getByRole("button", { name: /^confirm$/i })).toHaveCount(0);
 });
 
-test("a chief confirms an absence, and it binds the schedule", async ({ page }) => {
+test("a chief confirms an absence, and only they can", async ({ page }) => {
   await signIn(page, ACCOUNTS.chief);
   await page.goto("/admin/availability");
 
   await expect(page.getByRole("heading", { level: 1, name: "Availability" })).toBeVisible();
 
-  /* The demo seeds three absences in all three states, so there is something
-     to confirm without this test having to create one first. */
-  const requested = page.getByText("Requested").first();
-  await expect(requested).toBeVisible();
+  /* Recorded here as a request, so the confirm step has something to act on
+     without depending on what another test left behind. */
+  await page.getByRole("button", { name: /^add$/i }).click();
+  const sheet = page.getByRole("dialog");
+  await sheet.getByLabel("What").selectOption({ label: "Conference" });
+  await sheet.getByLabel("First day").fill("2029-06-04");
+  await sheet.getByLabel("Last day").fill("2029-06-06");
+  await sheet.getByRole("button", { name: /^record$/i }).click();
+
+  await expect(page.getByText("Requested", { exact: true }).first()).toBeVisible({
+    timeout: 20_000,
+  });
 
   await page.getByRole("button", { name: /^confirm$/i }).first().click();
-  await expect(page.getByText("Confirmed").first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Confirmed", { exact: true }).first()).toBeVisible({
+    timeout: 20_000,
+  });
+
+  // And it can be taken back the same way.
+  await page.getByRole("button", { name: /^unconfirm$/i }).first().click();
+  await expect(page.getByText("Requested", { exact: true }).first()).toBeVisible({
+    timeout: 20_000,
+  });
 });
 
 test("a chief reaches the grid, and it shows coverage rather than a table", async ({
@@ -159,11 +179,22 @@ test("a chief corrects a published shift and the record says why", async ({ page
   const submit = sheet.getByRole("button", { name: /correct this shift/i });
   await expect(submit).toBeDisabled();
 
+  /* Somebody who is not already on it. The domain refuses "correcting" a shift
+     to its current holder, which is right — that is not a correction — so the
+     test has to read who holds it and choose somebody else, exactly as a
+     person would. */
+  const current = (await sheet.getByText(/^currently /i).textContent())!;
   const options = await sheet.getByLabel("Who works it now").locator("option").all();
-  const replacement = options[1];
-  await sheet
-    .getByLabel("Who works it now")
-    .selectOption({ label: (await replacement.textContent())! });
+  let chosen: string | null = null;
+  for (const option of options) {
+    const label = (await option.textContent())!.trim();
+    if (label === "Nobody") continue;
+    if (current.includes(label.split(" · ")[0])) continue;
+    chosen = label;
+    break;
+  }
+  expect(chosen, "somebody other than the current holder").not.toBeNull();
+  await sheet.getByLabel("Who works it now").selectOption({ label: chosen! });
   await sheet.getByLabel("Why").fill("Sick leave from Monday; covering the gap.");
   await expect(submit).toBeEnabled();
   await submit.click();

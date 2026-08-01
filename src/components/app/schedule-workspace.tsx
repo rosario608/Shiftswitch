@@ -207,7 +207,7 @@ export function ScheduleWorkspace({ initial }: { initial: WorkspaceData }) {
     return result;
   });
 
-  const lock = useAction(async (unlock: unknown) => {
+  const lock = useAction(async () => {
     /* Locks are per resident here rather than per shift: a scheduler who has
        settled somebody's month means "leave this person alone", and locking
        forty shifts one at a time is not the same instruction. */
@@ -219,23 +219,24 @@ export function ScheduleWorkspace({ initial }: { initial: WorkspaceData }) {
       ),
     ];
     for (const residentId of residentIds) {
-      if (unlock) {
-        const existing = data.locks.find(
-          (entry) => entry.kind === "resident" && entry.target_label !== null,
-        );
-        if (existing) {
-          await apiFetch(`/api/admin/schedule-versions/${data.versionId}/locks`, {
-            method: "DELETE",
-            body: JSON.stringify({ lockId: existing.id }),
-          });
-        }
-      } else {
-        await apiFetch(`/api/admin/schedule-versions/${data.versionId}/locks`, {
-          method: "POST",
-          body: JSON.stringify({ kind: "resident", targetId: residentId }),
-        });
-      }
+      await apiFetch(`/api/admin/schedule-versions/${data.versionId}/locks`, {
+        method: "POST",
+        body: JSON.stringify({ kind: "resident", targetId: residentId }),
+      });
     }
+    await reload();
+    router.refresh();
+  });
+
+  /* Unlocking is done from the list of locks rather than from the grid,
+     because that is where somebody can see *what* they are unlocking. Undoing
+     it from a selection would mean guessing which of the five kinds put the
+     padlock on a cell. */
+  const unlock = useAction(async (lockId: unknown) => {
+    await apiFetch(`/api/admin/schedule-versions/${data.versionId}/locks`, {
+      method: "DELETE",
+      body: JSON.stringify({ lockId: lockId as string }),
+    });
     await reload();
     router.refresh();
   });
@@ -295,6 +296,7 @@ export function ScheduleWorkspace({ initial }: { initial: WorkspaceData }) {
 
       {assign.error ? <Alert tone="error">{assign.error}</Alert> : null}
       {lock.error ? <Alert tone="error">{lock.error}</Alert> : null}
+      {unlock.error ? <Alert tone="error">{unlock.error}</Alert> : null}
       {undo.error ? <Alert tone="error">{undo.error}</Alert> : null}
 
       {selected.size > 0 && data.editable ? (
@@ -303,7 +305,17 @@ export function ScheduleWorkspace({ initial }: { initial: WorkspaceData }) {
           residents={data.residents}
           pending={assign.pending || lock.pending}
           onAssign={(residentId) => assign.run(residentId)}
-          onLock={() => lock.run(false)}
+          onLock={() => lock.run()}
+        />
+      ) : null}
+
+      {data.editable ? (
+        <RepeatPattern
+          versionId={data.versionId!}
+          onDone={async () => {
+            await reload();
+            router.refresh();
+          }}
         />
       ) : null}
 
@@ -331,13 +343,32 @@ export function ScheduleWorkspace({ initial }: { initial: WorkspaceData }) {
         ) : (
           <ul className="divide-y divide-border-base">
             {data.locks.map((entry) => (
-              <li key={entry.id} className="px-4 py-2.5 text-sm">
-                <span className="font-medium text-ink">
-                  {entry.target_label ?? entry.target_date ?? "—"}
-                </span>{" "}
-                <span className="text-ink-muted">({entry.kind})</span>
-                {entry.reason ? (
-                  <span className="mt-0.5 block text-ink-muted">{entry.reason}</span>
+              <li
+                key={entry.id}
+                className="flex items-start justify-between gap-2 px-4 py-2.5 text-sm"
+              >
+                <div className="min-w-0">
+                  <span className="font-medium text-ink">
+                    {/* An empty label means the target is gone. Said, not
+                        hidden: a lock that quietly stopped applying is how a
+                        scheduler loses the placement they were most careful
+                        about. */}
+                    {entry.target_label || entry.target_date || "No longer exists"}
+                  </span>{" "}
+                  <span className="text-ink-muted">({entry.kind})</span>
+                  {entry.reason ? (
+                    <span className="mt-0.5 block text-ink-muted">{entry.reason}</span>
+                  ) : null}
+                </div>
+                {data.editable ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={unlock.pending}
+                    onClick={() => unlock.run(entry.id)}
+                  >
+                    Unlock
+                  </Button>
                 ) : null}
               </li>
             ))}
@@ -603,6 +634,116 @@ function SelectionBar({
   );
 }
 
+/**
+ * Copy a week onto another week.
+ *
+ * The single most common thing a scheduler does by hand, and the one where a
+ * mistyped date does the most damage — so the control says, before it is used,
+ * exactly what the operation will and will not do. It writes only where the
+ * destination already has a shift on the same service at the same time of day;
+ * it never creates one and never deletes one.
+ */
+function RepeatPattern({
+  versionId,
+  onDone,
+}: {
+  versionId: string;
+  onDone: () => Promise<void>;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [from, setFrom] = React.useState("");
+  const [onto, setOnto] = React.useState("");
+  const [days, setDays] = React.useState(7);
+  const [result, setResult] = React.useState<string | null>(null);
+
+  const repeat = useAction(
+    async () => {
+      const response = await apiFetch<{ changed: number }>(
+        `/api/admin/schedule-versions/${versionId}/bulk`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            action: "repeat",
+            sourceStart: from,
+            targetStart: onto,
+            days,
+          }),
+        },
+      );
+      setResult(
+        `Copied onto ${response.changed} shift${response.changed === 1 ? "" : "s"}.`,
+      );
+      await onDone();
+      return response;
+    },
+  );
+
+  if (!open) {
+    return (
+      <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>
+        Repeat a week
+      </Button>
+    );
+  }
+
+  return (
+    <Card className="space-y-3 p-4">
+      <div>
+        <h3 className="font-semibold text-ink">Repeat a week</h3>
+        <p className="mt-0.5 text-sm text-ink-muted">
+          Copies who is on what from one stretch of days onto another. It writes
+          only where the destination already has a shift on the same service at
+          the same time — it never creates a shift and never deletes one.
+        </p>
+      </div>
+
+      {repeat.error ? <Alert tone="error">{repeat.error}</Alert> : null}
+      {result ? <Alert tone="success">{result}</Alert> : null}
+
+      <div className="grid grid-cols-3 gap-2">
+        <div>
+          <Label htmlFor="repeat-from">Copy from</Label>
+          <Input
+            id="repeat-from"
+            type="date"
+            value={from}
+            onChange={(event) => setFrom(event.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="repeat-onto">Onto</Label>
+          <Input
+            id="repeat-onto"
+            type="date"
+            value={onto}
+            onChange={(event) => setOnto(event.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="repeat-days">Days</Label>
+          <Input
+            id="repeat-days"
+            type="number"
+            min={1}
+            max={31}
+            value={days}
+            onChange={(event) => setDays(Number(event.target.value) || 7)}
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button disabled={repeat.pending || !from || !onto} onClick={() => repeat.run()}>
+          {repeat.pending ? "Copying…" : "Copy"}
+        </Button>
+        <Button variant="ghost" onClick={() => setOpen(false)}>
+          Close
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 const CELL_TONE: Record<CellState, string> = {
   /* Deliberately not red/amber/green alone: colour is the fast signal and the
      number underneath is the actual answer, so somebody who cannot distinguish
@@ -644,6 +785,14 @@ function GridView({
         description="This period has no shifts and no coverage requirements yet."
       />
     );
+  }
+
+  /* A filter that hides everything has to say so here too. The grid dims what
+     is filtered out rather than removing it — the coverage numbers stay honest
+     that way — but a whole grid of dimmed cells reads as a broken page, and
+     the other two views already answer this. */
+  if (data.shifts.length > 0 && visibleIds.size === 0) {
+    return <EmptyState title="Nothing matches" description="No shifts match these filters." />;
   }
 
   return (

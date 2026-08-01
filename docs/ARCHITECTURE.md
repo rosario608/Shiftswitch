@@ -45,6 +45,32 @@ Business rules never live in components. The domain layer never reads cookies.
 | `rules`              | Configurable program rules |
 | `audit_logs`         | Append-only record of every meaningful change |
 
+### Scheduling (`0008`, `0009`)
+
+| Table | Purpose |
+| ----- | ------- |
+| `sites` | Where a service happens. Credentialing is per site |
+| `coverage_requirements` | How many people a service needs, by weekday, period or named date |
+| `block_structures`, `blocks` | The programme's year. Blocks carry explicit dates, not a length and an offset |
+| `cohorts`, `cohort_members`, `cohort_block_assignments` | Who moves through the year together, and what they do in each block |
+| `resident_block_overrides` | One person doing something other than their cohort, with a reason |
+| `resident_site_eligibility` | Which sites a resident may work |
+| `schedule_versions` | A draft, and the record of its approval and publication |
+| `schedule_version_locks` | What regeneration must not touch |
+| `resident_absences` | Vacation, leave, conferences, electives, restrictions — a range, a kind, a hardness |
+| `schedule_corrections` | Deliberate departures from what was published, with the reason and the impact |
+
+Two columns on `shifts` carry the whole draft/published distinction, and they
+mean different things. **`schedule_version_id` is null for a live shift** —
+null *is* what published means, which is why `0008` needed no backfill and why
+every pre-existing query kept its meaning. `published_version_id` is set on
+publication and never cleared: it answers "which publication is this shift part
+of", which the first column cannot, and without it "what did we publish, and
+what has changed since" has no answer.
+
+A database trigger refuses a trade request against a versioned shift. A query
+filter is something a future query can forget.
+
 ### Why `shift_assignments` rather than a `resident_id` on `shifts`
 
 A shift's holder changes over time and the history matters. Assignments are

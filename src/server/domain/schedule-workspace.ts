@@ -302,7 +302,14 @@ export async function loadWorkspace(
     versionId,
     editable,
     period,
-    dates: [...new Set(cells.map((cell) => cell.date))].sort(),
+    /* Every day that has *either* a coverage requirement or a shift on it.
+       Taking only the requirement days emptied the grid entirely for a
+       programme that has shifts and has not configured coverage yet — which is
+       every programme on its first day, and exactly when somebody most needs to
+       see what they have. */
+    dates: [
+      ...new Set([...cells.map((cell) => cell.date), ...shifts.map((shift) => shift.date)]),
+    ].sort(),
     shifts,
     cells,
     services: snapshot.services
