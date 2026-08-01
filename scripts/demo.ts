@@ -138,6 +138,7 @@ async function main() {
   Exceptions      ${result.blockOverrides}  one resident off their cohort's block, with a reason
   Draft schedule  ${result.draftShifts} shifts  waiting to be diffed and published
   Phone numbers   ${result.phones}  validated, readable only with residents.contact_info
+  Availability    ${result.absences}  one confirmed and clear of the schedule, one confirmed over a shift, one requested
 
   Administrator   ${admin.email}
   Chief resident  ${chief.email}

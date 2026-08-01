@@ -1,10 +1,12 @@
 import { query } from "@/server/db/pool";
 import type { RuleRow } from "@/server/db/types";
+import { ABSENCE_KIND_LABEL, listAbsences } from "@/server/domain/availability";
 import { listBlockStructures, listBlocks } from "@/server/domain/blocks";
 import { listBlockAssignments, listResidentOverrides } from "@/server/domain/cohorts";
 import { listCoverage } from "@/server/domain/coverage";
 import { localDateString } from "@/server/domain/time";
 import type {
+  ScheduleAbsence,
   ScheduleAssignment,
   ScheduleResident,
   ScheduleService,
@@ -144,6 +146,7 @@ export async function loadScheduleSnapshot(
     rules,
     structures,
     eligibility,
+    absences,
   ] = await Promise.all([
     loadAssignments(program.id, options.period, versionId),
     query<ResidentRow>(
@@ -177,6 +180,10 @@ export async function loadScheduleSnapshot(
         WHERE r.program_id = $1`,
       [program.id],
     ),
+    /* Overlapping the window, not contained by it: a fortnight of leave that
+       started before the period still means the first three days of it are
+       unavailable. */
+    listAbsences(program.id, { from: options.period.start, to: options.period.end }),
   ]);
 
   /* The current structure only. A programme mid-way through building next
@@ -190,6 +197,20 @@ export async function loadScheduleSnapshot(
         listResidentOverrides(program.id, structure.id),
       ])
     : [[], [], []];
+
+  const absencesByResident = new Map<string, ScheduleAbsence[]>();
+  for (const row of absences) {
+    const list = absencesByResident.get(row.resident_id) ?? [];
+    list.push({
+      id: row.id,
+      kind: row.kind,
+      label: ABSENCE_KIND_LABEL[row.kind],
+      startDate: row.start_date,
+      endDate: row.end_date,
+      hard: row.hard,
+    });
+    absencesByResident.set(row.resident_id, list);
+  }
 
   const eligibilityByResident = new Map<string, Record<string, boolean>>();
   for (const row of eligibility) {
@@ -223,6 +244,7 @@ export async function loadScheduleSnapshot(
         siteEligibility: eligibilityByResident.get(row.id) ?? {},
         constraints: row.constraints ?? {},
         preferences: row.preferences ?? {},
+        absences: absencesByResident.get(row.id) ?? [],
       }),
     ),
     services: services.map(

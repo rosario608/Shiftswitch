@@ -30,9 +30,10 @@ export function ensureMigrated(): void {
 export async function resetDatabase(): Promise<void> {
   await query(`
     TRUNCATE audit_logs, email_records, notifications, trade_legs, completed_trades,
-             trade_offers, trade_requests, shift_assignments, shifts, rules,
-             program_contacts, residents, sessions, invitations, users, services,
-             rotations, programs
+             trade_offers, trade_requests, schedule_corrections, resident_absences,
+             schedule_version_locks, shift_assignments, shifts, schedule_versions,
+             rules, program_contacts, residents, sessions, invitations, users,
+             services, rotations, programs
     RESTART IDENTITY CASCADE
   `);
 }

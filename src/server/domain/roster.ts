@@ -1,5 +1,6 @@
 import { query, queryOne, withTransaction } from "@/server/db/pool";
 import type { AuthedContext } from "@/server/auth/guards";
+import type { UserRole } from "@/server/db/types";
 import { can } from "@/server/auth/roles";
 import { notFound, validationFailed } from "@/server/http/errors";
 import { recordAudit } from "./audit";
@@ -113,6 +114,80 @@ export async function listRoster(context: AuthedContext): Promise<RosterResident
       WHERE r.program_id = $1
       ORDER BY r.pgy_level, u.full_name`,
     [context.program.id],
+  );
+}
+
+export interface DirectoryEntry {
+  id: string;
+  user_id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  pgy_level: number | null;
+  active: boolean;
+  /** Null unless the caller holds `residents.contact_info`. */
+  phone: string | null;
+  /** The service they are on at `now`, if any. */
+  on_now: string | null;
+  /** Their next shift after `now`, as a service name and instant. */
+  next_service: string | null;
+  next_start: Date | null;
+}
+
+/**
+ * The directory: how to reach somebody, and whether they are on.
+ *
+ * Distinct from the roster, which is about scheduling a person, because the
+ * question here arrives at two in the morning and has one shape: *somebody has
+ * called in sick, who do I ring*. So it leads with who is on **right now**, and
+ * every number is a `tel:` link rather than text to be copied — on a phone,
+ * copying a number out of a table is four taps and a mistake.
+ *
+ * Includes program leadership as well as residents, because the person a chief
+ * needs at 2am is sometimes the PD. Somebody with no resident record has no PGY
+ * and no shifts, which is exactly how they render.
+ *
+ * `phone` is selected only with `residents.contact_info`, in the query, for the
+ * same reason as `listRoster`: a payload that never contained the number cannot
+ * leak it. Everything else here — a name, a role, whether somebody is on shift —
+ * is already visible to anybody who can reach this screen.
+ */
+export async function listDirectory(
+  context: AuthedContext,
+  now: Date = new Date(),
+): Promise<DirectoryEntry[]> {
+  const phone = can(context.user.role, "residents.contact_info")
+    ? "r.phone"
+    : "NULL::text";
+
+  return query<DirectoryEntry>(
+    `SELECT r.id, u.id AS user_id, u.full_name AS name, u.email, u.role,
+            r.pgy_level, u.active, ${phone} AS phone,
+            (SELECT sv.name FROM shifts s
+               JOIN services sv ON sv.id = s.service_id
+               JOIN shift_assignments a
+                 ON a.shift_id = s.id AND a.assignment_status = 'active'
+              WHERE a.resident_id = r.id AND s.schedule_version_id IS NULL
+                AND s.status <> 'cancelled'
+                AND s.start_datetime <= $2 AND s.end_datetime > $2
+              ORDER BY s.start_datetime LIMIT 1) AS on_now,
+            n.service_name AS next_service,
+            n.start_datetime AS next_start
+       FROM users u
+       LEFT JOIN residents r ON r.user_id = u.id AND r.program_id = u.program_id
+       LEFT JOIN LATERAL (
+         SELECT sv.name AS service_name, s.start_datetime
+           FROM shifts s
+           JOIN services sv ON sv.id = s.service_id
+           JOIN shift_assignments a
+             ON a.shift_id = s.id AND a.assignment_status = 'active'
+          WHERE a.resident_id = r.id AND s.schedule_version_id IS NULL
+            AND s.status <> 'cancelled' AND s.start_datetime > $2
+          ORDER BY s.start_datetime LIMIT 1
+       ) n ON true
+      WHERE u.program_id = $1 AND u.active = true
+      ORDER BY u.full_name`,
+    [context.program.id, now],
   );
 }
 

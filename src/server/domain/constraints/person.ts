@@ -1,4 +1,4 @@
-import type { ScheduleResident } from "./types";
+import type { ScheduleAbsence, ScheduleResident } from "./types";
 
 /**
  * The shape of `residents.constraints` and `residents.preferences`.
@@ -45,6 +45,56 @@ export interface SoftPersonPreferences {
   preferredShiftType: "day" | "night" | null;
 }
 
+/**
+ * The dates an absence covers, inclusive of both ends.
+ *
+ * Pure string arithmetic on ISO dates rather than anything involving a Date,
+ * because these are **labels in the programme's calendar**, not instants. Going
+ * through UTC to add a day is how "the 1st to the 31st" becomes "the 31st of
+ * August to the 30th of September" for a programme west of Greenwich.
+ *
+ * Bounded at a year: a range longer than that is somebody having typed 2026
+ * where they meant 2016, and expanding it produces nothing useful at
+ * considerable cost.
+ */
+const MAX_ABSENCE_DAYS = 400;
+
+export function expandAbsence(absence: ScheduleAbsence): string[] {
+  const dates: string[] = [];
+  let cursor = absence.startDate;
+  while (cursor <= absence.endDate && dates.length < MAX_ABSENCE_DAYS) {
+    dates.push(cursor);
+    cursor = nextIsoDate(cursor);
+  }
+  return dates;
+}
+
+function nextIsoDate(iso: string): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  const next = new Date(Date.UTC(year, month - 1, day + 1));
+  return next.toISOString().slice(0, 10);
+}
+
+/**
+ * The absence covering a date, if there is one — so a message can say *why*
+ * somebody is unavailable rather than merely that they are.
+ *
+ * "Priya Raman is on vacation on Mon, Aug 10 and is scheduled for MICU" is a
+ * sentence a chief can act on. "…is recorded as unavailable" makes them go and
+ * look it up.
+ */
+export function absenceOn(
+  resident: ScheduleResident,
+  iso: string,
+  kind: "hard" | "soft",
+): ScheduleAbsence | null {
+  for (const absence of resident.absences ?? []) {
+    if (absence.hard !== (kind === "hard")) continue;
+    if (absence.startDate <= iso && iso <= absence.endDate) return absence;
+  }
+  return null;
+}
+
 function stringList(source: Record<string, unknown>, key: string): string[] {
   const value = source[key];
   if (!Array.isArray(value)) return [];
@@ -59,11 +109,31 @@ function weekdayList(source: Record<string, unknown>, key: string): number[] {
   );
 }
 
+/**
+ * Merged, and the merge is the point.
+ *
+ * `resident_absences` is the structured way to record that somebody is away —
+ * a range, with a kind, entered once. The jsonb keys are the unstructured way,
+ * and an import or an older programme may still be the only thing writing them.
+ * Both mean the same thing to a schedule, so both arrive as one list and every
+ * constraint, every generator check and every test that already read
+ * `unavailableDates` picked up structured availability without changing a line.
+ *
+ * That is deliberate: a second constraint for absences would mean a schedule
+ * putting somebody on a service during their leave was wrong in a *different*
+ * way depending on which screen recorded it, and a chief would have to learn
+ * two names for one problem.
+ */
 export function hardConstraintsOf(resident: ScheduleResident): HardPersonConstraints {
   const source = resident.constraints ?? {};
+  const fromAbsences = (resident.absences ?? [])
+    .filter((absence) => absence.hard)
+    .flatMap(expandAbsence);
   return {
     unavailableWeekdays: weekdayList(source, "unavailableWeekdays"),
-    unavailableDates: stringList(source, "unavailableDates"),
+    unavailableDates: [
+      ...new Set([...stringList(source, "unavailableDates"), ...fromAbsences]),
+    ],
     excludedServiceIds: stringList(source, "excludedServiceIds"),
     excludedSiteIds: stringList(source, "excludedSiteIds"),
   };
@@ -72,10 +142,15 @@ export function hardConstraintsOf(resident: ScheduleResident): HardPersonConstra
 export function preferencesOf(resident: ScheduleResident): SoftPersonPreferences {
   const source = resident.preferences ?? {};
   const shiftType = source.preferredShiftType;
+  const fromAbsences = (resident.absences ?? [])
+    .filter((absence) => !absence.hard)
+    .flatMap(expandAbsence);
   return {
     preferredServiceIds: stringList(source, "preferredServiceIds"),
     avoidServiceIds: stringList(source, "avoidServiceIds"),
-    requestedDaysOff: stringList(source, "requestedDaysOff"),
+    requestedDaysOff: [
+      ...new Set([...stringList(source, "requestedDaysOff"), ...fromAbsences]),
+    ],
     preferredShiftType:
       shiftType === "day" || shiftType === "night" ? shiftType : null,
   };

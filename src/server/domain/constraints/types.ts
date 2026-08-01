@@ -82,6 +82,24 @@ export interface ScheduleAssignment {
 }
 
 /**
+ * A recorded absence: a range, a kind, and whether it is binding.
+ *
+ * Structured availability as the constraint model sees it. `person.ts` merges
+ * these into the same lists the jsonb columns feed, so no constraint reads this
+ * type directly except to say *why* somebody is unavailable in a message.
+ */
+export interface ScheduleAbsence {
+  id: string;
+  kind: string;
+  /** How it reads in a sentence: "on vacation", "at a conference". */
+  label: string;
+  /** Inclusive ISO dates in the program's timezone. */
+  startDate: string;
+  endDate: string;
+  hard: boolean;
+}
+
+/**
  * Per-person facts a schedule has to respect.
  *
  * `constraints` and `preferences` are the two jsonb columns on `residents`.
@@ -109,6 +127,12 @@ export interface ScheduleResident {
   siteEligibility: Record<string, boolean>;
   constraints: Record<string, unknown>;
   preferences: Record<string, unknown>;
+  /**
+   * Absences overlapping the period under test. Optional so that a fixture
+   * built by hand — and every test written before structured availability
+   * existed — stays valid.
+   */
+  absences?: ScheduleAbsence[];
 }
 
 export interface ScheduleService {

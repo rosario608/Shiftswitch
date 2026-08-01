@@ -1,6 +1,6 @@
 import { effectiveMinimum, requirementsFor } from "@/server/domain/coverage";
 import { zonedWallTimeToInstant } from "@/server/domain/time";
-import { hardConstraintsOf } from "./person";
+import { absenceOn, hardConstraintsOf } from "./person";
 import { runRuleType, type RuleVerdict } from "./rule-bridge";
 import {
   assignmentDate,
@@ -340,13 +340,26 @@ const personalUnavailability: Constraint = {
       const date = assignmentDate(a, snapshot.program.timezone);
 
       if (personal.unavailableDates.includes(date)) {
+        /* Named where the unavailability came from a structured absence, so
+           the sentence says *why* — "is on vacation" rather than "is recorded
+           as unavailable", which sends the reader off to find out. Falls back
+           to the general wording for the jsonb list, which carries no reason
+           to give. */
+        const absence = absenceOn(resident, date, "hard");
+        const because = absence
+          ? `is on ${absence.label.toLowerCase()}${
+              absence.startDate === absence.endDate
+                ? ""
+                : ` from ${dayFromIso(absence.startDate)} to ${dayFromIso(absence.endDate)}`
+            }`
+          : "is recorded as unavailable";
         return [
           violation({
             constraintId: "personal-unavailability",
             kind: "hard",
             topic: "availability",
             label: "Recorded unavailability",
-            message: `${resident.name} is recorded as unavailable on ${day(a.start, snapshot.program.timezone)} and is scheduled for ${a.serviceName}.`,
+            message: `${resident.name} ${because} and is scheduled for ${a.serviceName} on ${day(a.start, snapshot.program.timezone)}.`,
             residentIds: [resident.id],
             serviceIds: [a.serviceId],
             shiftIds: [a.shiftId],

@@ -1,7 +1,8 @@
 import { query, queryOne, withTransaction } from "@/server/db/pool";
 import type { ProgramRow, ResidentRow, UserRow } from "@/server/db/types";
 import type { AuthedContext } from "@/server/auth/guards";
-import { zonedWallTimeToInstant } from "@/server/domain/time";
+import { addLocalDays, zonedWallTimeToInstant } from "@/server/domain/time";
+import { createAbsence, type AbsenceKind } from "@/server/domain/availability";
 import { postShiftForTrade } from "@/server/domain/trades";
 import { createInvitation, revokeInvitation } from "@/server/domain/invitations";
 import {
@@ -53,6 +54,7 @@ export interface SeedResult {
   blocks: number;
   draftShifts: number;
   phones: number;
+  absences: number;
   notifications: number;
   /** Plan ref -> shift id, so tests and tooling can address one exact shift. */
   shiftRefs: Record<string, string>;
@@ -664,6 +666,70 @@ export async function seedDemoProgram(
     }
   }
 
+  /* Structured availability, in all three of the states it comes in: a
+     confirmed absence the validator enforces, a request nobody has agreed to
+     yet, and a long leave that explains a resident who is off the roster. A
+     demo whose availability screen is empty teaches nothing about the one
+     distinction that matters — confirmed binds a schedule, requested does not. */
+  let absences = 0;
+  const AWAY: Array<{
+    key: string;
+    kind: AbsenceKind;
+    fromDay: number;
+    toDay: number;
+    hard: boolean;
+    notes: string;
+  }> = [
+    {
+      /* One day, over a shift Mbeki actually works, so the report carries a
+         line a reader can act on: the person, the day, the service, the
+         reason. Deliberately *not* given to Varga, whose leave is already
+         expressed by `schedulable = false` — recording it twice would report
+         her nine shifts twice and teach a chief to skim the report. */
+      key: "mbeki",
+      kind: "vacation",
+      fromDay: 16,
+      toDay: 16,
+      hard: true,
+      notes: "Approved before the block was built.",
+    },
+    {
+      /* After the seeded weeks end, so it demonstrates the enforced kind
+         without colliding with a schedule that already exists. This is what a
+         scheduler sees when they generate the *next* block. */
+      key: "lindqvist",
+      kind: "vacation",
+      fromDay: 35,
+      toDay: 41,
+      hard: true,
+      notes: "Approved annual leave.",
+    },
+    {
+      /* Deliberately over days Okonkwo works. Soft, so the schedule stays
+         valid and the conflict appears as a preference the schedule did not
+         honour — which is the whole distinction, shown rather than described. */
+      key: "okonkwo",
+      kind: "conference",
+      fromDay: 9,
+      toDay: 11,
+      hard: false,
+      notes: "Abstract accepted — not yet confirmed by the program.",
+    },
+  ];
+  for (const away of AWAY) {
+    const resident = residents.get(away.key);
+    if (!resident) continue;
+    await createAbsence(chiefContext, {
+      residentId: resident.id,
+      kind: away.kind,
+      startDate: addLocalDays(anchor, away.fromDay),
+      endDate: addLocalDays(anchor, away.toDay),
+      hard: away.hard,
+      notes: away.notes,
+    });
+    absences += 1;
+  }
+
   /* A draft schedule over the coming fortnight, copied from the live one, so
      the diff has something to show and "publish" is not an empty gesture. */
   const draftStart = anchor;
@@ -700,6 +766,7 @@ export async function seedDemoProgram(
     blocks: blockRows.length,
     draftShifts: draft.shift_count,
     phones,
+    absences,
     notifications: Number(
       (
         await queryOne<{ count: string }>(

@@ -132,6 +132,57 @@ const CASES: Case[] = [
   },
   {
     id: "personal-unavailability",
+    name: "a structured absence covering a day somebody is scheduled",
+    build: () => {
+      const snapshot = baseSnapshot();
+      /* The same violation as the jsonb list above, on purpose. Structured
+         availability is a better way to *enter* the fact, not a second kind of
+         fact, and a schedule that ignores it must be wrong in exactly one way
+         however it was recorded. */
+      snapshot.residents.find((r) => r.id === IDS.alice)!.absences = [
+        {
+          id: "absence-1",
+          kind: "vacation",
+          label: "Vacation",
+          startDate: "2026-08-01",
+          endDate: "2026-08-05",
+          hard: true,
+        },
+      ];
+      return snapshot;
+    },
+    expect: ["personal-unavailability"],
+    count: 2, // Alice works Monday the 3rd and Wednesday the 5th.
+  },
+  {
+    /* Filed under the constraint it actually reports. That it is *not*
+       `personal-unavailability` is the assertion: an unconfirmed absence must
+       not be able to make a schedule invalid. */
+    id: "stated-preferences",
+    name: "an unconfirmed absence does not invalidate the schedule",
+    build: () => {
+      const snapshot = baseSnapshot();
+      /* Soft, so it is scored and never enforced — a resident recording a
+         request must not be able to make the programme's schedule invalid.
+         It surfaces as `stated-preferences` instead, which is the soft
+         objective that already carries requested days off. */
+      snapshot.residents.find((r) => r.id === IDS.alice)!.absences = [
+        {
+          id: "absence-2",
+          kind: "conference",
+          label: "Conference",
+          startDate: "2026-08-03",
+          endDate: "2026-08-03",
+          hard: false,
+        },
+      ];
+      return snapshot;
+    },
+    expect: ["stated-preferences"],
+    count: 1,
+  },
+  {
+    id: "personal-unavailability",
     name: "a weekday somebody cannot work",
     build: () => {
       const snapshot = baseSnapshot();
