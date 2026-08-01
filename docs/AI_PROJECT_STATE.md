@@ -95,9 +95,12 @@ without waiting for anybody. An administrator sets up its services from a
 starting configuration whose every guess is marked as one, imports a block that
 names people who have no accounts, and posts a single link. Residents join over
 the following fortnight and find their shifts already there; anybody whose block
-has not been uploaded enters it themselves. What remains is not code — a preview
-database branch, one repository setting, and the institution's roster. See
-**User action required**.
+has not been uploaded enters it themselves. What remains is not code, and is now five
+things rather than a list of guesses: a branch ruleset and a repository secret
+that this machine attempted and was refused, a Neon preview branch and the
+Vercel variable pointing at it, and the institution's roster. See **User action
+required**, and **What this machine can do** for why each is somebody else's to
+finish.
 
 ## Current status
 
@@ -206,13 +209,19 @@ are genuine prerequisites for a pilot.
 
 ## User action required
 
-**Everything in this list was attempted from this machine and refused.** Each
-row says what was tried, what came back, the exact step that finishes it, and
-what stays broken until it does. Nothing that was not attempted is here;
-anything that was done has been deleted rather than left as a claim.
+**Rows 1–5 were attempted from this machine and refused**, and each says what
+came back verbatim, the exact step that finishes it, and what stays broken until
+it does. Anything a session did is deleted from here rather than left as a
+claim, and nothing speculative is here at all.
 
-The audit behind it — what this machine actually holds — is under **What this
-machine can do**, below.
+**Rows 6–10 were not attempted, and could not be.** They are not credentials
+this machine failed to obtain; they are things a machine cannot be — an Apple
+developer identity, a hospital's roster, a decision about a domain name. They
+are listed because the product does not work without them, not because somebody
+guessed they might be needed.
+
+The audit behind the first five — what this machine actually holds — is under
+**What this machine can do**, below.
 
 ### Blocked by the agent proxy
 
@@ -234,7 +243,8 @@ machine can do**, below.
 | # | The artefact | Where it comes from | Until then |
 | --- | --- | --- | --- |
 | 6 | The residents' email addresses, and the block schedule as CSV or XLSX | The institution's roster and scheduling office | Nothing to onboard. `npm run demo:seed` exists so that no development waits on this, and the importer now holds rows for people who have not joined, so the file can arrive before the people do. |
-| 7 | `google-services.json`, `GoogleService-Info.plist`, and `FCM_PROJECT_ID` / `FCM_CLIENT_EMAIL` / `FCM_PRIVATE_KEY` in Vercel Production | Firebase console. The three variables are **secrets**; delete the downloaded file afterwards | Every notification is recorded **skipped** and says so. Nothing is ever claimed as sent. Step by step in `docs/PUSH_SETUP.md`. |
+| 7 | `google-services.json` and `GoogleService-Info.plist` | Firebase console → add an Android app and an iOS app with the exact package name and bundle id. **Both are safe to commit** — they identify the app, they do not authorise sending | Phones never register for notifications at all. |
+| 7b | `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY` in Vercel Production | Firebase → Project settings → Service accounts → Generate new private key, then three fields out of the JSON. **These three are secrets** — delete the downloaded file afterwards and never commit it | Every notification is recorded **skipped** and says so; nothing is ever claimed as sent. Step by step in `docs/PUSH_SETUP.md`. |
 | 8 | An APNs auth key (`.p8`) with its Key ID and Team ID, uploaded to Firebase | Apple Developer → Keys. Needs the paid membership. Apple lets you download the key **once** | iPhone notifications are accepted by Firebase and delivered nowhere. |
 | 9 | A Google Play developer account, an Apple Developer account, and an hour on any Mac with Xcode | $25 once and $99/year respectively, plus identity verification | No store release, and the iOS binary has never been compiled. `docs/IOS_BUILD.md` covers the Mac hour; everything checkable without macOS is already enforced by `npm run verify`. |
 | 10 | A bundle id on a domain the institution controls, replacing `org.shiftswitch.app` | A decision, not a download | **It cannot be changed after the first upload — not renamed, not transferred.** What has to change in lockstep is listed at the end of `docs/IOS_BUILD.md`. |
@@ -1565,7 +1575,7 @@ in the dangerous direction. The hostname is now parsed and compared.
 | First program | **Internal Medicine / DUH / America/New_York** — corrected from the placeholders by the administrator. The timezone governs every shift time, so it is worth a second look before the first import |
 | Administrator | One, the repository owner's Google account: role `admin`, identity linked, first sign-in 31 July 2026 17:29 UTC |
 | Vercel project | `shiftswitch`, team `rosario608-2488s-projects`, builds from `main`, root directory. Preview deployments are SSO-protected; production is not |
-| Database | Neon, PostgreSQL 17.10, region us-east-1. Migrations `0001`–`0007` reported applied as of 31 July 2026 — `0001`–`0006` by the runner, `0007` by hand in the Neon SQL Editor with a matching `schema_migrations` row. `0008` **not applied**; see Current status. Contents when last reported: 1 program, 1 user, 0 residents, 0 services, 0 shifts |
+| Database | Neon, PostgreSQL 17.10, region us-east-1. Migrations `0001`–`0009` applied: `0001`–`0006` by the runner and `0007` by hand on 31 July 2026, then **`0008` and `0009` verified present by query on 1 August 2026**. `0010` and `0011` land when this branch merges — see **Migrations**. Contents when last reported: 1 program, 1 user, 0 residents, 0 services, 0 shifts |
 | Connection pooling | The **pooled** Neon endpoint is safe — verified empirically, see docs/DEPLOYMENT.md |
 
 Secrets are never in the repository. `.env.production`, `key.properties`,
@@ -1937,10 +1947,14 @@ a wrong assertion and a wrong claim. Last run: **12/12**.
   and reaching production is forbidden. Listed first under **User action
   required**.
 - **CI is not yet a *required* check.** It runs on every pull request and
-  reports its verdict, but branch protection is a repository setting rather than
-  a file, so nothing currently stops a red pull request being merged. One
-  five-minute setting, written out step by step in `docs/RUNBOOK.md` and listed
-  fifth under **User action required**.
+  reports its verdict, but nothing stops a red one being merged — and nothing
+  stops a direct push to `main`, which now reaches production having passed
+  nothing at all. **How it gets fixed:** the ruleset is committed as
+  `.github/rulesets/main-pull-request-and-green-ci.json`, so applying it is
+  **Settings → Rules → Rulesets → Import**. Creating it from here was attempted
+  and refused — `POST /rulesets` returns 403, *"Write access to this GitHub API
+  path is not permitted through this proxy"* — and it is row 1 under **User
+  action required**.
 - **A large programme's generated schedule is not reproducible.** The
   improvement search is bounded by iterations, so a run that *finishes* is
   byte-identical on any machine; each iteration re-scores the whole schedule, so

@@ -121,7 +121,12 @@ npx tsx scripts/migrate.ts --reset     # drops and rebuilds, local only
 command run from a session touches the live database — that is what this rule
 protects, and it has not changed. What *has* changed is that applying a
 migration is no longer a person's job either: `.github/workflows/
-apply-migrations.yml` runs on any push to `main` that touches `db/migrations/`.
+apply-migrations.yml` fires when **CI finishes successfully** on the default
+branch — `workflow_run`, not `push`, so the tests are a gate rather than a
+coincidence — and applies whatever the database is missing. It refuses any
+pending migration that would destroy data unless the file says it means to, and
+names what it applied in the job summary. `npm run check:migration-pipeline`
+proves all of that against a scratch database.
 
 The rule used to say applying was a human step, and that had a consequence
 nobody intended: every schema change waited on somebody noticing. The one time
