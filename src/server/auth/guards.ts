@@ -76,6 +76,29 @@ export async function requireCapability(
 }
 
 /**
+ * For a screen that serves two jobs at once.
+ *
+ * The service configuration page is the only place this is currently needed:
+ * it says both *what a service is* (`services.manage`, program leadership) and
+ * *how many people it needs* (`scheduling.plan`, whoever builds the schedule).
+ * Splitting it into two screens would mean a chief configuring coverage and an
+ * APD renaming the service never seeing each other's half, which is how a
+ * service ends up marked as needing coverage with nothing saying how much.
+ *
+ * The refusal names the first capability, because that is the one the screen
+ * is primarily about; the caller is refused only if it holds none of them.
+ */
+export async function requireAnyCapability(
+  capabilities: readonly [Capability, ...Capability[]],
+): Promise<AuthedContext> {
+  const context = await requireUser();
+  if (!capabilities.some((capability) => can(context.user.role, capability))) {
+    throw forbidden(CAPABILITY_REFUSAL[capabilities[0]](context.user.role));
+  }
+  return context;
+}
+
+/**
  * Refusal messages say what the person *is* and what the area is for, because
  * "forbidden" on its own sends people to a help desk. They never reveal
  * anything about the resource being refused.
@@ -86,6 +109,8 @@ const CAPABILITY_REFUSAL: Record<Capability, (role: UserRole) => string> = {
     `Approving switches is for chief residents and program leadership. You are signed in as ${ROLE_LABEL[role]}.`,
   "schedule.manage": (role) =>
     `Managing the schedule is for chief residents and program leadership. You are signed in as ${ROLE_LABEL[role]}.`,
+  "schedule.publish": (role) =>
+    `Approving and publishing a schedule is for chief residents and program leadership. You are signed in as ${ROLE_LABEL[role]}.`,
   "schedule.export_program": () =>
     "Exporting the whole program schedule is for chief residents and program leadership.",
   "analytics.view": () =>
@@ -102,6 +127,10 @@ const CAPABILITY_REFUSAL: Record<Capability, (role: UserRole) => string> = {
   "program.manage": (role) =>
     `The program's settings are changed by the Program Director or an administrator. You are signed in as ${ROLE_LABEL[role]}.`,
   "maintenance.run": () => "Maintenance is limited to program administrators.",
+  "scheduling.plan": (role) =>
+    `Planning cohorts, blocks and coverage is for chief residents and program leadership. You are signed in as ${ROLE_LABEL[role]}.`,
+  "residents.contact_info": () =>
+    "Residents' phone numbers are visible to chief residents and program leadership.",
 };
 
 /**

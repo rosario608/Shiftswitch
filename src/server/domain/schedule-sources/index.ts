@@ -1,9 +1,10 @@
 import { notFound } from "@/server/http/errors";
+import { generatedSource } from "./generated";
 import { spreadsheetSource } from "./spreadsheet";
 import type { ScheduleSource, ScheduleSourceInfo } from "./types";
 
 export * from "./types";
-export { spreadsheetSource };
+export { spreadsheetSource, generatedSource };
 
 /**
  * The registry of schedule sources.
@@ -17,7 +18,10 @@ export { spreadsheetSource };
  * scrapes it, and no MedHub credential is collected or stored anywhere in this
  * repository.
  */
-const SOURCES: ScheduleSource<never>[] = [spreadsheetSource as ScheduleSource<never>];
+const SOURCES: ScheduleSource<never>[] = [
+  spreadsheetSource as ScheduleSource<never>,
+  generatedSource as unknown as ScheduleSource<never>,
+];
 
 export function listScheduleSources(): ScheduleSourceInfo[] {
   return SOURCES.map(({ id, label, description, configured, unavailableReason }) => ({

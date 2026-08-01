@@ -35,6 +35,20 @@ export interface ServiceRecord {
   shift_count: number;
   upcoming_shift_count: number;
   created_at: Date;
+  /* Scheduling configuration. Rotations report the column defaults so the shape
+     is uniform for the UI, without pretending a rotation carries them. */
+  site_id: string | null;
+  site_name: string | null;
+  pgy_min: number;
+  pgy_max: number;
+  typical_shift_hours: number | null;
+  coverage_mandatory: boolean;
+  notes: string;
+  contact_name: string;
+  contact_email: string;
+  contact_phone: string;
+  source_template: string;
+  coverage_count: number;
 }
 
 interface TableSpec {
@@ -52,6 +66,41 @@ function normaliseName(name: string): string {
   return name.trim().replace(/\s+/g, " ");
 }
 
+/**
+ * The scheduling columns, or their defaults for a rotation.
+ *
+ * A rotation is an educational block label, not a place work happens: it has no
+ * site, no staffing and no coverage. Rather than give `rotations` columns that
+ * would always be empty, the query supplies the same shape as literals, so the
+ * screen renders one component for both and nothing has to branch.
+ */
+function configColumns(kind: ServiceKind): {
+  config: string;
+  join: string;
+  coverageCount: string;
+} {
+  if (kind !== "service") {
+    return {
+      config:
+        "NULL::uuid AS site_id, NULL::text AS site_name, 1 AS pgy_min, 10 AS pgy_max, " +
+        "NULL::numeric AS typical_shift_hours, false AS coverage_mandatory, " +
+        "''::text AS notes, ''::text AS contact_name, ''::text AS contact_email, " +
+        "''::text AS contact_phone, ''::text AS source_template",
+      join: "",
+      coverageCount: "0",
+    };
+  }
+  return {
+    config:
+      "t.site_id, site.name AS site_name, t.pgy_min, t.pgy_max, t.typical_shift_hours, " +
+      "t.coverage_mandatory, t.notes, t.contact_name, t.contact_email, t.contact_phone, " +
+      "t.source_template",
+    join: "LEFT JOIN sites site ON site.id = t.site_id",
+    coverageCount:
+      "(SELECT count(*) FROM coverage_requirements c WHERE c.service_id = t.id AND c.active = true)::int",
+  };
+}
+
 export async function listServices(
   programId: string,
   kind: ServiceKind = "service",
@@ -60,15 +109,18 @@ export async function listServices(
   // `tradeable` only exists on services; rotations report true so the shape is
   // uniform for the UI without pretending rotations carry the flag.
   const tradeable = kind === "service" ? "t.tradeable" : "true";
+  const { config, join, coverageCount } = configColumns(kind);
   return query<ServiceRecord>(
     `SELECT t.id, t.name, t.abbreviation, t.active, ${tradeable} AS tradeable,
-            t.created_at,
+            t.created_at, ${config},
             (SELECT count(*) FROM shifts s WHERE s.${spec.shiftColumn} = t.id)::int
               AS shift_count,
             (SELECT count(*) FROM shifts s
               WHERE s.${spec.shiftColumn} = t.id AND s.end_datetime >= now())::int
-              AS upcoming_shift_count
+              AS upcoming_shift_count,
+            ${coverageCount} AS coverage_count
        FROM ${spec.table} t
+      ${join}
       WHERE t.program_id = $1
       ORDER BY t.active DESC, lower(t.name)`,
     [programId],
@@ -170,6 +222,18 @@ export interface ServicePatch {
   abbreviation?: string;
   tradeable?: boolean;
   active?: boolean;
+  /* Scheduling configuration. Services only — passing any of these for a
+     rotation is ignored rather than refused, because the screen sends one
+     shape and a rotation simply has nothing to put in these fields. */
+  siteId?: string | null;
+  pgyMin?: number;
+  pgyMax?: number;
+  typicalShiftHours?: number | null;
+  coverageMandatory?: boolean;
+  notes?: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
 }
 
 export async function updateService(
@@ -241,8 +305,48 @@ export async function updateService(
       patch.active ?? null,
     ];
     if (kind === "service") {
-      sets.push(`tradeable = COALESCE($5, tradeable)`);
-      values.push(patch.tradeable ?? null);
+      if (patch.pgyMin !== undefined && patch.pgyMax !== undefined
+          && patch.pgyMax < patch.pgyMin) {
+        throw validationFailed(
+          `This service would be open to PGY-${patch.pgyMin} through PGY-${patch.pgyMax}, ` +
+            "which is nobody.",
+        );
+      }
+      if (patch.siteId) {
+        const site = await queryOne<{ id: string }>(
+          "SELECT id FROM sites WHERE id = $1 AND program_id = $2",
+          [patch.siteId, context.program.id],
+          client,
+        );
+        if (!site) throw notFound("That site no longer exists.");
+      }
+
+      /* COALESCE throughout, so an absent field means "leave it alone" rather
+         than "set it to null". The screen sends only what it edited. */
+      const push = (column: string, value: unknown) => {
+        values.push(value);
+        sets.push(`${column} = COALESCE($${values.length}, ${column})`);
+      };
+      push("tradeable", patch.tradeable ?? null);
+      push("pgy_min", patch.pgyMin ?? null);
+      push("pgy_max", patch.pgyMax ?? null);
+      push("coverage_mandatory", patch.coverageMandatory ?? null);
+      push("notes", patch.notes ?? null);
+      push("contact_name", patch.contactName ?? null);
+      push("contact_email", patch.contactEmail ?? null);
+      push("contact_phone", patch.contactPhone ?? null);
+
+      /* Two fields where null is a value a scheduler can mean: "no site" and
+         "no typical length". `undefined` still means "unchanged", so these are
+         set unconditionally when present rather than COALESCEd away. */
+      if (patch.siteId !== undefined) {
+        values.push(patch.siteId);
+        sets.push(`site_id = $${values.length}`);
+      }
+      if (patch.typicalShiftHours !== undefined) {
+        values.push(patch.typicalShiftHours);
+        sets.push(`typical_shift_hours = $${values.length}`);
+      }
     }
 
     await query(
@@ -277,15 +381,18 @@ async function readOne(
 ): Promise<ServiceRecord | null> {
   const spec = SPEC[kind];
   const tradeable = kind === "service" ? "t.tradeable" : "true";
+  const { config, join, coverageCount } = configColumns(kind);
   return queryOne<ServiceRecord>(
     `SELECT t.id, t.name, t.abbreviation, t.active, ${tradeable} AS tradeable,
-            t.created_at,
+            t.created_at, ${config},
             (SELECT count(*) FROM shifts s WHERE s.${spec.shiftColumn} = t.id)::int
               AS shift_count,
             (SELECT count(*) FROM shifts s
               WHERE s.${spec.shiftColumn} = t.id AND s.end_datetime >= now())::int
-              AS upcoming_shift_count
+              AS upcoming_shift_count,
+            ${coverageCount} AS coverage_count
        FROM ${spec.table} t
+      ${join}
       WHERE t.program_id = $1 AND t.id = $2`,
     [programId, id],
     client,

@@ -173,8 +173,10 @@ function RuleSheet({
       try {
         parsed = JSON.parse(params || "{}");
       } catch {
+        /* The field below already says this; the thrown message is what the
+           action's own alert shows, so it has to read as a sentence too. */
         setParamsError("Settings must be valid JSON.");
-        throw new Error("invalid json");
+        throw new Error("Settings must be valid JSON.");
       }
       const body = {
         ruleType,

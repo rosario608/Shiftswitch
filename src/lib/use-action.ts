@@ -46,8 +46,15 @@ export function useAction<T>(
         options.onSuccess?.(result);
         return result;
       } catch (caught) {
+        /* An `Error` a component raised deliberately carries the sentence
+           somebody is meant to read — "nothing could be built that satisfies
+           every rule", "the period ends before it starts". Collapsing those
+           into "something went wrong" throws away the only part of the failure
+           that helps, and it is indistinguishable on screen from the app
+           actually breaking. The generic message stays for what it was for:
+           a network failure, a driver error, a thrown non-Error. */
         const message =
-          caught instanceof ApiError
+          caught instanceof ApiError || caught instanceof Error
             ? caught.message
             : "Something went wrong. Please try again.";
         if (mounted.current) {

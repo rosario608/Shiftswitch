@@ -3,9 +3,18 @@ import Link from "next/link";
 import { Download, LogOut, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, SectionHeading } from "@/components/ui/card";
+import { AvailabilityManager } from "@/components/app/availability-manager";
 import { InstallPrompt } from "@/components/app/install-prompt";
 import { requirePageUser } from "@/server/auth/page-guards";
 import { queryOne } from "@/server/db/pool";
+import {
+  ABSENCE_KINDS,
+  ABSENCE_KIND_DEFAULT_HARD,
+  ABSENCE_KIND_DESCRIPTION,
+  ABSENCE_KIND_LABEL,
+  listAbsences,
+} from "@/server/domain/availability";
+import { localDateString } from "@/server/domain/time";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Profile" };
@@ -20,6 +29,15 @@ export default async function ProfilePage() {
          WHERE program_id = $1 AND initiating_resident_id = $2)::text AS posted`,
     [context.program.id, context.resident?.id ?? null],
   );
+
+  /* From today. What somebody wants from this section is "have I told them
+     about next month" — last year's leave is filing, not information. */
+  const myAbsences = context.resident
+    ? await listAbsences(context.program.id, {
+        residentId: context.resident.id,
+        from: localDateString(new Date(), context.program.timezone),
+      })
+    : [];
 
   return (
     <div className="space-y-6">
@@ -82,6 +100,38 @@ export default async function ProfilePage() {
               </div>
             </CardBody>
           </Card>
+        </section>
+      ) : null}
+
+      {context.resident ? (
+        <section>
+          <SectionHeading
+            title="When you are away"
+            description="Recorded here, it reaches whoever builds the schedule."
+          />
+          <AvailabilityManager
+            manages={false}
+            selfResidentId={context.resident.id}
+            residents={[]}
+            kinds={ABSENCE_KINDS.map((kind) => ({
+              value: kind,
+              label: ABSENCE_KIND_LABEL[kind],
+              description: ABSENCE_KIND_DESCRIPTION[kind],
+              defaultHard: ABSENCE_KIND_DEFAULT_HARD[kind],
+            }))}
+            absences={myAbsences.map((absence) => ({
+              id: absence.id,
+              residentId: absence.resident_id,
+              residentName: absence.resident_name,
+              kind: absence.kind,
+              kindLabel: ABSENCE_KIND_LABEL[absence.kind],
+              startDate: absence.start_date,
+              endDate: absence.end_date,
+              hard: absence.hard,
+              notes: absence.notes,
+              createdByName: absence.created_by_name,
+            }))}
+          />
         </section>
       ) : null}
 

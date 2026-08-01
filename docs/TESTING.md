@@ -4,8 +4,8 @@ Three suites, each with a different job.
 
 | Suite       | Runner     | Talks to               | What it proves |
 | ----------- | ---------- | ---------------------- | -------------- |
-| Unit        | Vitest     | nothing                | Pure logic: time/DST, rules, validation ordering, scoring, email formatting and encoding |
-| Integration | Vitest     | a real PostgreSQL database | The domain services: posting, offers, acceptance, atomic finalisation, approval, overrides, expiry, invalidation, provisioning, sessions, import/export, analytics, concurrency |
+| Unit        | Vitest     | nothing                | Pure logic: time/DST, rules, validation ordering, scoring, email formatting and encoding — plus two suites that read the *source* rather than run it: `route-guards` (every handler's capability) and `action-messages` (what a failed mutation shows) |
+| Integration | Vitest     | a real PostgreSQL database | The domain services: posting, offers, acceptance, atomic finalisation, approval, overrides, expiry, invalidation, provisioning, sessions, import/export, analytics, and concurrency for both the trade lifecycle and the scheduler |
 | End-to-end  | Playwright | a running app + database   | The product: the full workflow in a browser, authorization from the outside, mobile layout, offline behaviour, edge cases |
 
 ---
@@ -116,6 +116,13 @@ never grants a role.
 | ---- | ----- |
 | Google sign-in: PKCE, state, nonce, signature, audience, issuer, expiry, unverified email, workspace domain | `tests/integration/oidc.test.ts` — driven against a local OpenID provider with a real key pair |
 | Concurrent trade — only one succeeds | `tests/integration/concurrency.test.ts` |
+| Two schedulers editing one draft; two publications of one draft | `tests/integration/scheduler-concurrency.test.ts` |
+| Overlapping drafts published at once — the overlap holds one schedule | `tests/integration/scheduler-concurrency.test.ts` |
+| Publication racing an accept; a correction racing an accept | `tests/integration/scheduler-concurrency.test.ts` |
+| Two regenerations into one draft — the loser is told, not discarded | `tests/integration/scheduler-concurrency.test.ts` |
+| Approval withdrawn as a schedule publishes | `tests/integration/scheduler-concurrency.test.ts` |
+| Every route's guard, and page/API capability agreement | `tests/unit/route-guards.test.ts` |
+| A failed action shows what it wrote, not "something went wrong" | `tests/unit/action-messages.test.ts` |
 | Already-traded / obsolete offer rejected | `tests/integration/trade-workflow.test.ts`, `tests/e2e/edge-cases.spec.ts` |
 | Schedule changed under a pending trade | `tests/integration/trade-workflow.test.ts` ("administrator reassigned a shift underneath") |
 | Insufficient rest rejected with an explanation | `tests/unit/validation.test.ts`, `tests/integration/trade-workflow.test.ts` |
@@ -171,6 +178,61 @@ never grants a role.
 | Simultaneous service creation produces one service and a readable conflict | `tests/integration/idempotency.test.ts` |
 | Audit entries and shift assignments survive deactivating the people in them | `tests/integration/idempotency.test.ts` |
 | The native client's role vocabulary matches the server's | `mobile/src/api/roles.test.ts` |
+| A draft schedule is invisible to residents and cannot be traded | `tests/integration/scheduler.test.ts`, and the trigger in `0008` |
+| A draft shift can be reassigned, cleared and removed without touching the live schedule | `tests/integration/scheduler.test.ts` |
+| The draft editor refuses a published shift, another program's draft, and a resident who is not schedulable | `tests/integration/scheduler.test.ts` |
+| A chief starts a draft, edits it and sees the diff, all from the interface | `tests/e2e/scheduler.spec.ts` |
+| A service's screen lists the program-wide and service-scoped rules that govern it | `tests/integration/scheduler.test.ts`, `tests/e2e/scheduler.spec.ts` |
+| A resident block exception is recorded with a reason and can be taken back | `tests/integration/scheduler.test.ts`, `tests/e2e/scheduler.spec.ts` |
+| A whole multi-PGY programme configured from the UI alone — services, coverage, blocks, cohorts, assignments | `tests/e2e/scheduler.spec.ts` |
+| Every scheduling constraint violated individually, asserting the exact set reported | `tests/unit/constraints.test.ts` |
+| A constraint added to the catalogue with no test | `tests/unit/constraints.test.ts` — fails the suite |
+| Several independent problems reported at once, and several on one shift | `tests/unit/constraints.test.ts` |
+| Validator messages: real dates, the numbers in the sentence, no name prefix, no identifiers | `tests/unit/constraint-messages.test.ts` |
+| The score is bounded, deterministic, adds up, and ignores hard violations | `tests/unit/constraint-scoring.test.ts` |
+| A snapshot arrives with the availability, coverage, blocks and exceptions the constraints expect | `tests/integration/schedule-validation.test.ts` |
+| A draft is validated instead of the live schedule, and compared against what it would replace | `tests/integration/schedule-validation.test.ts` |
+| One program's schedule stays out of another's validation report | `tests/integration/schedule-validation.test.ts` |
+| A chief checks a schedule and reads why it is or is not valid | `tests/e2e/scheduler.spec.ts` |
+| Every generated schedule validates clean on hard constraints, or the run reported infeasibility | `tests/unit/generator.test.ts`, `tests/integration/generator.test.ts` |
+| Two generation runs with the same seed are byte-identical | `tests/unit/generator.test.ts` |
+| Generation across both daylight-saving transitions, one-day periods, overnight bands and weekend-only requirements | `tests/unit/generator.test.ts` |
+| An infeasible run writes nothing — not the shifts, not the version row | `tests/integration/generator.test.ts` |
+| Regeneration keeps locked shifts and rebuilds the rest | `tests/unit/generator.test.ts`, `tests/integration/generator.test.ts` |
+| A manual edit is revalidated and only the newly-introduced problems are reported | `tests/integration/generator.test.ts` |
+| One draft diffed against another | `tests/integration/generator.test.ts` |
+| Nobody holds two places on one service at one time, even with no overlap rule configured | `tests/unit/generator.test.ts`, `tests/unit/constraints.test.ts` |
+| A recorded absence reaches the validator as unavailability, and the message says why | `tests/unit/constraints.test.ts`, `tests/integration/availability.test.ts` |
+| A range expands to every day it covers, including one that started before the window | `tests/integration/availability.test.ts` |
+| An unconfirmed absence is scored and never invalidates a schedule | `tests/unit/constraints.test.ts`, `tests/integration/availability.test.ts` |
+| A resident may record their own availability and may not confirm it | `tests/integration/availability.test.ts` |
+| Absences and the jsonb lists are unioned rather than one replacing the other | `tests/integration/availability.test.ts` |
+| Locks survive a regeneration with a different seed, with their row identifiers | `tests/integration/schedule-workflow.test.ts` |
+| An assignment lock resolves through the person and the day, not the shift id | `tests/integration/schedule-workflow.test.ts` |
+| A lock whose target is gone is reported rather than silently dropped | `tests/integration/schedule-workflow.test.ts` |
+| Publishing refuses an unapproved draft, and an approval can be withdrawn | `tests/integration/schedule-workflow.test.ts` |
+| Approval records the score and the hard violations knowingly accepted | `tests/integration/schedule-workflow.test.ts` |
+| Publishing tells everybody with a shift in the window, with a stored route | `tests/integration/schedule-workflow.test.ts` |
+| Every published shift is stamped with the version that produced it | `tests/integration/schedule-workflow.test.ts` |
+| The grid's heat map and the validator agree about what is short | `tests/integration/schedule-workspace.test.ts` |
+| Coverage counts people rather than rows, and the biggest gap leads the queue | `tests/integration/schedule-workspace.test.ts` |
+| The coverage report restates nothing — every message came from the validator | `tests/integration/schedule-workspace.test.ts` |
+| Bulk reassignment reports what it replaced, so undo is the inverse operation | `tests/integration/schedule-workspace.test.ts` |
+| Bulk operations refuse a published schedule | `tests/integration/schedule-workspace.test.ts` |
+| Repeating a pattern never creates or deletes a shift, and refuses overlapping stretches | `tests/integration/schedule-workspace.test.ts` |
+| A switch that would leave a service short is refused, naming the switch as the cause | `tests/integration/schedule-lifecycle.test.ts` |
+| A switch that leaves coverage unchanged gets an explicit pass, not silence | `tests/integration/schedule-lifecycle.test.ts` |
+| A correction demands a reason, tells both residents, and is visible afterwards | `tests/integration/schedule-lifecycle.test.ts` |
+| Correcting a draft shift is refused, and the refusal names the right verb | `tests/integration/schedule-lifecycle.test.ts` |
+| The whole path — configure, generate, approve, publish, trade, correct — with the database consistent at every step | `tests/integration/schedule-lifecycle.test.ts` |
+| Nobody in two places at once, reconstructed from assignment history | `assertDatabaseConsistent` in `tests/integration/helpers.ts` |
+| No shift orphaned between a schedule version and a trade | `assertDatabaseConsistent` |
+| Every correction records what it replaced | `assertDatabaseConsistent` |
+| A live shift published with an unfilled slot is accepted; one *emptied* with nothing to account for it is not | `assertDatabaseConsistent`, asserted both ways in `tests/integration/scheduler-concurrency.test.ts` |
+| Clearing a draft cell leaves no assignment row, so an `ended` row means one thing | `tests/integration/scheduler-concurrency.test.ts` |
+| The live schedule's editor refuses a draft shift, and the draft editor refuses a published one | `tests/integration/scheduler.test.ts` |
+| The same seed gives the same schedule with the improvement search running, not only with it skipped | `tests/unit/generator.test.ts` |
+| Regeneration covers the draft's own period, whatever window the caller names | `tests/integration/schedule-workflow.test.ts` |
 
 ---
 

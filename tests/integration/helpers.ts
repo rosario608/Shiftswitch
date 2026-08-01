@@ -30,9 +30,10 @@ export function ensureMigrated(): void {
 export async function resetDatabase(): Promise<void> {
   await query(`
     TRUNCATE audit_logs, email_records, notifications, trade_legs, completed_trades,
-             trade_offers, trade_requests, shift_assignments, shifts, rules,
-             program_contacts, residents, sessions, invitations, users, services,
-             rotations, programs
+             trade_offers, trade_requests, schedule_corrections, resident_absences,
+             schedule_version_locks, shift_assignments, shifts, schedule_versions,
+             rules, program_contacts, residents, sessions, invitations, users,
+             services, rotations, programs
     RESTART IDENTITY CASCADE
   `);
 }
@@ -309,16 +310,94 @@ export async function notificationsFor(userId: string, type?: string) {
 export async function assertDatabaseConsistent(): Promise<void> {
   const problems: string[] = [];
 
-  // 1. No shift has two people on it, and none has been left with nobody.
+  /* 1. No **published** shift has two people on it.
+
+        Scoped to published shifts for the "nobody" half below; two holders is
+        checked here and in 1b because it is never acceptable anywhere. */
   const assignments = await query<{ shift_id: string; holders: string }>(
     `SELECT s.id AS shift_id,
             (SELECT count(*)::text FROM shift_assignments a
               WHERE a.shift_id = s.id AND a.assignment_status = 'active') AS holders
-       FROM shifts s WHERE s.status <> 'cancelled'`,
+       FROM shifts s
+      WHERE s.status <> 'cancelled' AND s.schedule_version_id IS NULL`,
   );
   for (const row of assignments) {
-    if (row.holders !== "1") {
+    if (Number(row.holders) > 1) {
       problems.push(`shift ${row.shift_id} has ${row.holders} active assignments`);
+    }
+  }
+
+  /* 1a. A live shift with nobody on it must be *explicable*.
+
+        "Every live shift has exactly one holder" was true before drafts
+        existed and is not true now: a draft may legitimately be published with
+        an unfilled slot, because approval is deliberately not a validity check
+        — a chief who publishes a schedule with a hole in it, because the
+        alternative is no schedule at all, is making a real decision and the
+        product's job is to record it. A gap is what the coverage report and the
+        unfilled queue are *for*.
+
+        What is still never acceptable is a shift somebody *was* on, in a
+        schedule people are working, that now has nobody — with no record of the
+        change. That is a torn switch, and it is the thing the original
+        invariant was written to catch.
+
+        So the distinction is drawn structurally rather than by time: an
+        **`ended` assignment row only ever means a live change**. Clearing a
+        draft cell deletes the row instead of ending it — nobody has worked a
+        draft shift, so there is no history to keep — which leaves a shift
+        published with an empty cell holding no assignment rows at all, exactly
+        like one that was never filled.
+
+        Timestamps cannot draw this line, and trying was wrong: `now()` is
+        transaction-*start* time in PostgreSQL, so a draft edit that begins
+        after a publication begins and commits before it carries an `ended_at`
+        later than the version's `published_at` despite genuinely happening
+        while the shift was a draft. Comparing them made this check fail about
+        one run in three, which is the shape of a "flaky test" that is really a
+        wrong assertion.
+
+        A completed switch is deliberately *not* an excuse. Finalisation ends
+        one assignment and inserts the replacement in the same transaction, so a
+        switch that worked leaves an active row and never reaches this query at
+        all; one that reached here is a switch that tore, which is precisely
+        what this was written to catch. */
+  const emptied = await query<{ shift_id: string; ended: string }>(
+    `SELECT s.id AS shift_id, max(a.ended_at)::text AS ended
+       FROM shifts s
+       JOIN shift_assignments a ON a.shift_id = s.id
+      WHERE s.status <> 'cancelled'
+        AND s.schedule_version_id IS NULL
+        AND a.assignment_status = 'ended'
+        AND NOT EXISTS (
+          SELECT 1 FROM shift_assignments b
+           WHERE b.shift_id = s.id AND b.assignment_status = 'active')
+        AND NOT EXISTS (
+          SELECT 1 FROM schedule_corrections c WHERE c.shift_id = s.id)
+      GROUP BY s.id`,
+  );
+  for (const row of emptied) {
+    problems.push(
+      `shift ${row.shift_id} was emptied at ${row.ended} with nobody put on it, ` +
+        "and no correction or completed switch accounts for it",
+    );
+  }
+
+  /* 1b. A draft shift may still not have *two* holders. "Nobody yet" is a
+         legitimate intermediate state; "two people at once" never is,
+         whichever schedule it is in. */
+  const draftHolders = await query<{ shift_id: string; holders: string }>(
+    `SELECT s.id AS shift_id,
+            (SELECT count(*)::text FROM shift_assignments a
+              WHERE a.shift_id = s.id AND a.assignment_status = 'active') AS holders
+       FROM shifts s
+      WHERE s.status <> 'cancelled' AND s.schedule_version_id IS NOT NULL`,
+  );
+  for (const row of draftHolders) {
+    if (Number(row.holders) > 1) {
+      problems.push(
+        `draft shift ${row.shift_id} has ${row.holders} active assignments`,
+      );
     }
   }
 
@@ -415,6 +494,95 @@ export async function assertDatabaseConsistent(): Promise<void> {
   );
   for (const row of orphaned) {
     problems.push(`shift ${row.id} is '${row.status}' but no live trade references it`);
+  }
+
+  /* 6. Nobody is in two places at once.
+
+        Asked of the assignment history rather than of current holders, for the
+        same reason invariant 3 is: the question is whether the *state at each
+        moment* was ever impossible, and reading current rows answers a
+        different one. Two shifts that overlapped last month and have since been
+        legitimately reassigned to different people are not a defect; two
+        assignments that were both active while their shifts overlapped are.
+
+        `tstzrange` with the assignment's own live window intersected against
+        the shift's — `assigned_at` to `ended_at`, open-ended while active — so
+        an administrator who moved somebody off one of two overlapping shifts is
+        not reported as having created the overlap they resolved. */
+  const collisions = await query<{
+    resident_id: string;
+    first_shift: string;
+    second_shift: string;
+  }>(
+    `SELECT a.resident_id, a.shift_id AS first_shift, b.shift_id AS second_shift
+       FROM shift_assignments a
+       JOIN shifts sa ON sa.id = a.shift_id AND sa.status <> 'cancelled'
+       JOIN shift_assignments b
+         ON b.resident_id = a.resident_id AND b.shift_id > a.shift_id
+       JOIN shifts sb ON sb.id = b.shift_id AND sb.status <> 'cancelled'
+      WHERE sa.schedule_version_id IS NULL AND sb.schedule_version_id IS NULL
+        AND tstzrange(sa.start_datetime, sa.end_datetime, '[)')
+            && tstzrange(sb.start_datetime, sb.end_datetime, '[)')
+        AND tstzrange(a.assigned_at, a.ended_at, '[)')
+            && tstzrange(b.assigned_at, b.ended_at, '[)')`,
+  );
+  for (const row of collisions) {
+    problems.push(
+      `resident ${row.resident_id} held overlapping shifts ${row.first_shift} and ${row.second_shift} at the same time`,
+    );
+  }
+
+  /* 7. No published shift is orphaned between a schedule version and a trade.
+
+        Three ways that can happen, and all three are silent:
+          - a shift still points at a draft that no longer exists;
+          - a shift claims to have come from a publication that was never
+            published;
+          - a trade references a shift that is inside a draft, which the
+            database trigger is meant to make impossible. */
+  const orphanedVersions = await query<{ id: string; reason: string }>(
+    `SELECT s.id, 'points at a draft that no longer exists' AS reason
+       FROM shifts s
+      WHERE s.schedule_version_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM schedule_versions v WHERE v.id = s.schedule_version_id)
+     UNION ALL
+     SELECT s.id, 'claims a publication that was never published' AS reason
+       FROM shifts s
+       JOIN schedule_versions v ON v.id = s.published_version_id
+      WHERE v.status <> 'published'
+     UNION ALL
+     SELECT s.id, 'is in a draft and referenced by a trade' AS reason
+       FROM shifts s
+      WHERE s.schedule_version_id IS NOT NULL
+        AND (
+          EXISTS (SELECT 1 FROM trade_requests r WHERE r.source_shift_id = s.id)
+          OR EXISTS (SELECT 1 FROM trade_offers o WHERE o.offered_shift_id = s.id)
+        )`,
+  );
+  for (const row of orphanedVersions) {
+    problems.push(`shift ${row.id} ${row.reason}`);
+  }
+
+  /* 8. Every correction records what it replaced.
+
+        A correction row whose shift no longer exists, or which claims a
+        previous holder who never held it at that moment, is a record somebody
+        will one day rely on to answer "who agreed to this". */
+  const brokenCorrections = await query<{ id: string; reason: string }>(
+    `SELECT c.id, 'refers to a shift that no longer exists' AS reason
+       FROM schedule_corrections c
+      WHERE NOT EXISTS (SELECT 1 FROM shifts s WHERE s.id = c.shift_id)
+     UNION ALL
+     SELECT c.id, 'names a previous holder who never held that shift' AS reason
+       FROM schedule_corrections c
+      WHERE c.previous_resident_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM shift_assignments a
+           WHERE a.shift_id = c.shift_id AND a.resident_id = c.previous_resident_id
+        )`,
+  );
+  for (const row of brokenCorrections) {
+    problems.push(`correction ${row.id} ${row.reason}`);
   }
 
   if (problems.length > 0) {

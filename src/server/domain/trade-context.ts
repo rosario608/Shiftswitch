@@ -11,6 +11,7 @@ import {
 } from "./schedule";
 import type { TradeContext, TradeLegContext } from "./rules/types";
 import { buildProposedSchedule } from "./validation";
+import { checkTradeCoverage } from "./trade-coverage";
 
 export async function listActiveRules(
   programId: string,
@@ -93,16 +94,32 @@ export async function buildTradeContext({
     openOffers: offersB,
   });
 
+  const programInfo = {
+    id: program.id,
+    name: program.name,
+    timezone: program.timezone,
+  };
+
   return {
     program: {
-      id: program.id,
-      name: program.name,
-      timezone: program.timezone,
+      ...programInfo,
       defaultTradeApprovalRequired: program.default_trade_approval_required,
     },
     now,
     legs: [legA, legB],
     rules: await listActiveRules(program.id, executor),
+    /* Asked here because this is the one place that already knows both shifts
+       and both residents, and because a switch that leaves a ward short is not
+       something the rules engine can see: every rule it evaluates is about one
+       of the two people, and coverage is about the service. */
+    coverageChecks: await checkTradeCoverage(
+      programInfo,
+      [
+        { shift: sourceInfo, from: residentA.id, to: residentB.id },
+        { shift: offeredInfo, from: residentB.id, to: residentA.id },
+      ],
+      now,
+    ),
   };
 }
 

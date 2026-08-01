@@ -35,8 +35,10 @@ async function main() {
 
   await query(`
     TRUNCATE audit_logs, email_records, notifications, trade_legs, completed_trades,
-             trade_offers, trade_requests, shift_assignments, shifts, rules,
-             program_contacts, residents, sessions, invitations, users, services, rotations, programs
+             trade_offers, trade_requests, schedule_corrections, resident_absences,
+             schedule_version_locks, shift_assignments, shifts, schedule_versions,
+             rules, program_contacts, residents, sessions, invitations, users,
+             services, rotations, programs
     RESTART IDENTITY CASCADE
   `);
 
@@ -90,12 +92,19 @@ async function main() {
     ))!;
   }
 
+  /* Phone numbers on everybody who holds a schedule, because the directory is
+     a screen whose entire content is contact details and a fixture without
+     them can only prove that the page renders. Stored E.164, as
+     `normalisePhone` would leave them. */
+  let nextPhone = 1000;
+
   async function createResident(email: string, name: string, pgy: number) {
     const user = await createUser(email, name, "resident");
+    nextPhone += 1;
     const resident = (await queryOne<{ id: string }>(
-      `INSERT INTO residents (user_id, program_id, pgy_level, graduation_year, credentials)
-       VALUES ($1, $2, $3, 2029, '{BLS,ACLS,"Critical Care"}') RETURNING id`,
-      [user.id, program.id, pgy],
+      `INSERT INTO residents (user_id, program_id, pgy_level, graduation_year, credentials, phone)
+       VALUES ($1, $2, $3, 2029, '{BLS,ACLS,"Critical Care"}', $4) RETURNING id`,
+      [user.id, program.id, pgy, `+1919555${nextPhone}`],
     ))!;
     return { userId: user.id, residentId: resident.id };
   }
@@ -106,8 +115,8 @@ async function main() {
 
   const chiefUser = await createUser("e2e.chief@hospital.org", "Casey Chief", "chief");
   await query(
-    `INSERT INTO residents (user_id, program_id, pgy_level, graduation_year, credentials)
-     VALUES ($1, $2, 3, 2028, '{BLS,ACLS}')`,
+    `INSERT INTO residents (user_id, program_id, pgy_level, graduation_year, credentials, phone)
+     VALUES ($1, $2, 3, 2028, '{BLS,ACLS}', '+19195550100')`,
     [chiefUser.id, program.id],
   );
   await createUser("e2e.admin@hospital.org", "Dana Admin", "admin");

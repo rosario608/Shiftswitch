@@ -4,7 +4,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ShiftCard } from "@/components/app/shift-card";
 import { ShiftEditorButton } from "@/components/app/shift-editor";
 import { ShiftCreateButton } from "@/components/app/shift-create";
+import { ScheduleCheck } from "@/components/app/schedule-check";
 import { requirePageCapability } from "@/server/auth/page-guards";
+import { can } from "@/server/auth/roles";
 import { listProgramSchedule } from "@/server/domain/admin";
 import { listProgramResidents, listServices } from "@/server/domain/schedule-actions";
 import { toShiftView } from "@/lib/views";
@@ -27,6 +29,10 @@ export default async function AdminSchedulePage({
 }) {
   const context = await requirePageCapability("schedule.manage");
   const params = await searchParams;
+  /* The validator is a planning tool. Everybody who can reach this page can
+     also plan today, but that is the matrix's business to say, not this
+     page's to assume. */
+  const canPlan = can(context.user.role, "scheduling.plan");
   const [residents, services] = await Promise.all([
     listProgramResidents(context.program.id),
     listServices(context.program.id),
@@ -177,6 +183,17 @@ export default async function AdminSchedulePage({
           </form>
         </CardBody>
       </Card>
+
+      {/* This is the screen where a shift is moved or reassigned by hand, so
+          it is where "did that break anything" needs answering. Scoped to the
+          filtered window when one is set, because a chief who has narrowed the
+          page to one week is asking about that week. */}
+      {canPlan ? (
+        <ScheduleCheck
+          periodStart={params.from || undefined}
+          periodEnd={params.to || undefined}
+        />
+      ) : null}
 
       {shifts.length === 0 ? (
         <EmptyState

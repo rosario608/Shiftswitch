@@ -51,6 +51,11 @@ export function fmtRelative(value: Date | string, zone = "utc"): string {
   return toDateTime(value, zone).toRelative() ?? "";
 }
 
+/** The calendar date in the program's timezone — a stable key for grouping. */
+export function isoDate(value: Date | string, zone: string): string {
+  return toDateTime(value, zone).toISODate() ?? "";
+}
+
 export function dayLabel(value: Date | string, zone: string): string {
   const target = toDateTime(value, zone).startOf("day");
   const today = DateTime.now().setZone(zone).startOf("day");

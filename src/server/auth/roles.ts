@@ -100,6 +100,37 @@ export const CAPABILITIES = [
   "program.manage",
   /** Housekeeping: expire stale posts, prune, recompute. */
   "maintenance.run",
+  /**
+   * The scheduling structure: cohorts, block structures, coverage planning and
+   * draft schedules.
+   *
+   * Distinct from `schedule.manage`, which is about individual shifts, and from
+   * `services.manage`, which is about what a service *is*. This is the shape of
+   * the programme's year, and it belongs to whoever builds the schedule — which
+   * in most programmes is a chief resident, not the PD.
+   */
+  "scheduling.plan",
+  /**
+   * Approve a draft schedule, and make it the live one.
+   *
+   * Separate from `scheduling.plan`, which is about *building* a schedule.
+   * Publication is the moment a plan becomes a month of people's lives, and a
+   * programme that wants a senior resident building next block's schedule
+   * without the authority to make it live can now say so. It is also what
+   * `rolesWith` is asked when the product needs to know who to tell that a
+   * schedule is waiting for sign-off.
+   */
+  "schedule.publish",
+  /**
+   * Read a resident's phone number.
+   *
+   * Its own capability because it is the one genuinely personal field in the
+   * roster. A chief calling somebody at 2am to cover a sick call needs it; the
+   * analytics screen does not, and a resident browsing the trade board
+   * certainly does not. `listResidents` will not select the column without it,
+   * so the guard is in the query rather than in a template that might forget.
+   */
+  "residents.contact_info",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -118,12 +149,18 @@ const ROLE_CAPABILITIES: Record<UserRole, ReadonlySet<Capability>> = {
     "schedule.export_program",
     "analytics.view",
     "audit.view",
+    "scheduling.plan",
+    "schedule.publish",
+    "residents.contact_info",
   ]),
 
   apd: new Set<Capability>([
     "trade.participate",
     "approvals.decide",
     "schedule.manage",
+    "scheduling.plan",
+    "schedule.publish",
+    "residents.contact_info",
     "schedule.export_program",
     "analytics.view",
     "audit.view",
@@ -138,6 +175,9 @@ const ROLE_CAPABILITIES: Record<UserRole, ReadonlySet<Capability>> = {
     "trade.participate",
     "approvals.decide",
     "schedule.manage",
+    "scheduling.plan",
+    "schedule.publish",
+    "residents.contact_info",
     "schedule.export_program",
     "analytics.view",
     "audit.view",

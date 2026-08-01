@@ -233,6 +233,7 @@ test("a resident can reach nothing administrative", async ({ page }) => {
     "/api/admin/audit",
     "/api/admin/shifts",
     "/api/approvals",
+    "/api/admin/coverage",
   ]) {
     expect((await page.request.get(path)).status(), path).toBe(403);
   }
@@ -263,6 +264,10 @@ test("a chief sees the schedule and the approvals queue, and nothing else", asyn
     "/api/admin/audit",
     "/api/admin/analytics",
     "/api/admin/import/template",
+    /* Coverage requirements are the generator's primary input, so they belong
+       to whoever builds the schedule rather than to whoever defines what a
+       service is. */
+    "/api/admin/coverage",
   ]) {
     expect((await page.request.get(path)).ok(), path).toBe(true);
   }
@@ -286,11 +291,24 @@ test("a chief sees the schedule and the approvals queue, and nothing else", asyn
   // The navigation reflects it: schedule yes, users no.
   await page.goto("/admin");
   const nav = page.getByRole("navigation", { name: "Administration" });
-  await expect(nav.getByRole("link", { name: "Schedule" })).toBeVisible();
+  // Exact, because "Scheduler" contains "Schedule" and they are two links to
+  // two different screens: the shift editor and the planning dashboard.
+  await expect(nav.getByRole("link", { name: "Schedule", exact: true })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Approvals" })).toBeVisible();
+  // A chief plans the schedule, so the scheduler and the cohort grid are theirs.
+  await expect(nav.getByRole("link", { name: "Scheduler", exact: true })).toBeVisible();
+  await expect(nav.getByRole("link", { name: "Cohorts & blocks" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Users & roles" })).toHaveCount(0);
-  await expect(nav.getByRole("link", { name: "Services" })).toHaveCount(0);
   await expect(nav.getByRole("link", { name: "Program settings" })).toHaveCount(0);
+
+  /* Services is theirs to *read*, because it is the route to each service's
+     coverage requirements — the generator's primary input, and `scheduling.plan`
+     rather than `services.manage`. What a chief cannot do is add, rename or
+     deactivate one, which is why the API above still refuses them. */
+  await expect(nav.getByRole("link", { name: "Services" })).toBeVisible();
+  await page.goto("/admin/services");
+  await expect(page.getByRole("heading", { level: 1, name: "Services" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /add service/i })).toHaveCount(0);
 });
 
 test("program leadership can actually reach the admin area from the app shell", async ({

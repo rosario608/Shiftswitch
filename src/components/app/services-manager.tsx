@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Check, Pencil, Plus, X } from "lucide-react";
+import Link from "next/link";
+import { Check, Pencil, Plus, Settings, X } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,10 @@ export interface ServiceRow {
   tradeable: boolean;
   shift_count: number;
   upcoming_shift_count: number;
+  /** Services only: the scheduling configuration summary. */
+  site_name?: string | null;
+  coverage_count?: number;
+  coverage_mandatory?: boolean;
 }
 
 type Kind = "service" | "rotation";
@@ -57,19 +62,34 @@ const COPY: Record<
 export function ServicesManager({
   services,
   rotations,
+  mayManage,
 }: {
   services: ServiceRow[];
   rotations: ServiceRow[];
+  /**
+   * `services.manage`. Without it the screen is still useful — it is the route
+   * to each service's coverage requirements, which belong to `scheduling.plan`
+   * — but nothing on it may be added, renamed or deactivated.
+   */
+  mayManage: boolean;
 }) {
   return (
     <div className="space-y-8">
-      <Section kind="service" rows={services} />
-      <Section kind="rotation" rows={rotations} />
+      <Section kind="service" rows={services} mayManage={mayManage} />
+      <Section kind="rotation" rows={rotations} mayManage={mayManage} />
     </div>
   );
 }
 
-function Section({ kind, rows }: { kind: Kind; rows: ServiceRow[] }) {
+function Section({
+  kind,
+  rows,
+  mayManage,
+}: {
+  kind: Kind;
+  rows: ServiceRow[];
+  mayManage: boolean;
+}) {
   const copy = COPY[kind];
   const [adding, setAdding] = React.useState(false);
   const active = rows.filter((row) => row.active);
@@ -82,10 +102,12 @@ function Section({ kind, rows }: { kind: Kind; rows: ServiceRow[] }) {
           <h2 className="text-lg font-semibold text-ink">{copy.many}</h2>
           <p className="mt-1 text-sm text-ink-muted">{copy.blurb}</p>
         </div>
-        <Button onClick={() => setAdding(true)}>
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          {copy.add}
-        </Button>
+        {mayManage ? (
+          <Button onClick={() => setAdding(true)}>
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            {copy.add}
+          </Button>
+        ) : null}
       </div>
 
       {rows.length === 0 ? (
@@ -95,7 +117,7 @@ function Section({ kind, rows }: { kind: Kind; rows: ServiceRow[] }) {
       ) : (
         <ul className="space-y-2">
           {active.map((row) => (
-            <Row key={row.id} kind={kind} row={row} />
+            <Row key={row.id} kind={kind} row={row} mayManage={mayManage} />
           ))}
           {inactive.length > 0 && (
             <li className="pt-2 text-xs font-semibold tracking-wide text-ink-subtle uppercase">
@@ -103,7 +125,7 @@ function Section({ kind, rows }: { kind: Kind; rows: ServiceRow[] }) {
             </li>
           )}
           {inactive.map((row) => (
-            <Row key={row.id} kind={kind} row={row} />
+            <Row key={row.id} kind={kind} row={row} mayManage={mayManage} />
           ))}
         </ul>
       )}
@@ -118,7 +140,15 @@ function Section({ kind, rows }: { kind: Kind; rows: ServiceRow[] }) {
   );
 }
 
-function Row({ kind, row }: { kind: Kind; row: ServiceRow }) {
+function Row({
+  kind,
+  row,
+  mayManage,
+}: {
+  kind: Kind;
+  row: ServiceRow;
+  mayManage: boolean;
+}) {
   const router = useRouter();
   const [editing, setEditing] = React.useState(false);
 
@@ -153,8 +183,23 @@ function Row({ kind, row }: { kind: Kind; row: ServiceRow }) {
                       ? ` · ${row.upcoming_shift_count} upcoming`
                       : "")}
               </p>
+              {kind === "service" ? (
+                <p className="mt-0.5 text-sm text-ink-subtle">
+                  {row.site_name ?? "No site"}
+                  {" · "}
+                  {row.coverage_count
+                    ? `${row.coverage_count} coverage rule${row.coverage_count === 1 ? "" : "s"}`
+                    : "no coverage set"}
+                </p>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
+              {kind === "service" && row.coverage_mandatory && !row.coverage_count ? (
+                /* The state worth surfacing on the list rather than one level
+                   in: a service that must be covered, with nothing saying by
+                   how many people, will never warn anybody that it is short. */
+                <Badge tone="critical">No coverage set</Badge>
+              ) : null}
               {kind === "service" && !row.tradeable && (
                 <Badge tone="neutral">Not swappable</Badge>
               )}
@@ -166,29 +211,42 @@ function Row({ kind, row }: { kind: Kind; row: ServiceRow }) {
 
           {toggle.error && <Alert tone="error">{toggle.error}</Alert>}
 
-          <div className="flex gap-2">
-            <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
-              <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-              Edit
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              loading={toggle.pending}
-              onClick={toggle.run}
-            >
-              {row.active ? (
-                <>
-                  <X className="h-3.5 w-3.5" aria-hidden="true" />
-                  Deactivate
-                </>
-              ) : (
-                <>
-                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                  Reactivate
-                </>
-              )}
-            </Button>
+          <div className="flex flex-wrap gap-2">
+            {mayManage ? (
+              <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
+                <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                Edit
+              </Button>
+            ) : null}
+            {kind === "service" ? (
+              <Link
+                href={`/admin/services/${row.id}`}
+                className="inline-flex min-h-[2.25rem] items-center gap-1.5 rounded-lg border border-border-strong px-3 text-sm font-semibold text-ink-muted hover:bg-surface-muted"
+              >
+                <Settings className="h-3.5 w-3.5" aria-hidden="true" />
+                Configure
+              </Link>
+            ) : null}
+            {mayManage ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={toggle.pending}
+                onClick={toggle.run}
+              >
+                {row.active ? (
+                  <>
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                    Deactivate
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    Reactivate
+                  </>
+                )}
+              </Button>
+            ) : null}
           </div>
         </CardBody>
       </Card>

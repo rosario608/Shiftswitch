@@ -1,6 +1,11 @@
 import { redirect } from "next/navigation";
 import { AppError } from "@/server/http/errors";
-import { requireCapability, requireUser, type AuthedContext } from "./guards";
+import {
+  requireAnyCapability,
+  requireCapability,
+  requireUser,
+  type AuthedContext,
+} from "./guards";
 import type { Capability } from "./roles";
 
 /**
@@ -39,6 +44,22 @@ export async function requirePageCapability(
 ): Promise<AuthedContext> {
   try {
     return await requireCapability(capability);
+  } catch (error) {
+    handle(error, returnTo);
+  }
+}
+
+/**
+ * A screen that two different capabilities each open, for different halves of
+ * it. See `requireAnyCapability`. The page is then responsible for hiding the
+ * half the caller may not use — the guard only decides whether the door opens.
+ */
+export async function requireAnyPageCapability(
+  capabilities: readonly [Capability, ...Capability[]],
+  returnTo?: string,
+): Promise<AuthedContext> {
+  try {
+    return await requireAnyCapability(capabilities);
   } catch (error) {
     handle(error, returnTo);
   }

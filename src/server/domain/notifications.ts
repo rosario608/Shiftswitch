@@ -15,6 +15,8 @@ export type NotificationType =
   | "trade.expired"
   | "trade.cancelled"
   | "switch.completed"
+  | "schedule.published"
+  | "schedule.corrected"
   | "email.generated";
 
 export interface NotificationInput {
@@ -42,6 +44,11 @@ export function routeFor(input: NotificationInput): string {
       return `/switches/${input.relatedEntityId}`;
     case "shift":
       return `/schedule/${input.relatedEntityId}`;
+    case "schedule_version":
+      /* A publication addresses no screen of its own — what a resident wants
+         from "the schedule changed" is their own schedule, not the version
+         row that changed it. */
+      return "/schedule";
     case "trade_offer":
       /* An offer id addresses no screen of its own — an offer is always seen in
          the context of the posting it was made on, and only the caller knows
