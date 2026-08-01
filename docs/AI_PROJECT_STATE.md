@@ -1836,23 +1836,23 @@ a wrong assertion and a wrong claim. Last run: **12/12**.
 
 **`npm run verify` exits 0.** That is the whole answer, and the only one worth
 quoting — it runs every row below in one command with one exit code. Last full
-run: 10 steps, **942 seconds**, 1 August 2026, on the tree the resilience
-session left behind.
+run: 10 steps, **1238 seconds**, 1 August 2026, on the tree this session left
+behind, from a cleared `.next`.
 
 | Step | Result |
 |---|---|
 | Typecheck (`tsc --noEmit`) | clean |
 | Lint, server + web | clean, no warnings |
 | Lint, native client | clean |
-| Server unit + integration (`vitest run`) | **735 passed**, 41 files |
-| Native client unit (`npm --prefix mobile run test`) | **37 passed**, 6 files |
+| Server unit + integration (`vitest run`) | **747 passed**, 42 files |
+| Native client unit (`npm --prefix mobile run test`) | **64 passed**, 8 files |
 | Production build (`next build`) | succeeds |
-| Web end-to-end (`playwright test`) | **172 passed**, mobile + desktop projects |
+| Web end-to-end (`playwright test`) | **182 passed**, mobile + desktop projects |
 | Native end-to-end (`--config playwright.mobile.config.ts`) | **16 passed**, including the 9 screenshot specs |
 | Migrations from scratch (`migrate.ts --reset`) | **0001–0009 apply to an empty database** |
-| Integration suite against the rebuilt schema | **411 passed**, 22 files |
+| Integration suite against the rebuilt schema | **421 passed**, 22 files |
 
-960 distinct tests. The final 411 is the integration subset re-run against the
+1009 distinct tests. The final 421 is the integration subset re-run against the
 freshly rebuilt schema, which is why it is not added again.
 
 The run before this one **failed**, at the web end-to-end step, and is worth
