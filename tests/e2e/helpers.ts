@@ -5,6 +5,7 @@ export const ACCOUNTS = {
   alice: "e2e.alice@hospital.org",
   bob: "e2e.bob@hospital.org",
   carol: "e2e.carol@hospital.org",
+  newcomer: "e2e.newcomer@hospital.org",
   chief: "e2e.chief@hospital.org",
   pd: "e2e.pd@hospital.org",
   apd: "e2e.apd@hospital.org",

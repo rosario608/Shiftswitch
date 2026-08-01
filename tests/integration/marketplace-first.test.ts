@@ -412,3 +412,100 @@ describe("import accepts what programmes actually send", () => {
     expect(entries.some((entry) => entry.action === "schedule.imported")).toBe(false);
   });
 });
+
+/**
+ * Both paths, in one run, in the order a real programme does them.
+ *
+ * Each half is covered above. This exists for the property neither half can
+ * have on its own: that they *compose*. A programme starts with residents
+ * naming their own shifts, and the block file arrives a fortnight later naming
+ * the same services and the same people — and the failure that matters is the
+ * one that only appears when the second meets the output of the first.
+ */
+describe("a programme that starts empty and gets its file later", () => {
+  it("carries the resident's shift and the imported block in one schedule", async () => {
+    await assertProgrammeIsEmpty();
+    const chief = await createStaff(program.program, {
+      email: "chief@example.invalid",
+      role: "chief",
+    });
+
+    /* Week one: nothing uploaded. Alice names a shift and posts it; Ben enters
+       one of his own and takes hers. */
+    const posted = await postAdHocShift(alice.context, {
+      date: tomorrow(),
+      startTime: "07:00",
+      endTime: "19:00",
+      service: "MICU",
+    });
+    await addOwnShifts(ben.context, {
+      dates: [tomorrow()],
+      startTime: "07:00",
+      endTime: "19:00",
+      service: "Wards",
+    });
+    const bensShift = (await listResidentSchedule(ben.resident.id, { limit: 1 }))[0];
+    const offer = await createOffer(ben.context, {
+      tradeRequestId: posted.tradeRequest.id,
+      offeredShiftId: bensShift.id,
+    });
+    await acceptOffer(alice.context, offer.offer.id);
+
+    /* Week three: the coordinator finally has the block file, and it is a
+       merged-cell spreadsheet naming MICU — the service Alice created by
+       typing it. */
+    const contents = readFileSync(path.join(FIXTURES, "merged-week.xlsx"));
+    /* The recorded response with its two people renamed to the two residents
+       who are actually in this programme. The shape under test is unchanged —
+       the merged week — but the rows now *match*, so shifts are written rather
+       than held, which is the case where the file meets what the residents
+       already built for themselves. */
+    const matching = {
+      ...MERGED_WEEK,
+      text: MERGED_WEEK.text
+        .replace(/"residentName":"Alice Nguyen"/g, '"residentName":"alice@example.invalid"')
+        .replace(/"residentName":"Ben Okafor"/g, '"residentName":"ben@example.invalid"'),
+    };
+    const extraction = await extractSchedule("merged-week.xlsx", contents, {
+      transport: new ReplayTransport(matching),
+    });
+    const extractionId = await saveExtraction(
+      chief.context,
+      { filename: "merged-week.xlsx", byteSize: contents.byteLength },
+      extraction,
+    );
+    const stored = await loadExtraction(program.program.id, extractionId);
+    for (const row of stored!.rows.filter((row) => row.needsReview)) {
+      await reviewRow(chief.context, extractionId, row.id, null);
+    }
+    const { rows } = await rowsForCommit(program.program.id, extractionId);
+    await commitImport(chief.context, rows);
+    await markCommitted(extractionId);
+
+    /* One MICU, not two: the file found the service the resident created,
+       because both went through `resolveServiceId`. This is the whole reason
+       the ad-hoc path does not have a service table of its own. */
+    const services = await query<{ name: string }>(
+      "SELECT name FROM services WHERE program_id = $1 ORDER BY name",
+      [program.program.id],
+    );
+    expect(services.map((service) => service.name)).toEqual(["MICU", "NF", "Wards"]);
+
+    /* And the imported block actually landed on the two residents, rather than
+       being held for people the programme has never heard of. */
+    const imported = await queryOne<{ n: string }>(
+      "SELECT count(*)::text AS n FROM shifts WHERE program_id = $1 AND provenance = 'imported'",
+      [program.program.id],
+    );
+    expect(imported!.n).toBe("8");
+
+    /* The completed switch survived the import untouched, and the shift Alice
+       gave away is still Ben's. */
+    const legs = await queryOne<{ n: string }>(
+      "SELECT count(*)::text AS n FROM trade_legs",
+    );
+    expect(legs!.n).toBe("2");
+
+    await assertDatabaseConsistent();
+  });
+});
