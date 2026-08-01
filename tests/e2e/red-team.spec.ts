@@ -210,7 +210,7 @@ test("an unconfigured account is refused everywhere, not just on the home page",
   await signIn(page, ACCOUNTS.pending);
   for (const path of [
     "/api/schedule",
-    "/api/trades",
+    "/api/switches",
     "/api/admin/users",
     "/api/admin/services",
     "/api/approvals",

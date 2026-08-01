@@ -6,7 +6,7 @@ import type { ShiftView } from "@/lib/views";
 
 const STATUS_META: Record<string, { label: string; tone: BadgeTone }> = {
   scheduled: { label: "Scheduled", tone: "neutral" },
-  posted: { label: "Posted for trade", tone: "brand" },
+  posted: { label: "Posted to switch", tone: "brand" },
   offer_pending: { label: "Offer pending", tone: "caution" },
   pending_approval: { label: "Pending approval", tone: "caution" },
   completed: { label: "Completed", tone: "neutral" },
@@ -92,7 +92,7 @@ export function ShiftCard({
             </span>
           ) : null}
           {!shift.tradeable ? (
-            <Badge tone="neutral">Not tradeable</Badge>
+            <Badge tone="neutral">Cannot be switched</Badge>
           ) : null}
           {shift.approvalRequired ? (
             <Badge tone="caution">Approval required</Badge>

@@ -75,12 +75,12 @@ export default async function HomePage() {
                 <PostShiftButton
                   shifts={postable.map((shift) => toShiftView(shift, timezone))}
                   preselectedShiftId={dashboard.nextShift.id}
-                  label="Post this shift for trade"
+                  label="Post this shift"
                   disabledReason={
                     dashboard.nextShift.status !== "scheduled"
-                      ? "This shift is already involved in a trade."
+                      ? "This shift is already part of a switch."
                       : !dashboard.nextShift.tradeable
-                        ? "Your program marked this shift non-tradeable."
+                        ? "Your program does not allow this shift to be switched."
                         : null
                   }
                 />
@@ -123,10 +123,10 @@ export default async function HomePage() {
       <section aria-labelledby="available-heading">
         <SectionHeading
           id="available-heading"
-          title="Available trades"
+          title="Shifts you can take"
           action={
             <Link
-              href="/trades"
+              href="/switches"
               className="flex items-center gap-1 text-sm font-semibold text-brand-ink"
             >
               See all
@@ -136,7 +136,7 @@ export default async function HomePage() {
         />
         {dashboard.availableTrades.length === 0 ? (
           <EmptyState
-            title="No available trades"
+            title="Nobody has posted a shift"
             description="There are currently no compatible shifts available. Try again later, or post one of your own shifts."
           />
         ) : (
@@ -147,7 +147,7 @@ export default async function HomePage() {
                 <li key={trade.id}>
                   <Card>
                     <Link
-                      href={`/trades/${trade.id}`}
+                      href={`/switches/${trade.id}`}
                       className="block px-4 py-3.5 hover:bg-surface-muted"
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -191,7 +191,7 @@ export default async function HomePage() {
               />
             ) : null}
             <Link
-              href="/trades"
+              href="/switches"
               className="flex min-h-[2.75rem] items-center justify-center gap-2 rounded-xl border border-border-strong px-4 text-base font-semibold text-ink hover:bg-surface-muted"
             >
               <Search className="h-4 w-4" aria-hidden="true" />

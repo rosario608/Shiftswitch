@@ -34,7 +34,7 @@ interface SwitchResponse {
  * "Opened in your mail app", and only the resident can mark it as sent.
  */
 export function SwitchDetailScreen() {
-  const { tradeId } = useParams<{ tradeId: string }>();
+  const { switchId } = useParams<{ switchId: string }>();
   const toast = useToast();
   const [email, setEmail] = useState<SwitchEmail | null>(null);
   const [emailOpen, setEmailOpen] = useState(false);
@@ -42,8 +42,8 @@ export function SwitchDetailScreen() {
   const [failure, setFailure] = useState<string | null>(null);
 
   const resource = useResource<SwitchResponse>(
-    (signal) => api.get<SwitchResponse>(`/api/switches/${tradeId}`, { signal }),
-    [tradeId],
+    (signal) => api.get<SwitchResponse>(`/api/switches/done/${switchId}`, { signal }),
+    [switchId],
   );
 
   const trade = resource.data?.trade;
@@ -54,7 +54,7 @@ export function SwitchDetailScreen() {
     setFailure(null);
     try {
       const result = await api.post<{ email: SwitchEmail }>(
-        `/api/switches/${tradeId}/email`,
+        `/api/switches/done/${switchId}/email`,
       );
       setEmail(result.email);
       setEmailOpen(true);

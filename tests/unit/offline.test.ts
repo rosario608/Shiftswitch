@@ -35,7 +35,7 @@ describe("a mutation attempted while the phone knows it is offline", () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
 
-    const error = (await apiFetch("/api/trades", { method: "POST", body: "{}" }).catch(
+    const error = (await apiFetch("/api/switches", { method: "POST", body: "{}" }).catch(
       (caught) => caught,
     )) as ApiError;
 
@@ -134,8 +134,8 @@ describe("a server that answers", () => {
 
 describe("what a crash report may say about where it happened", () => {
   it("replaces a trade id with its shape", () => {
-    expect(scrubRoute("/trades/9f2c8a1e-4b3d-4c5e-8f7a-1b2c3d4e5f6a")).toBe(
-      "/trades/:id",
+    expect(scrubRoute("/switches/9f2c8a1e-4b3d-4c5e-8f7a-1b2c3d4e5f6a")).toBe(
+      "/switches/:id",
     );
   });
 

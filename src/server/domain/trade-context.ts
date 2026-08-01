@@ -51,7 +51,7 @@ export async function buildTradeContext({
 }: BuildContextInput): Promise<TradeContext> {
   if (!sourceShift.resident_id || !offeredShift.resident_id) {
     throw notFound(
-      "One of the shifts in this trade no longer has an assigned resident.",
+      "One of the shifts in this switch no longer has anybody on it.",
     );
   }
   // NOTE: these run sequentially on purpose — `executor` may be a transaction
@@ -59,7 +59,7 @@ export async function buildTradeContext({
   const residentA = await getResidentInfo(sourceShift.resident_id, executor);
   const residentB = await getResidentInfo(offeredShift.resident_id, executor);
   if (!residentA || !residentB) {
-    throw notFound("One of the residents in this trade is no longer available.");
+    throw notFound("One of the residents in this switch is no longer available.");
   }
 
   const sourceInfo = toShiftInfo(sourceShift);
@@ -133,7 +133,7 @@ export async function buildTradeContextByShiftIds(
   const sourceShift = await getShiftDetail(sourceShiftId, executor);
   const offeredShift = await getShiftDetail(offeredShiftId, executor);
   if (!sourceShift || !offeredShift) {
-    throw notFound("One of the shifts in this trade no longer exists.");
+    throw notFound("One of the shifts in this switch no longer exists.");
   }
   return buildTradeContext({
     program,

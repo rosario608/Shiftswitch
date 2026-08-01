@@ -33,7 +33,7 @@ const BAND_TONE: Record<MatchBand, "positive" | "brand" | "caution" | "neutral">
 
 const TABS = [
   { key: "available", label: "Available" },
-  { key: "mine", label: "My trades" },
+  { key: "mine", label: "Mine" },
   { key: "history", label: "History" },
 ] as const;
 
@@ -146,11 +146,11 @@ export default async function TradesPage({
         </p>
       </header>
 
-      <nav aria-label="Trade views" className="flex gap-2">
+      <nav aria-label="Switch views" className="flex gap-2">
         {TABS.map((item) => (
           <Link
             key={item.key}
-            href={`/trades?tab=${item.key}`}
+            href={`/switches?tab=${item.key}`}
             aria-current={tab === item.key ? "page" : undefined}
             className={`min-h-[2.5rem] flex-1 rounded-xl px-3 py-2 text-center text-sm font-semibold ${
               tab === item.key
@@ -167,7 +167,7 @@ export default async function TradesPage({
         available.length === 0 ? (
           <EmptyState
             icon={<Repeat className="h-5 w-5" aria-hidden="true" />}
-            title="No available trades"
+            title="Nobody has posted a shift"
             description="There are currently no compatible shifts available. Try expanding your date or service preferences, or post one of your own shifts."
           />
         ) : (
@@ -179,7 +179,7 @@ export default async function TradesPage({
                 <li key={trade.id}>
                   <Card>
                     <Link
-                      href={`/trades/${trade.id}`}
+                      href={`/switches/${trade.id}`}
                       className="block px-4 py-3.5 hover:bg-surface-muted"
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -255,7 +255,7 @@ export default async function TradesPage({
             {activity.posted.length === 0 ? (
               <EmptyState
                 title="You haven't posted any shifts"
-                description="Post a shift from your schedule and colleagues can offer a swap."
+                description="Post a shift from your schedule and a colleague can offer one of theirs."
               />
             ) : (
               <ul className="space-y-2">
@@ -266,7 +266,7 @@ export default async function TradesPage({
                     <li key={post.id}>
                       <Card>
                         <Link
-                          href={`/trades/${post.id}`}
+                          href={`/switches/${post.id}`}
                           className="block px-4 py-3.5 hover:bg-surface-muted"
                         >
                           <div className="flex items-start justify-between gap-3">
@@ -315,7 +315,7 @@ export default async function TradesPage({
                     <li key={offer.id}>
                       <Card>
                         <Link
-                          href={`/trades/${offer.trade_request_id}`}
+                          href={`/switches/${offer.trade_request_id}`}
                           className="block px-4 py-3.5 hover:bg-surface-muted"
                         >
                           <div className="flex items-start justify-between gap-3">
@@ -362,7 +362,7 @@ export default async function TradesPage({
                     <li key={`${entry.kind}-${entry.id}`}>
                       <Card>
                         <Link
-                          href={`/trades/${entry.requestId}`}
+                          href={`/switches/${entry.requestId}`}
                           className="block px-4 py-3.5 hover:bg-surface-muted"
                         >
                           <div className="flex items-start justify-between gap-3">
@@ -407,7 +407,7 @@ export default async function TradesPage({
                 <li key={trade.id}>
                   <Card>
                     <Link
-                      href={`/switches/${trade.id}`}
+                      href={`/switches/done/${trade.id}`}
                       className="block px-4 py-3.5 hover:bg-surface-muted"
                     >
                       <div className="flex items-start justify-between gap-3">

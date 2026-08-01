@@ -92,7 +92,7 @@ export default async function LoginPage({
         <Feature
           Icon={Zap}
           title="Post a shift in seconds"
-          description="Pick a shift, add a note, and colleagues can offer a swap."
+          description="Post a shift, and a colleague can offer one of theirs."
         />
         <Feature
           Icon={ShieldCheck}

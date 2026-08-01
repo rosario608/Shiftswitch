@@ -6,12 +6,12 @@ import { approveTrade } from "@/server/domain/trades";
 export const dynamic = "force-dynamic";
 
 export const POST = apiHandler(
-  async (request: Request, ctx: { params: Promise<{ tradeId: string }> }) => {
+  async (request: Request, ctx: { params: Promise<{ switchId: string }> }) => {
     const context = await requireCapability("approvals.decide");
-    const { tradeId: rawId } = await ctx.params;
-    const tradeId = requireUuid(rawId, "trade");
+    const { switchId: rawId } = await ctx.params;
+    const switchId = requireUuid(rawId, "switch");
     const body = await parseOptionalJson(request, approveSchema, {});
-    const result = await approveTrade(context, tradeId, {
+    const result = await approveTrade(context, switchId, {
       notes: body.notes,
       override: body.override,
     });

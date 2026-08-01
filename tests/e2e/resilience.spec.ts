@@ -169,19 +169,19 @@ test("a chief cannot either — it reports the shape of the deployment", async (
 
 test("a crash report reaches the server and names no one", async ({ page }) => {
   await signIn(page, ACCOUNTS.alice);
-  await page.goto("/trades");
+  await page.goto("/switches");
 
   /* The route's contract, exercised end to end: it accepts a report from a
      signed-in browser, answers 202, and the payload it accepts has no field
      for a component tree, props or state. The *scrubbing* of the route — the
-     part that turns `/trades/9f2c…` into `/trades/:id` — is covered by
+     part that turns `/switches/9f2c…` into `/switches/:id` — is covered by
      `tests/unit/offline.test.ts`, which can assert it directly rather than
      through a contrived crash. */
   const response = await page.request.post("/api/client-errors", {
     data: {
       name: "TypeError",
       message: "cannot read properties of undefined",
-      route: "/trades/:id",
+      route: "/switches/:id",
       kind: "render",
     },
   });

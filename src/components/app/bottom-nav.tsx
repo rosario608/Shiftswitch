@@ -28,10 +28,10 @@ const ITEMS: NavItem[] = [
     match: (p) => p.startsWith("/schedule"),
   },
   {
-    href: "/trades",
-    label: "Trades",
+    href: "/switches",
+    label: "Switches",
     Icon: Repeat,
-    match: (p) => p.startsWith("/trades") || p.startsWith("/switches"),
+    match: (p) => p.startsWith("/switches"),
   },
   {
     href: "/notifications",

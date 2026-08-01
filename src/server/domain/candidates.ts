@@ -47,7 +47,7 @@ export async function getOfferCandidates(
   tradeRequestId: string,
 ): Promise<{ candidates: OfferCandidate[]; sourceShift: ShiftDetail }> {
   const request = await getTradeRequestDetail(tradeRequestId, context.program.id);
-  if (!request) throw notFound("That trade post no longer exists.");
+  if (!request) throw notFound("That posted shift no longer exists.");
 
   const offerable = await listOfferableShifts(
     context.resident.id,
@@ -211,7 +211,7 @@ export const MATCH_BAND_LABEL: Record<MatchBand, string> = {
 };
 
 /**
- * Cheap match preview for the "Available trades" list: scores the viewer's
+ * Cheap match preview for the "Shifts you can take" list: scores the viewer's
  * offerable shifts against each posted shift without running the full rules
  * engine (that happens when they open the trade).
  */

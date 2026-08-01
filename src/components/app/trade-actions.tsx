@@ -15,11 +15,11 @@ export function CancelPostButton({ tradeRequestId }: { tradeRequestId: string })
   const online = useOnline();
   const [open, setOpen] = React.useState(false);
   const cancel = useAction(
-    async () => apiFetch(`/api/trades/${tradeRequestId}/cancel`, { method: "POST" }),
+    async () => apiFetch(`/api/switches/${tradeRequestId}/cancel`, { method: "POST" }),
     {
       onSuccess: () => {
         setOpen(false);
-        router.push("/trades?tab=mine");
+        router.push("/switches?tab=mine");
         router.refresh();
       },
     },
@@ -33,7 +33,7 @@ export function CancelPostButton({ tradeRequestId }: { tradeRequestId: string })
       <Sheet
         open={open}
         onClose={() => setOpen(false)}
-        title="Cancel this trade post?"
+        title="Take this shift down?"
         description="Your shift stays on your schedule. Any pending offers will be withdrawn and those residents will be told why."
         footer={
           <div className="flex gap-2 pb-2">

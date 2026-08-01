@@ -15,7 +15,7 @@ import type { NotificationType } from "./notifications";
 export interface PushMessage {
   title: string;
   body: string;
-  /** Deep link path inside the app, e.g. "/trades/<id>". */
+  /** Deep link path inside the app, e.g. "/switches/<id>". */
   route?: string;
   category: string;
   notificationId?: string;

@@ -11,7 +11,7 @@ test.beforeAll(() => {
   resetFixture();
 });
 
-const PAGES = ["/", "/schedule", "/trades", "/notifications", "/profile"];
+const PAGES = ["/", "/schedule", "/switches", "/notifications", "/profile"];
 
 test("no page scrolls horizontally on a phone-sized viewport", async ({ page }) => {
   await signIn(page, ACCOUNTS.alice);
@@ -60,7 +60,7 @@ test("primary controls meet a 44px tap target", async ({ page }) => {
   await page.goto("/");
   await page.waitForLoadState("networkidle");
 
-  const primary = page.getByRole("button", { name: /post this shift for trade/i });
+  const primary = page.getByRole("button", { name: /post this shift/i });
   const box = await primary.boundingBox();
   expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
 
@@ -83,8 +83,8 @@ test("bottom navigation moves between the main areas", async ({ page }) => {
   await expect(page).toHaveURL(/\/schedule$/);
   await expect(page.getByRole("heading", { name: /my schedule/i })).toBeVisible();
 
-  await nav.getByRole("link", { name: "Trades" }).click();
-  await expect(page).toHaveURL(/\/trades$/);
+  await nav.getByRole("link", { name: "Switches" }).click();
+  await expect(page).toHaveURL(/\/switches$/);
 
   await nav.getByRole("link", { name: "Alerts" }).click();
   await expect(page).toHaveURL(/\/notifications$/);
@@ -112,16 +112,16 @@ test("going offline is announced and blocks schedule changes honestly", async ({
   ).toBeVisible();
 
   // The post sheet refuses to submit rather than pretending to succeed.
-  await page.getByRole("button", { name: /post this shift for trade/i }).click();
+  await page.getByRole("button", { name: /post this shift/i }).click();
   const sheet = page.getByRole("dialog");
   await expect(
     sheet.getByText(/schedule changes require an internet connection/i),
   ).toBeVisible();
-  await expect(sheet.getByRole("button", { name: /^post for trade$/i })).toBeDisabled();
+  await expect(sheet.getByRole("button", { name: /^post it$/i })).toBeDisabled();
 
   await context.setOffline(false);
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
-  await expect(sheet.getByRole("button", { name: /^post for trade$/i })).toBeEnabled();
+  await expect(sheet.getByRole("button", { name: /^post it$/i })).toBeEnabled();
 });
 
 test("the web app manifest describes an installable app", async ({ page }) => {
@@ -149,7 +149,7 @@ test("the web app manifest describes an installable app", async ({ page }) => {
 
 test("empty states explain what to do next", async ({ page }) => {
   await signIn(page, ACCOUNTS.alice);
-  await page.goto("/trades?tab=history");
+  await page.goto("/switches?tab=history");
   await expect(page.getByText(/no completed switches yet/i)).toBeVisible();
   await page.goto("/notifications");
   await expect(
@@ -172,7 +172,7 @@ test("keyboard users can reach the main content and operate a sheet", async ({ p
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: /skip to main content/i })).toBeFocused();
 
-  await page.getByRole("button", { name: /post this shift for trade/i }).click();
+  await page.getByRole("button", { name: /post this shift/i }).click();
   const sheet = page.getByRole("dialog");
   await expect(sheet).toHaveAttribute("aria-modal", "true");
   await page.keyboard.press("Escape");

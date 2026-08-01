@@ -91,10 +91,10 @@ export function translateDatabaseError(error: unknown): AppError {
         );
       }
       if (pgError.constraint === "trade_requests_one_open_per_shift") {
-        return conflict("This shift is already posted for trade.");
+        return conflict("This shift is already posted.");
       }
       if (pgError.constraint === "trade_offers_one_live_per_shift_request") {
-        return conflict("You have already offered that shift for this trade.");
+        return conflict("You have already offered that shift for this switch.");
       }
       if (pgError.constraint === "completed_trades_offer_key") {
         return conflict("This switch has already been completed.");

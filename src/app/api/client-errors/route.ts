@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
  * `reportError` on the way out.
  *
  * The **route is a pathname with its ids stripped**, not `window.location`: a
- * URL here is `/trades/9f2c…`, and that identifier is a real trade belonging to
+ * URL here is `/switches/9f2c…`, and that identifier is a real trade belonging to
  * two real people.
  *
  * ## Why it is not `apiHandler`

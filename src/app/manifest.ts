@@ -27,7 +27,7 @@ export default function manifest(): MetadataRoute.Manifest {
     ],
     shortcuts: [
       { name: "My schedule", url: "/schedule" },
-      { name: "Available trades", url: "/trades" },
+      { name: "Shifts you can take", url: "/switches" },
     ],
   };
 }

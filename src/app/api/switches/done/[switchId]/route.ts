@@ -8,11 +8,11 @@ export const dynamic = "force-dynamic";
 
 /** A completed switch. Visible to the two residents involved and to chiefs. */
 export const GET = apiHandler(
-  async (_request: Request, ctx: { params: Promise<{ tradeId: string }> }) => {
+  async (_request: Request, ctx: { params: Promise<{ switchId: string }> }) => {
     const context = await requireUser();
-    const { tradeId: rawId } = await ctx.params;
-    const tradeId = requireUuid(rawId, "switch");
-    const trade = await getCompletedTrade(tradeId, context.program.id);
+    const { switchId: rawId } = await ctx.params;
+    const switchId = requireUuid(rawId, "switch");
+    const trade = await getCompletedTrade(switchId, context.program.id);
     if (!trade) throw notFound("That switch no longer exists.");
 
     const residentId = context.resident?.id ?? null;

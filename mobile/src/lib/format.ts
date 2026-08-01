@@ -96,7 +96,7 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
   expired: "Expired",
   scheduled: "Scheduled",
-  posted: "Posted for trade",
+  posted: "Posted to switch",
   pending: "Pending",
   rejected: "Declined",
   withdrawn: "Withdrawn",

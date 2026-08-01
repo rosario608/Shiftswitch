@@ -66,7 +66,7 @@ export function OfferShiftSheet({
     setLoadError(null);
     try {
       const result = await apiFetch<{ candidates: Candidate[] }>(
-        `/api/trades/${tradeRequestId}/candidates`,
+        `/api/switches/${tradeRequestId}/candidates`,
       );
       setCandidates(result.candidates);
       const firstEligible = result.candidates.find((candidate) => candidate.eligible);
@@ -84,7 +84,7 @@ export function OfferShiftSheet({
 
   const submit = useAction(
     async () =>
-      apiFetch(`/api/trades/${tradeRequestId}/offers`, {
+      apiFetch(`/api/switches/${tradeRequestId}/offers`, {
         method: "POST",
         body: JSON.stringify({ offeredShiftId: selectedId }),
       }),

@@ -55,7 +55,7 @@ export function OfferDecisionList({
       onSuccess: (result) => {
         setConfirming(null);
         if (result.status === "completed" && result.completedTradeId) {
-          router.push(`/switches/${result.completedTradeId}`);
+          router.push(`/switches/done/${result.completedTradeId}`);
         }
         router.refresh();
       },

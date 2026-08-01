@@ -260,8 +260,8 @@ function ServiceSummary({
     [
       "Switching",
       service.tradeable
-        ? "Residents may swap these shifts"
-        : "These shifts cannot be swapped",
+        ? "Residents may switch these shifts"
+        : "These shifts cannot be switched",
     ],
   ];
 
@@ -425,7 +425,7 @@ function ServiceFields({
             onChange={(event) => setTradeable(event.target.checked)}
           />
           <span>
-            Residents may swap these shifts
+            Residents may switch these shifts
             <span className="block text-ink-muted">
               Turn this off for continuity clinic, where the point is that the
               same resident sees the same patients.

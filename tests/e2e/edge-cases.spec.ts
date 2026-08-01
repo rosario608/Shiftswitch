@@ -15,7 +15,7 @@ async function postAndOffer(page: import("@playwright/test").Page) {
   await signIn(page, ACCOUNTS.alice);
   const aliceShifts = (await (await page.request.get("/api/schedule")).json())
     .shifts as Array<{ id: string }>;
-  const created = await page.request.post("/api/trades", {
+  const created = await page.request.post("/api/switches", {
     data: { shiftId: aliceShifts[0].id },
   });
   const tradeId = (await created.json()).tradeRequest.id as string;
@@ -24,7 +24,7 @@ async function postAndOffer(page: import("@playwright/test").Page) {
   await signIn(page, ACCOUNTS.bob);
   const bobShifts = (await (await page.request.get("/api/schedule")).json())
     .shifts as Array<{ id: string }>;
-  const offerResponse = await page.request.post(`/api/trades/${tradeId}/offers`, {
+  const offerResponse = await page.request.post(`/api/switches/${tradeId}/offers`, {
     data: { offeredShiftId: bobShifts[0].id },
   });
   expect(offerResponse.ok()).toBe(true);
@@ -46,10 +46,10 @@ test("double-tapping accept creates exactly one switch", async ({ page }) => {
   expect(statuses[0]).toBe(200);
   expect(statuses[1]).toBeGreaterThanOrEqual(400);
 
-  const history = await page.request.get("/api/trades?limit=50");
+  const history = await page.request.get("/api/switches?limit=50");
   expect(history.ok()).toBe(true);
   // Exactly one switch is visible in the resident's history.
-  await page.goto("/trades?tab=history");
+  await page.goto("/switches?tab=history");
   await expect(page.getByRole("link", { name: /↔/ })).toHaveCount(1);
 });
 
@@ -57,7 +57,7 @@ test("an obsolete offer cannot be accepted from a stale page", async ({ page }) 
   const { tradeId, offerId } = await postAndOffer(page);
 
   // The page is loaded while the offer is still pending.
-  await page.goto(`/trades/${tradeId}`);
+  await page.goto(`/switches/${tradeId}`);
   await expect(page.getByRole("button", { name: /^accept$/i })).toBeVisible();
 
   // Meanwhile the offer is withdrawn by the other resident.
@@ -107,7 +107,7 @@ test("a completed switch cannot be re-opened or re-accepted", async ({ page }) =
   const accepted = await page.request.post(`/api/offers/${offerId}/accept`);
   expect(accepted.ok()).toBe(true);
 
-  await page.goto(`/trades/${tradeId}`);
+  await page.goto(`/switches/${tradeId}`);
   await expect(page.getByText("Completed").first()).toBeVisible();
   await expect(page.getByRole("button", { name: /^accept$/i })).toHaveCount(0);
 
@@ -119,7 +119,7 @@ test("a resident is told why an offer became unavailable", async ({ page }) => {
   const { tradeId } = await postAndOffer(page);
 
   // Alice cancels her post; Bob should be told why his offer disappeared.
-  const cancelled = await page.request.post(`/api/trades/${tradeId}/cancel`, {
+  const cancelled = await page.request.post(`/api/switches/${tradeId}/cancel`, {
     data: { reason: "No longer needed" },
   });
   expect(cancelled.ok()).toBe(true);
@@ -132,7 +132,7 @@ test("a resident is told why an offer became unavailable", async ({ page }) => {
   ).toBeVisible();
 
   // And the trade page itself explains the state.
-  await page.goto(`/trades/${tradeId}`);
+  await page.goto(`/switches/${tradeId}`);
   await expect(page.getByText("Cancelled").first()).toBeVisible();
 });
 
@@ -141,12 +141,12 @@ test("posting is refused for a shift that is no longer eligible", async ({ page 
   const shifts = (await (await page.request.get("/api/schedule")).json()).shifts as Array<{
     id: string;
   }>;
-  const first = await page.request.post("/api/trades", {
+  const first = await page.request.post("/api/switches", {
     data: { shiftId: shifts[0].id },
   });
   expect(first.ok()).toBe(true);
 
-  const second = await page.request.post("/api/trades", {
+  const second = await page.request.post("/api/switches", {
     data: { shiftId: shifts[0].id },
   });
   expect(second.status()).toBe(409);

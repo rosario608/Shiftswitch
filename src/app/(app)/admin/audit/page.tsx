@@ -37,7 +37,7 @@ export default async function AuditPage({
           type="search"
           name="action"
           defaultValue={params.action ?? ""}
-          placeholder="Filter by action, e.g. trade.completed"
+          placeholder="Filter by action, e.g. switch.completed"
           aria-label="Filter by action"
           className="min-h-[2.75rem] w-full rounded-xl border border-border-strong bg-surface px-3 text-base"
         />
@@ -52,7 +52,7 @@ export default async function AuditPage({
       {logs.length === 0 ? (
         <EmptyState
           title="No audit entries"
-          description="Entries appear as soon as shifts, trades or settings change."
+          description="Entries appear as soon as shifts, switches or settings change."
         />
       ) : (
         <ul className="space-y-2">

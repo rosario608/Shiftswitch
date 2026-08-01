@@ -12,7 +12,7 @@ export default async function AnalyticsPage() {
 
   const tiles = [
     { label: "Total shifts", value: analytics.totals.shifts },
-    { label: "Trade posts", value: analytics.totals.tradeRequests },
+    { label: "Shifts posted", value: analytics.totals.tradeRequests },
     { label: "Completed switches", value: analytics.totals.completedTrades },
     { label: "Completion rate", value: `${analytics.completionRate}%` },
     { label: "Pending approvals", value: analytics.totals.pendingApprovals },
@@ -119,7 +119,7 @@ export default async function AnalyticsPage() {
           </h2>
           {analytics.failedValidationReasons.length === 0 ? (
             <EmptyState
-              title="No failed trades recorded"
+              title="No switches have been blocked"
               description="Reasons appear here when an offer is invalidated or a switch is rejected."
             />
           ) : (

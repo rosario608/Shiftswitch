@@ -8,8 +8,8 @@
  *
  * ## What it will not send
  *
- * The route, **with its identifiers removed**. `/trades/9f2c8a1e-…` names a
- * real switch between two real people; `/trades/:id` names a screen. The
+ * The route, **with its identifiers removed**. `/switches/9f2c8a1e-…` names a
+ * real switch between two real people; `/switches/:id` names a screen. The
  * substitution happens here, before the value exists in a payload, rather than
  * being trusted to the server — the value should never travel in the first
  * place.

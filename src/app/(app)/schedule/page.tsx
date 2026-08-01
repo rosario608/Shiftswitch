@@ -70,7 +70,7 @@ export default async function SchedulePage({
         <CardBody>
           <PostShiftButton
             shifts={postable.map((shift) => toShiftView(shift, timezone))}
-            label="Post a shift for trade"
+            label="Post a shift"
           />
         </CardBody>
       </Card>

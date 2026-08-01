@@ -14,7 +14,7 @@ const UUID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 describe("routeFromUrl", () => {
   it("routes universal links from the app's own origin", () => {
     expect(routeFromUrl(`http://localhost:3000/trades/${UUID}`)).toBe(
-      `/trades/${UUID}`,
+      `/switches/${UUID}`,
     );
     expect(routeFromUrl(`http://localhost:3000/switches/${UUID}`)).toBe(
       `/switches/${UUID}`,
@@ -28,7 +28,7 @@ describe("routeFromUrl", () => {
   });
 
   it("routes the custom scheme, where the path is parsed as host + path", () => {
-    expect(routeFromUrl(`shiftswitch://trades/${UUID}`)).toBe(`/trades/${UUID}`);
+    expect(routeFromUrl(`shiftswitch://trades/${UUID}`)).toBe(`/switches/${UUID}`);
     expect(routeFromUrl("shiftswitch://schedule")).toBe("/schedule");
   });
 
@@ -57,7 +57,7 @@ describe("routeFromUrl", () => {
   });
 
   it("ignores a trailing slash", () => {
-    expect(routeFromUrl("http://localhost:3000/trades/")).toBe("/trades");
+    expect(routeFromUrl("http://localhost:3000/trades/")).toBe("/switches");
   });
 });
 

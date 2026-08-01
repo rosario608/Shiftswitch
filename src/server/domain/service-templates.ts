@@ -289,7 +289,7 @@ const DUKE_INTERNAL_MEDICINE: ServiceTemplate = {
       // same resident sees the same patients.
       tradeable: false,
       coverageMandatory: true,
-      notes: "Continuity clinic. Not tradeable — continuity is the point.",
+      notes: "Continuity clinic. Cannot be switched — continuity is the point.",
       coverage: [
         weekdays("Clinic sessions", 4, {
           startTime: "08:00",

@@ -5,7 +5,7 @@ import { SHIFT_DETAIL_SELECT } from "./schedule";
 /**
  * The caller's own upcoming shifts that are actually postable right now:
  * assigned to them, tradeable, in the future, past no deadline, and not already
- * caught up in another trade. The "Post for trade" screen only ever offers
+ * caught up in another trade. The "Post this shift" screen only ever offers
  * these, so a resident cannot start a flow that the server would reject.
  */
 export async function listOfferableForPosting(
@@ -35,14 +35,14 @@ export function describePostingBlock(
   shift: Pick<ShiftDetail, "tradeable" | "status" | "start_datetime" | "trade_deadline">,
   now: Date = new Date(),
 ): string | null {
-  if (!shift.tradeable) return "Your program has marked this shift non-tradeable.";
+  if (!shift.tradeable) return "Your program does not allow this shift to be switched.";
   if (shift.status === "cancelled") return "This shift has been cancelled.";
   if (shift.status === "completed") return "This shift has already been worked.";
   if (shift.start_datetime.getTime() <= now.getTime()) {
     return "This shift has already started.";
   }
   if (shift.trade_deadline && shift.trade_deadline.getTime() <= now.getTime()) {
-    return "The trade deadline for this shift has passed.";
+    return "The deadline for switching this shift has passed.";
   }
   return null;
 }

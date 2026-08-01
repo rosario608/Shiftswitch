@@ -69,7 +69,7 @@ describe("api client", () => {
       }),
     });
 
-    await expect(api.post("/api/trades", {})).rejects.toMatchObject({
+    await expect(api.post("/api/switches", {})).rejects.toMatchObject({
       code: "rule_violation",
       status: 422,
       message: "That switch would leave you on call for 14 days straight.",

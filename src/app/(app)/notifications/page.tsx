@@ -22,7 +22,7 @@ export const metadata = { title: "Notifications" };
  */
 function hrefFor(item: { route: string; related_entity_id: string | null }): string {
   if (item.route) return item.route;
-  return item.related_entity_id ? "/trades?tab=mine" : "/";
+  return item.related_entity_id ? "/switches?tab=mine" : "/";
 }
 
 export default async function NotificationsPage() {

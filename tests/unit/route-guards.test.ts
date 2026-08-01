@@ -158,9 +158,9 @@ const EXPECTED: Record<string, Capability | "session" | "resident"> = {
   "admin/users": "users.manage",
   "admin/users/[userId]": "users.manage",
   "approvals": "approvals.decide",
-  "approvals/[tradeId]/approve": "approvals.decide",
-  "approvals/[tradeId]/reject": "approvals.decide",
-  "approvals/[tradeId]/request-changes": "approvals.decide",
+  "approvals/[switchId]/approve": "approvals.decide",
+  "approvals/[switchId]/reject": "approvals.decide",
+  "approvals/[switchId]/request-changes": "approvals.decide",
   "auth/signout": "session",
   "availability": "session",
   "availability/[id]": "session",
@@ -182,13 +182,13 @@ const EXPECTED: Record<string, Capability | "session" | "resident"> = {
      is exactly the state the pending screen needs to read. */
   "session": "session",
   "shifts/[shiftId]": "session",
-  "switches/[tradeId]": "session",
-  "switches/[tradeId]/email": "session",
-  "trades": "resident",
-  "trades/[tradeId]": "session",
-  "trades/[tradeId]/cancel": "session",
-  "trades/[tradeId]/candidates": "resident",
-  "trades/[tradeId]/offers": "resident",
+  switches: "resident",
+  "switches/[switchId]": "session",
+  "switches/[switchId]/cancel": "session",
+  "switches/[switchId]/candidates": "resident",
+  "switches/[switchId]/offers": "resident",
+  "switches/done/[switchId]": "session",
+  "switches/done/[switchId]/email": "session",
 };
 
 /**

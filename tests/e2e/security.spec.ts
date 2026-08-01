@@ -17,7 +17,7 @@ test("unauthenticated requests are rejected and pages redirect to sign-in", asyn
 }) => {
   for (const path of [
     "/api/schedule",
-    "/api/trades",
+    "/api/switches",
     "/api/notifications",
     "/api/admin/users",
     "/api/admin/analytics",
@@ -224,7 +224,7 @@ test("a resident cannot post, offer or accept on somebody else's behalf", async 
   await signIn(page, ACCOUNTS.bob);
 
   // Posting a shift Bob does not hold.
-  const post = await page.request.post("/api/trades", {
+  const post = await page.request.post("/api/switches", {
     data: { shiftId: aliceShiftId },
   });
   expect(post.status()).toBe(403);
@@ -232,7 +232,7 @@ test("a resident cannot post, offer or accept on somebody else's behalf", async 
   // Offering a shift Bob does not hold.
   await signOut(page);
   await signIn(page, ACCOUNTS.alice);
-  const created = await page.request.post("/api/trades", {
+  const created = await page.request.post("/api/switches", {
     data: { shiftId: aliceShiftId },
   });
   expect(created.ok()).toBe(true);
@@ -240,7 +240,7 @@ test("a resident cannot post, offer or accept on somebody else's behalf", async 
 
   await signOut(page);
   await signIn(page, ACCOUNTS.carol);
-  const offerSomebodyElses = await page.request.post(`/api/trades/${tradeId}/offers`, {
+  const offerSomebodyElses = await page.request.post(`/api/switches/${tradeId}/offers`, {
     data: { offeredShiftId: aliceShiftId },
   });
   expect(offerSomebodyElses.status()).toBe(403);
@@ -250,7 +250,7 @@ test("a resident cannot post, offer or accept on somebody else's behalf", async 
   await signIn(page, ACCOUNTS.bob);
   const bobShifts = (await (await page.request.get("/api/schedule")).json())
     .shifts as Array<{ id: string }>;
-  const offerResponse = await page.request.post(`/api/trades/${tradeId}/offers`, {
+  const offerResponse = await page.request.post(`/api/switches/${tradeId}/offers`, {
     data: { offeredShiftId: bobShifts[0].id },
   });
   expect(offerResponse.ok()).toBe(true);
@@ -263,24 +263,24 @@ test("a resident cannot post, offer or accept on somebody else's behalf", async 
 test("malformed and unknown identifiers fail safely", async ({ page }) => {
   await signIn(page, ACCOUNTS.bob);
 
-  const badUuid = await page.request.get("/api/trades/not-a-uuid");
+  const badUuid = await page.request.get("/api/switches/not-a-uuid");
   expect([404, 422, 500]).toContain(badUuid.status());
   expect(await badUuid.text()).not.toContain("PostgresError");
 
   const unknown = await page.request.get(
-    "/api/trades/00000000-0000-0000-0000-000000000000",
+    "/api/switches/00000000-0000-0000-0000-000000000000",
   );
   expect(unknown.status()).toBe(404);
   const body = await unknown.json();
   expect(body.error.message).not.toMatch(/select|relation|syntax/i);
 
-  const badBody = await page.request.post("/api/trades", {
+  const badBody = await page.request.post("/api/switches", {
     data: { shiftId: "nonsense" },
   });
   expect(badBody.status()).toBe(422);
   expect((await badBody.json()).error.code).toBe("validation_failed");
 
-  const notJson = await page.request.post("/api/trades", {
+  const notJson = await page.request.post("/api/switches", {
     data: "not json at all",
     headers: { "content-type": "application/json" },
   });

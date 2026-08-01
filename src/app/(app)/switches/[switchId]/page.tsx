@@ -23,12 +23,12 @@ export const dynamic = "force-dynamic";
 export default async function TradeDetailPage({
   params,
 }: {
-  params: Promise<{ tradeId: string }>;
+  params: Promise<{ switchId: string }>;
 }) {
   const context = await requirePageUser();
-  const { tradeId } = await params;
-  if (!isUuid(tradeId)) notFound();
-  const trade = await getTradeRequestDetail(tradeId, context.program.id);
+  const { switchId } = await params;
+  if (!isUuid(switchId)) notFound();
+  const trade = await getTradeRequestDetail(switchId, context.program.id);
   if (!trade) notFound();
 
   const timezone = context.program.timezone;
@@ -71,7 +71,7 @@ export default async function TradeDetailPage({
   return (
     <div className="space-y-5">
       <Link
-        href="/trades"
+        href="/switches"
         className="inline-flex min-h-[2.5rem] items-center gap-1.5 text-sm font-semibold text-brand-ink"
       >
         <ArrowLeft className="h-4 w-4" aria-hidden="true" />
@@ -127,7 +127,7 @@ export default async function TradeDetailPage({
 
       {trade.status === "completed" && completed ? (
         <Alert tone="success" title="Switch completed">
-          <Link href={`/switches/${completed.id}`} className="font-semibold underline">
+          <Link href={`/switches/done/${completed.id}`} className="font-semibold underline">
             View the switch and notify your program
           </Link>
         </Alert>
@@ -194,7 +194,7 @@ export default async function TradeDetailPage({
             </Card>
           ) : closed || expired ? (
             <EmptyState
-              title="This trade is closed"
+              title="This switch is closed"
               description="You can no longer offer a shift for this post."
             />
           ) : (

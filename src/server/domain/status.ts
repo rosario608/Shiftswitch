@@ -72,7 +72,7 @@ export const assertOfferTransition = (
 
 export const SHIFT_STATUS_LABELS: Record<ShiftStatus, string> = {
   scheduled: "Scheduled",
-  posted: "Posted for trade",
+  posted: "Posted to switch",
   offer_pending: "Offer pending",
   pending_approval: "Pending approval",
   completed: "Completed",

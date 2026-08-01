@@ -12,14 +12,14 @@ import { useAction, useOnline } from "@/lib/use-action";
 import type { ShiftView } from "@/lib/views";
 
 /**
- * "Post for trade" in one sheet: choose one of your eligible shifts, optionally
+ * "Post this shift" in one sheet: choose one of your eligible shifts, optionally
  * describe what you'd like back, and post. Restrictions are explained before
  * the resident commits to anything.
  */
 export function PostShiftButton({
   shifts,
   preselectedShiftId,
-  label = "Post for trade",
+  label = "Post this shift",
   variant = "primary",
   icon,
   disabledReason,
@@ -51,7 +51,7 @@ export function PostShiftButton({
         .split(",")
         .map((value) => value.trim())
         .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value));
-      return apiFetch<{ tradeRequest: { id: string } }>("/api/trades", {
+      return apiFetch<{ tradeRequest: { id: string } }>("/api/switches", {
         method: "POST",
         body: JSON.stringify({
           shiftId,
@@ -69,7 +69,7 @@ export function PostShiftButton({
         setOpen(false);
         setNotes("");
         setPreferredDates("");
-        router.push(`/trades/${result.tradeRequest.id}`);
+        router.push(`/switches/${result.tradeRequest.id}`);
         router.refresh();
       },
     },
@@ -100,7 +100,7 @@ export function PostShiftButton({
       <Sheet
         open={open}
         onClose={() => setOpen(false)}
-        title="Post a shift for trade"
+        title="Post a shift"
         description="Other residents in your program will be able to offer one of their shifts."
         footer={
           <div className="flex gap-2 pb-2">
@@ -114,7 +114,11 @@ export function PostShiftButton({
               disabled={!shiftId || !online}
               onClick={() => post.run()}
             >
-              Post for trade
+              {/* One word, because the sheet's own title already says what is
+                  being posted. Repeating "Post this shift" on both the button
+                  that opens the sheet and the button that submits it makes two
+                  different actions read as the same one. */}
+              Post it
             </Button>
           </div>
         }

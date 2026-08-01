@@ -230,10 +230,10 @@ describe("device registry and push", () => {
       type: "offer.created",
       title: "New offer",
       body: "Bob offered a shift",
-      route: "/trades/abc",
+      route: "/switches/abc",
     });
     expect(results).toHaveLength(1);
-    expect(transport.sent[0].message.route).toBe("/trades/abc");
+    expect(transport.sent[0].message.route).toBe("/switches/abc");
     expect(transport.sent[0].message.category).toBe("offers");
     expect(transport.sent[0].target.token).toBe("token-abc-1234567890");
   });
@@ -455,7 +455,7 @@ describe("push is tied to the transaction that caused it", () => {
     const offerPush = transport.sent.find((entry) =>
       entry.message.title.includes("New offer"),
     );
-    expect(offerPush?.message.route).toBe(`/trades/${request.id}`);
+    expect(offerPush?.message.route).toBe(`/switches/${request.id}`);
 
     transport.sent = [];
     const outcome = await acceptOffer(alice.context, offer.id);
@@ -481,7 +481,7 @@ describe("notification deep links", () => {
         relatedEntityType: "trade_request",
         relatedEntityId: "abc",
       }),
-    ).toBe("/trades/abc");
+    ).toBe("/switches/abc");
     expect(
       routeFor({
         recipientUserId: "u",
@@ -499,11 +499,11 @@ describe("notification deep links", () => {
         recipientUserId: "u",
         type: "offer.created",
         title: "t",
-        route: "/trades/explicit",
+        route: "/switches/explicit",
         relatedEntityType: "trade_offer",
         relatedEntityId: "zzz",
       }),
-    ).toBe("/trades/explicit");
+    ).toBe("/switches/explicit");
   });
 });
 

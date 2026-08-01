@@ -18,12 +18,12 @@ export const metadata = { title: "Switch completed" };
 export default async function SwitchPage({
   params,
 }: {
-  params: Promise<{ tradeId: string }>;
+  params: Promise<{ switchId: string }>;
 }) {
   const context = await requirePageUser();
-  const { tradeId } = await params;
-  if (!isUuid(tradeId)) notFound();
-  const trade = await getCompletedTrade(tradeId, context.program.id);
+  const { switchId } = await params;
+  if (!isUuid(switchId)) notFound();
+  const trade = await getCompletedTrade(switchId, context.program.id);
   if (!trade) notFound();
 
   const isParticipant =
@@ -122,7 +122,7 @@ export default async function SwitchPage({
           View my schedule
         </Link>
         <Link
-          href="/trades?tab=history"
+          href="/switches?tab=history"
           className="flex min-h-[2.75rem] flex-1 items-center justify-center rounded-xl border border-border-strong px-4 font-semibold text-ink"
         >
           Switch history

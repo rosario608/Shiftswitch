@@ -87,7 +87,7 @@ export function RulesManager({
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <Badge tone="neutral">{rule.categoryLabel}</Badge>
                       <Badge tone={rule.severity === "error" ? "critical" : "caution"}>
-                        {rule.severity === "error" ? "Blocks trades" : "Warning only"}
+                        {rule.severity === "error" ? "Blocks the switch" : "Warning only"}
                       </Badge>
                       {rule.scope !== "program" ? (
                         <Badge tone="neutral">Scoped to {rule.scope}</Badge>
@@ -303,7 +303,7 @@ function RuleSheet({
           value={severity}
           onChange={(event) => setSeverity(event.target.value as "error" | "warning")}
         >
-          <option value="error">Blocks the trade</option>
+          <option value="error">Blocks the switch</option>
           <option value="warning">Warning only</option>
         </Select>
       </Field>

@@ -65,7 +65,7 @@ export function NotifyProgramPanel({
 
   const generate = useAction(
     async () =>
-      apiFetch<{ email: GeneratedEmail }>(`/api/switches/${completedTradeId}/email`, {
+      apiFetch<{ email: GeneratedEmail }>(`/api/switches/done/${completedTradeId}/email`, {
         method: "POST",
       }),
     {

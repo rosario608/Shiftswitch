@@ -36,7 +36,7 @@ import { successFeedback, warningFeedback } from "@/native/shell";
  * never a blend of both.
  */
 export function TradeDetailScreen() {
-  const { tradeId } = useParams<{ tradeId: string }>();
+  const { switchId } = useParams<{ switchId: string }>();
   const navigate = useNavigate();
   const { session } = useAuth();
   const toast = useToast();
@@ -44,8 +44,8 @@ export function TradeDetailScreen() {
 
   const resource = useResource<{ trade: TradeRequestDetail }>(
     (signal) =>
-      api.get<{ trade: TradeRequestDetail }>(`/api/trades/${tradeId}`, { signal }),
-    [tradeId],
+      api.get<{ trade: TradeRequestDetail }>(`/api/switches/${switchId}`, { signal }),
+    [switchId],
   );
 
   const trade = resource.data?.trade;
@@ -121,12 +121,12 @@ export function TradeDetailScreen() {
               timezone={timezone}
               live={Boolean(live)}
               onChanged={resource.reload}
-              onCompleted={(id) => navigate(`/switches/${id}`)}
+              onCompleted={(id) => navigate(`/switches/done/${id}`)}
               notify={toast.show}
             />
           ) : (
             <OffererView
-              tradeId={trade.id}
+              switchId={trade.id}
               myOffer={myOffer}
               timezone={timezone}
               live={Boolean(live)}
@@ -343,7 +343,7 @@ function OwnerView({
         onCancel={() => setConfirmCancel(false)}
         onConfirm={async () => {
           try {
-            await api.post(`/api/trades/${trade.id}/cancel`, {});
+            await api.post(`/api/switches/${trade.id}/cancel`, {});
             setConfirmCancel(false);
             notify("Post taken down.");
             await onChanged();
@@ -370,14 +370,14 @@ function OwnerView({
 // ---------------------------------------------------------------------------
 
 function OffererView({
-  tradeId,
+  switchId,
   myOffer,
   timezone,
   live,
   onChanged,
   notify,
 }: {
-  tradeId: string;
+  switchId: string;
   myOffer: TradeOffer | undefined;
   timezone: string;
   live: boolean;
@@ -392,18 +392,18 @@ function OffererView({
     (signal) =>
       pickerOpen
         ? api.get<{ candidates: OfferCandidate[] }>(
-            `/api/trades/${tradeId}/candidates`,
+            `/api/switches/${switchId}/candidates`,
             { signal },
           )
         : Promise.resolve({ candidates: [] }),
-    [pickerOpen, tradeId],
+    [pickerOpen, switchId],
   );
 
   async function offer(shiftId: string) {
     setSubmitting(true);
     setFailure(null);
     try {
-      await api.post(`/api/trades/${tradeId}/offers`, {
+      await api.post(`/api/switches/${switchId}/offers`, {
         offeredShiftId: shiftId,
       });
       await successFeedback();
@@ -525,7 +525,7 @@ function OffererView({
         {candidates.data?.candidates.length === 0 && (
           <EmptyState
             title="Nothing you can offer"
-            detail="None of your upcoming shifts can be swapped for this one under your program's rules."
+            detail="None of your upcoming shifts can be switched for this one under your program's rules."
           />
         )}
 

@@ -136,7 +136,7 @@ export default async function ServiceConfigPage({
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-ink">{rule.name}</span>
                     <Badge tone={rule.severity === "error" ? "critical" : "caution"}>
-                      {rule.severity === "error" ? "Blocks the trade" : "Warns"}
+                      {rule.severity === "error" ? "Blocks the switch" : "Warns"}
                     </Badge>
                     {rule.scope === "service" ? (
                       <Badge tone="neutral">This service only</Badge>
@@ -154,7 +154,7 @@ export default async function ServiceConfigPage({
               href="/admin/rules"
               className="mt-3 inline-block text-sm font-semibold text-brand"
             >
-              Change these in Trade rules
+              Change these in Switch rules
             </Link>
           ) : null}
         </Card>

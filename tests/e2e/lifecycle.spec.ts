@@ -317,20 +317,20 @@ test("a resident works their own schedule end to end", async ({ page }) => {
   const mine = schedule.shifts[0];
 
   // Post it.
-  const posted = await page.request.post("/api/trades", { data: { shiftId: mine.id } });
+  const posted = await page.request.post("/api/switches", { data: { shiftId: mine.id } });
   expect(posted.ok()).toBe(true);
   const tradeId = (await posted.json()).tradeRequest.id;
 
   // A colleague sees it on the board, is offered ranked candidates, and offers.
   await signOut(page);
   await signIn(page, ACCOUNTS.bob);
-  const board = await (await page.request.get("/api/trades")).json();
+  const board = await (await page.request.get("/api/switches")).json();
   expect((board.trades as Array<{ id: string }>).some((t) => t.id === tradeId)).toBe(
     true,
   );
 
   const candidates = await (
-    await page.request.get(`/api/trades/${tradeId}/candidates`)
+    await page.request.get(`/api/switches/${tradeId}/candidates`)
   ).json();
   expect(candidates.candidates.length).toBeGreaterThan(0);
   const eligible = candidates.candidates.find(
@@ -338,7 +338,7 @@ test("a resident works their own schedule end to end", async ({ page }) => {
   );
   expect(eligible, "at least one candidate should be offerable").toBeDefined();
 
-  const offered = await page.request.post(`/api/trades/${tradeId}/offers`, {
+  const offered = await page.request.post(`/api/switches/${tradeId}/offers`, {
     data: { offeredShiftId: eligible.shift.id },
   });
   expect(offered.ok()).toBe(true);

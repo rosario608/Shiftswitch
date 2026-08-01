@@ -330,7 +330,7 @@ const noOverlap: RuleHandler = {
 const minNotice: RuleHandler = {
   type: "min_notice_hours",
   label: "Minimum notice",
-  description: "Shifts starting sooner than this may not be traded.",
+  description: "Shifts starting sooner than this may not be switched.",
   category: RULE_CATEGORY.program,
   summarise: (params) => `Trades must be completed at least ${num(params, "hours", 24)} hours before the shift`,
   evaluate: (rule, context) => {
@@ -365,7 +365,7 @@ const minNotice: RuleHandler = {
 const blackoutDates: RuleHandler = {
   type: "blackout_dates",
   label: "Blackout dates",
-  description: "Shifts on these dates may not be traded.",
+  description: "Shifts on these dates may not be switched.",
   category: RULE_CATEGORY.program,
   summarise: (params) => {
     const dates = strings(params, "dates");
@@ -405,14 +405,14 @@ const blackoutDates: RuleHandler = {
 const holidayRestriction: RuleHandler = {
   type: "holiday_restriction",
   label: "Holiday shifts",
-  description: "Controls whether holiday shifts can be traded, and whether approval is required.",
+  description: "Controls whether holiday shifts can be switched, and whether approval is required.",
   category: RULE_CATEGORY.program,
   summarise: (params) => {
     const mode = (params.mode as string) ?? "approval";
     const dates = strings(params, "dates");
     if (dates.length === 0) return "No holiday dates configured — this rule does nothing";
     return `${plural(dates.length, "holiday date")}, ${
-      mode === "block" ? "not tradeable" : "chief approval required"
+      mode === "block" ? "cannot be switched" : "chief approval required"
     }`;
   },
   evaluate: (rule, context) => {
@@ -488,8 +488,8 @@ const weekendLimit: RuleHandler = {
 
 const maxTradesPerMonth: RuleHandler = {
   type: "max_trades_per_month",
-  label: "Maximum trades per month",
-  description: "Limits how many completed trades a resident may have in a calendar month.",
+  label: "Maximum switches per month",
+  description: "Limits how many completed switches a resident may have in a calendar month.",
   category: RULE_CATEGORY.program,
   summarise: (params) => `No more than ${num(params, "maxTrades", 6)} completed trades per month`,
   evaluate: (rule, context) => {
@@ -553,8 +553,8 @@ const maxOpenPickups: RuleHandler = {
 
 const nonTradeableService: RuleHandler = {
   type: "non_tradeable_service",
-  label: "Non-tradeable services",
-  description: "Shifts on these services may never be traded.",
+  label: "Services that cannot be switched",
+  description: "Shifts on these services may never be switched.",
   category: RULE_CATEGORY.service,
   summarise: (params) => {
     const count = strings(params, "serviceIds").length;
@@ -580,7 +580,7 @@ const nonTradeableService: RuleHandler = {
         );
       } else {
         checks.push(
-          baseCheck(rule, nonTradeableService, leg, "pass", "Both services allow trading."),
+          baseCheck(rule, nonTradeableService, leg, "pass", "Both services allow switching."),
         );
       }
     }
@@ -753,7 +753,7 @@ const pgyRequirement: RuleHandler = {
 const approvalRequirement: RuleHandler = {
   type: "approval_required",
   label: "Approval policy",
-  description: "Determines when a chief resident must approve a trade.",
+  description: "Determines when a chief resident must approve a switch.",
   category: RULE_CATEGORY.shift,
   summarise: (params) => {
     const parts: string[] = [];
@@ -766,7 +766,7 @@ const approvalRequirement: RuleHandler = {
   },
   evaluate: (rule, context) => {
     const reasons: string[] = [];
-    if (bool(rule.params, "always")) reasons.push("this program requires chief approval for all trades");
+    if (bool(rule.params, "always")) reasons.push("this program requires chief approval for every switch");
     if (context.legs.length === 2) {
       const [a, b] = context.legs;
       if (bool(rule.params, "whenServiceDiffers") && a.gives.serviceId !== b.gives.serviceId) {

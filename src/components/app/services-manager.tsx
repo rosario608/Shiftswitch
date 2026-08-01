@@ -38,7 +38,7 @@ const COPY: Record<
     many: "Services",
     add: "Add service",
     blurb:
-      "Where the work happens — MICU, Wards, Night Float. Every shift belongs to exactly one, and residents can only swap shifts on a service you allow to be swapped.",
+      "Where the work happens — MICU, Wards, Night Float. Every shift belongs to exactly one, and residents can only switch shifts on a service you allow to be switched.",
     empty:
       "No services yet. Add the ones your program runs, or import a schedule — the import creates any service it finds and you can tidy the names here afterwards.",
   },
@@ -201,7 +201,7 @@ function Row({
                 <Badge tone="critical">No coverage set</Badge>
               ) : null}
               {kind === "service" && !row.tradeable && (
-                <Badge tone="neutral">Not swappable</Badge>
+                <Badge tone="neutral">Cannot be switched</Badge>
               )}
               <Badge tone={row.active ? "positive" : "neutral"}>
                 {row.active ? "Active" : "Inactive"}
@@ -353,7 +353,7 @@ function ServiceSheet({
               onChange={(event) => setTradeable(event.target.checked)}
             />
             <span className="text-sm">
-              <span className="font-medium text-ink">Residents may swap these shifts</span>
+              <span className="font-medium text-ink">Residents may switch these shifts</span>
               <span className="mt-0.5 block text-ink-muted">
                 Turn this off for sessions the program does not allow to be swapped,
                 such as continuity clinic.

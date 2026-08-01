@@ -139,7 +139,7 @@ describe("a mutation", () => {
     for (const method of ["POST", "PATCH", "DELETE"]) {
       const result = await dispatch(
         listeners,
-        { url: `${ORIGIN}/api/trades/abc/accept`, method },
+        { url: `${ORIGIN}/api/switches/abc/accept`, method },
       );
       expect(result.handled, `${method} was intercepted`).toBe(false);
     }
@@ -147,7 +147,7 @@ describe("a mutation", () => {
     online = false;
     const offlinePost = await dispatch(
       listeners,
-      { url: `${ORIGIN}/api/trades/abc/accept`, method: "POST" },
+      { url: `${ORIGIN}/api/switches/abc/accept`, method: "POST" },
     );
     expect(offlinePost.handled).toBe(false);
   });

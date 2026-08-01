@@ -5,7 +5,7 @@ import { listAvailableTrades, postShiftForTrade } from "@/server/domain/trades";
 
 export const dynamic = "force-dynamic";
 
-/** Available trades in the caller's program (excluding their own posts). */
+/** Shifts you can take in the caller's program (excluding their own posts). */
 export const GET = apiHandler(async (request: Request) => {
   const context = await requireUser();
   const url = new URL(request.url);

@@ -43,7 +43,7 @@ export default async function RulesPage() {
   return (
     <div className="space-y-5">
       <header>
-        <h1 className="text-2xl font-semibold text-ink">Trade rules</h1>
+        <h1 className="text-2xl font-semibold text-ink">Switch rules</h1>
         <p className="mt-1 text-sm text-ink-muted">
           Every rule here is evaluated on the server whenever a trade is offered,
           accepted, and finalised.

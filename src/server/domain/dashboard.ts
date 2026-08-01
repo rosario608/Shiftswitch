@@ -61,7 +61,7 @@ export async function getResidentDashboard(
         kind: "offer_received",
         title: `${pendingOffers.length} offer${pendingOffers.length === 1 ? "" : "s"} on your ${post.shift.service_name} shift`,
         detail: "Review what you would receive, then accept or decline.",
-        href: `/trades/${post.id}`,
+        href: `/switches/${post.id}`,
         cta: "Review offers",
       });
     }
@@ -71,7 +71,7 @@ export async function getResidentDashboard(
         kind: "offer_accepted_pending_approval",
         title: "Waiting for chief approval",
         detail: `Your ${post.shift.service_name} switch is with the chief residents.`,
-        href: `/trades/${post.id}`,
+        href: `/switches/${post.id}`,
         cta: "View status",
       });
     }
@@ -84,7 +84,7 @@ export async function getResidentDashboard(
         kind: "offer_accepted_pending_approval",
         title: "Your offer was accepted",
         detail: "The switch is waiting for chief approval.",
-        href: `/trades/${offer.trade_request_id}`,
+        href: `/switches/${offer.trade_request_id}`,
         cta: "View status",
       });
     }
@@ -110,7 +110,7 @@ export async function getResidentDashboard(
         kind: "email_pending",
         title: "Notify your program",
         detail: `Send the coordinator the details of your completed ${row.service_name} switch.`,
-        href: `/switches/${row.id}`,
+        href: `/switches/done/${row.id}`,
         cta: "Open email",
       });
     }

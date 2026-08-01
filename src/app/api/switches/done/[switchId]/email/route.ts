@@ -6,21 +6,21 @@ export const dynamic = "force-dynamic";
 
 /** Generates (or returns) the program-notification email for a completed switch. */
 export const POST = apiHandler(
-  async (_request: Request, ctx: { params: Promise<{ tradeId: string }> }) => {
+  async (_request: Request, ctx: { params: Promise<{ switchId: string }> }) => {
     const context = await requireUser();
-    const { tradeId: rawId } = await ctx.params;
-    const tradeId = requireUuid(rawId, "trade");
-    const email = await generateSwitchEmail(context, tradeId);
+    const { switchId: rawId } = await ctx.params;
+    const switchId = requireUuid(rawId, "switch");
+    const email = await generateSwitchEmail(context, switchId);
     return ok({ email });
   },
 );
 
 export const GET = apiHandler(
-  async (_request: Request, ctx: { params: Promise<{ tradeId: string }> }) => {
+  async (_request: Request, ctx: { params: Promise<{ switchId: string }> }) => {
     const context = await requireUser();
-    const { tradeId: rawId } = await ctx.params;
-    const tradeId = requireUuid(rawId, "trade");
-    const records = await listEmailRecords(tradeId, context.program.id);
+    const { switchId: rawId } = await ctx.params;
+    const switchId = requireUuid(rawId, "switch");
+    const records = await listEmailRecords(switchId, context.program.id);
     return ok({ records });
   },
 );
