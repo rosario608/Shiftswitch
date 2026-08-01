@@ -29,6 +29,23 @@ interface Cohort {
   memberCount: number;
   active: boolean;
   notes: string;
+  startDate: string | null;
+  endDate: string | null;
+}
+
+/**
+ * One resident doing something other than what their cohort is doing, for one
+ * block. Every programme has these; the ones that are not written down are the
+ * reason a schedule is wrong in October.
+ */
+interface Override {
+  residentId: string;
+  residentName: string;
+  blockId: string;
+  blockLabel: string;
+  serviceName: string | null;
+  label: string;
+  reason: string;
 }
 
 interface Structure {
@@ -69,6 +86,7 @@ export function CohortsManager({
   currentStructureId,
   blocks,
   assignments,
+  overrides,
   residents,
   services,
 }: {
@@ -77,6 +95,7 @@ export function CohortsManager({
   currentStructureId: string | null;
   blocks: Block[];
   assignments: Assignment[];
+  overrides: Override[];
   residents: Resident[];
   services: Array<{ id: string; name: string }>;
 }) {
@@ -85,6 +104,7 @@ export function CohortsManager({
   const [buildingYear, setBuildingYear] = React.useState(false);
   const [members, setMembers] = React.useState<Cohort | null>(null);
   const [cell, setCell] = React.useState<{ cohort: Cohort; block: Block } | null>(null);
+  const [addingOverride, setAddingOverride] = React.useState(false);
 
   const assignmentFor = React.useCallback(
     (cohortId: string, blockId: string) =>
@@ -132,6 +152,12 @@ export function CohortsManager({
                           ? ` · alternates with ${cohort.pairedCohortLabel}`
                           : " · not paired"}
                       </p>
+                      {cohort.startDate || cohort.endDate ? (
+                        <p className="mt-0.5 text-sm text-ink-muted">
+                          {cohort.startDate ?? "no start date"} to{" "}
+                          {cohort.endDate ?? "no end date"}
+                        </p>
+                      ) : null}
                       {cohort.notes ? (
                         <p className="mt-1 text-sm text-ink-subtle">{cohort.notes}</p>
                       ) : null}
@@ -252,6 +278,77 @@ export function CohortsManager({
         )}
       </section>
 
+      {/* Exceptions come after the grid because they only make sense once the
+          grid says something — but they are not buried in a menu, because the
+          moment a scheduler needs one is the moment they are looking at it. */}
+      {currentStructureId && blocks.length > 0 ? (
+        <section>
+          <div className="mb-2 flex items-center justify-between gap-3 px-1">
+            <h2 className="text-sm font-semibold tracking-wide text-ink-muted uppercase">
+              Exceptions
+            </h2>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setAddingOverride(true)}
+              disabled={residents.length === 0}
+            >
+              New exception
+            </Button>
+          </div>
+
+          {overrides.length === 0 ? (
+            <Card className="px-4 py-3.5">
+              <p className="text-sm text-ink-muted">
+                Nobody is doing anything different from their cohort. When
+                somebody is — a make-up block, a research month, an away
+                elective — record it here rather than in a note, so the schedule
+                reflects it.
+              </p>
+            </Card>
+          ) : (
+            <Card>
+              <ul className="divide-y divide-border-base">
+                {overrides.map((override) => (
+                  <li
+                    key={`${override.residentId}:${override.blockId}`}
+                    className="flex items-start justify-between gap-3 px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-ink">
+                        {override.residentName}{" "}
+                        <span className="font-normal text-ink-muted">
+                          · {override.blockLabel}
+                        </span>
+                      </p>
+                      <p className="mt-0.5 text-sm text-ink-muted">
+                        {override.serviceName ?? override.label ?? "Nothing scheduled"}
+                        {override.reason ? ` — ${override.reason}` : ""}
+                      </p>
+                    </div>
+                    <ClearOverrideButton
+                      structureId={currentStructureId}
+                      residentId={override.residentId}
+                      blockId={override.blockId}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+        </section>
+      ) : null}
+
+      {addingOverride && currentStructureId ? (
+        <OverrideSheet
+          structureId={currentStructureId}
+          blocks={blocks}
+          residents={residents}
+          services={services}
+          onClose={() => setAddingOverride(false)}
+        />
+      ) : null}
+
       {creating || editing ? (
         <CohortSheet
           cohort={editing}
@@ -302,15 +399,22 @@ function CohortSheet({
   const [pairedCohortId, setPairedCohortId] = React.useState(cohort?.pairedCohortId ?? "");
   const [notes, setNotes] = React.useState(cohort?.notes ?? "");
   const [active, setActive] = React.useState(cohort?.active ?? true);
+  const [startDate, setStartDate] = React.useState(cohort?.startDate ?? "");
+  const [endDate, setEndDate] = React.useState(cohort?.endDate ?? "");
 
   const save = useAction(
     async () => {
+      /* Validation is the server's, not because the client cannot check a
+         blank field but because only one of the two can be authoritative, and
+         a message thrown here arrives as "something went wrong" while the
+         server's arrives as the sentence the scheduler needs to read. */
       const trimmed = label.trim();
-      if (!trimmed) throw new Error("Give the cohort a label.");
       const body = JSON.stringify({
         label: trimmed,
         pgyLevel,
         pairedCohortId: pairedCohortId || null,
+        startDate: startDate || null,
+        endDate: endDate || null,
         notes,
         ...(cohort ? { active } : {}),
       });
@@ -379,6 +483,28 @@ function CohortSheet({
             ))}
           </select>
         </Field>
+
+        {/* Optional, and said so. Most cohorts run the academic year and need
+            neither; an off-cycle intake starting in January needs both, and
+            without them it looks like it has been there all along. */}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Starts" hint="Optional.">
+            <input
+              type="date"
+              className="input"
+              value={startDate}
+              onChange={(event) => setStartDate(event.target.value)}
+            />
+          </Field>
+          <Field label="Ends" hint="Optional.">
+            <input
+              type="date"
+              className="input"
+              value={endDate}
+              onChange={(event) => setEndDate(event.target.value)}
+            />
+          </Field>
+        </div>
 
         <Field label="Notes">
           <textarea
@@ -761,6 +887,185 @@ function CellSheet({
         </div>
       </div>
     </Sheet>
+  );
+}
+
+/**
+ * Recording one resident's exception for one block.
+ *
+ * The reason is required, and the server refuses without one. That is not
+ * bureaucracy: an override with no reason is indistinguishable from a mistake
+ * when somebody looks at it in March, and the person who made it will not be
+ * in the room.
+ */
+function OverrideSheet({
+  structureId,
+  blocks,
+  residents,
+  services,
+  onClose,
+}: {
+  structureId: string;
+  blocks: Block[];
+  residents: Resident[];
+  services: Array<{ id: string; name: string }>;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [residentId, setResidentId] = React.useState("");
+  const [blockId, setBlockId] = React.useState(blocks[0]?.id ?? "");
+  const [serviceId, setServiceId] = React.useState("");
+  const [label, setLabel] = React.useState("");
+  const [reason, setReason] = React.useState("");
+
+  const save = useAction(
+    async () =>
+      apiFetch(`/api/admin/blocks/${structureId}`, {
+        method: "POST",
+        body: JSON.stringify({
+          residentId,
+          blockId,
+          serviceId: serviceId || null,
+          label,
+          reason,
+        }),
+      }),
+    {
+      onSuccess: () => {
+        onClose();
+        router.refresh();
+      },
+    },
+  );
+
+  return (
+    <Sheet open title="New exception" onClose={onClose}>
+      <div className="space-y-4">
+        <Field label="Resident">
+          <select
+            className="input"
+            value={residentId}
+            onChange={(event) => setResidentId(event.target.value)}
+          >
+            <option value="">Choose somebody</option>
+            {residents.map((resident) => (
+              <option key={resident.id} value={resident.id}>
+                {resident.name} · PGY-{resident.pgyLevel}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Block">
+          <select
+            className="input"
+            value={blockId}
+            onChange={(event) => setBlockId(event.target.value)}
+          >
+            {blocks.map((block) => (
+              <option key={block.id} value={block.id}>
+                {block.label} · {block.startDate} to {block.endDate}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Service" hint="Leave empty for a block with no service.">
+          <select
+            className="input"
+            value={serviceId}
+            onChange={(event) => setServiceId(event.target.value)}
+          >
+            <option value="">No service</option>
+            {services.map((service) => (
+              <option key={service.id} value={service.id}>
+                {service.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Or a label" hint="Research, away elective, parental leave.">
+          <input
+            className="input"
+            value={label}
+            onChange={(event) => setLabel(event.target.value)}
+            placeholder="Research"
+          />
+        </Field>
+
+        <Field
+          label="Reason"
+          hint="Required. Somebody will read this months from now and need it to make sense on its own."
+        >
+          <textarea
+            className="input min-h-[3.5rem]"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="Make-up block for time missed in September."
+          />
+        </Field>
+
+        {save.error ? (
+          <p role="alert" className="text-sm text-critical">
+            {save.error}
+          </p>
+        ) : null}
+
+        <div className="flex gap-2">
+          <Button
+            loading={save.pending}
+            loadingLabel="Saving…"
+            disabled={!residentId}
+            onClick={() => save.run()}
+          >
+            Save exception
+          </Button>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+function ClearOverrideButton({
+  structureId,
+  residentId,
+  blockId,
+}: {
+  structureId: string;
+  residentId: string;
+  blockId: string;
+}) {
+  const router = useRouter();
+  const clear = useAction(
+    async () =>
+      apiFetch(`/api/admin/blocks/${structureId}`, {
+        method: "POST",
+        body: JSON.stringify({ residentId, blockId, clear: true }),
+      }),
+    { onSuccess: () => router.refresh() },
+  );
+
+  return (
+    <div className="shrink-0 text-right">
+      <Button
+        size="sm"
+        variant="secondary"
+        loading={clear.pending}
+        loadingLabel="Removing…"
+        onClick={() => clear.run()}
+      >
+        Remove
+      </Button>
+      {clear.error ? (
+        <p role="alert" className="mt-1 text-xs text-critical">
+          {clear.error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

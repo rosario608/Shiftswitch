@@ -544,3 +544,147 @@ export async function discardScheduleVersion(
     );
   });
 }
+
+// ---------------------------------------------------------------------------
+// Editing a draft
+// ---------------------------------------------------------------------------
+
+/**
+ * Shifts in a draft, for editing.
+ *
+ * Separate from the live schedule editor in `admin.ts` on purpose. That one
+ * revalidates trades, invalidates offers and notifies people, because changing
+ * a live shift changes somebody's week. A draft shift has none of those
+ * consequences — nobody can see it, nobody can trade it — so editing one is
+ * cheap, and treating it as expensive would make building a schedule feel like
+ * defusing a bomb.
+ *
+ * That asymmetry is the whole value of drafts, and it is why these functions
+ * refuse to touch a shift with no version rather than quietly falling through
+ * to the live path.
+ */
+export interface DraftShift {
+  id: string;
+  service_id: string;
+  service_name: string;
+  start_datetime: Date;
+  end_datetime: Date;
+  location: string;
+  resident_id: string | null;
+  resident_name: string | null;
+}
+
+export async function listDraftShifts(
+  programId: string,
+  versionId: string,
+  options: { limit?: number } = {},
+): Promise<DraftShift[]> {
+  return query<DraftShift>(
+    `SELECT s.id, s.service_id, sv.name AS service_name, s.start_datetime,
+            s.end_datetime, s.location, a.resident_id, u.full_name AS resident_name
+       FROM shifts s
+       JOIN services sv ON sv.id = s.service_id
+       JOIN schedule_versions v ON v.id = s.schedule_version_id
+       LEFT JOIN shift_assignments a
+         ON a.shift_id = s.id AND a.assignment_status = 'active'
+       LEFT JOIN residents r ON r.id = a.resident_id
+       LEFT JOIN users u ON u.id = r.user_id
+      WHERE s.schedule_version_id = $1 AND v.program_id = $2
+      ORDER BY s.start_datetime, sv.name
+      LIMIT $3`,
+    [versionId, programId, Math.min(options.limit ?? 200, 500)],
+  );
+}
+
+/**
+ * Reassigns a draft shift, or clears it.
+ *
+ * `residentId: null` means "nobody", which is a legitimate intermediate state
+ * while building a schedule and is exactly what the dashboard's "shifts with
+ * nobody on them" count is for. Refusing it would force a scheduler to park
+ * people on shifts they are not meant to work.
+ */
+export async function assignDraftShift(
+  context: AuthedContext,
+  versionId: string,
+  shiftId: string,
+  residentId: string | null,
+): Promise<void> {
+  await withTransaction(async (client) => {
+    const shift = await queryOne<{ id: string; status: string }>(
+      `SELECT s.id, v.status::text AS status
+         FROM shifts s
+         JOIN schedule_versions v ON v.id = s.schedule_version_id
+        WHERE s.id = $1 AND s.schedule_version_id = $2 AND v.program_id = $3
+        FOR UPDATE OF s`,
+      [shiftId, versionId, context.program.id],
+      client,
+    );
+    /* Not found rather than forbidden, and deliberately also the answer for a
+       *published* shift: this endpoint is not a back door into the live
+       schedule, and saying "that is published" would invite trying. */
+    if (!shift) throw notFound("That shift is not part of this draft.");
+    /* Unreachable today — publishing detaches the version's shifts, so a
+       published version owns none and the query above already found nothing.
+       Kept as an invariant: if that ever changes, this refuses rather than
+       quietly editing a schedule residents are working. */
+    if (shift.status !== "draft") {
+      throw conflict("This schedule has been published and can no longer be edited here.");
+    }
+
+    if (residentId) {
+      const resident = await queryOne<{ id: string; name: string; schedulable: boolean }>(
+        `SELECT r.id, u.full_name AS name, r.schedulable
+           FROM residents r JOIN users u ON u.id = r.user_id
+          WHERE r.id = $1 AND r.program_id = $2 AND r.active = true`,
+        [residentId, context.program.id],
+        client,
+      );
+      if (!resident) throw notFound("That resident is not in your program.");
+      /* Refused rather than warned. Assigning somebody on parental leave is
+         not a judgement call a scheduler makes deliberately from this screen —
+         it is the wrong row in a long list, and the cost is discovering in
+         three weeks that a shift has nobody who can actually work it. */
+      if (!resident.schedulable) {
+        throw validationFailed(
+          `${resident.name} is marked as not available to schedule. ` +
+            "Change that on the roster first if they are back.",
+        );
+      }
+    }
+
+    await query(
+      `UPDATE shift_assignments SET assignment_status = 'ended', ended_at = now()
+        WHERE shift_id = $1 AND assignment_status = 'active'`,
+      [shiftId],
+      client,
+    );
+    if (residentId) {
+      await query(
+        "INSERT INTO shift_assignments (shift_id, resident_id) VALUES ($1, $2)",
+        [shiftId, residentId],
+        client,
+      );
+    }
+  });
+}
+
+/** Removes a shift from a draft. The live schedule is untouched. */
+export async function removeDraftShift(
+  context: AuthedContext,
+  versionId: string,
+  shiftId: string,
+): Promise<void> {
+  const removed = await query<{ id: string }>(
+    `DELETE FROM shifts s
+      USING schedule_versions v
+      WHERE s.schedule_version_id = v.id
+        AND s.id = $1 AND s.schedule_version_id = $2
+        AND v.program_id = $3 AND v.status = 'draft'
+      RETURNING s.id`,
+    [shiftId, versionId, context.program.id],
+  );
+  if (removed.length === 0) {
+    throw notFound("That shift is not part of this draft, or the draft has been published.");
+  }
+}

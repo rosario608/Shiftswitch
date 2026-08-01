@@ -49,6 +49,7 @@ export interface SeedResult {
   coverageRequirements: number;
   cohorts: number;
   cohortMembers: number;
+  blockOverrides: number;
   blocks: number;
   draftShifts: number;
   phones: number;
@@ -590,6 +591,24 @@ export async function seedDemoProgram(
     }
   }
 
+  /* One resident doing something other than their cohort, for one block.
+     Every programme has these; a seed without one makes the exceptions section
+     look like a feature nobody uses, when it is the thing that decides whether
+     a scheduler keeps a spreadsheet alongside this. */
+  let overrides = 0;
+  const firstBlock = blockRows[0];
+  const exceptional = residentsByPgy.get(2)?.[0] ?? residentsByPgy.get(1)?.[0];
+  if (firstBlock && exceptional) {
+    const { setResidentOverride } = await import("@/server/domain/cohorts");
+    await setResidentOverride(chiefContext, {
+      residentId: exceptional.id,
+      blockId: firstBlock.id,
+      serviceId: services.get("Demo Clinic") ?? null,
+      reason: "Make-up ambulatory block for time missed during orientation.",
+    });
+    overrides = 1;
+  }
+
   /* Resident scheduling data: phone numbers, one person off the schedule, and
      VA eligibility recorded for a few. Enough that the roster screen shows
      something other than defaults. */
@@ -649,6 +668,7 @@ export async function seedDemoProgram(
     coverageRequirements: coverageCount,
     cohorts: cohortCount,
     cohortMembers,
+    blockOverrides: overrides,
     blocks: blockRows.length,
     draftShifts: draft.shift_count,
     phones,

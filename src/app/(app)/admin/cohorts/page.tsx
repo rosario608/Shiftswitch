@@ -1,7 +1,11 @@
 import { CohortsManager } from "@/components/app/cohorts-manager";
 import { requirePageCapability } from "@/server/auth/page-guards";
 import { listBlockStructures, listBlocks } from "@/server/domain/blocks";
-import { listBlockAssignments, listCohorts } from "@/server/domain/cohorts";
+import {
+  listBlockAssignments,
+  listCohorts,
+  listResidentOverrides,
+} from "@/server/domain/cohorts";
 import { listRoster } from "@/server/domain/roster";
 import { listServices } from "@/server/domain/services";
 
@@ -24,12 +28,13 @@ export default async function CohortsPage() {
   ]);
 
   const current = structures.find((structure) => structure.active) ?? structures[0] ?? null;
-  const [blocks, assignments] = current
+  const [blocks, assignments, overrides] = current
     ? await Promise.all([
         listBlocks(context.program.id, current.id),
         listBlockAssignments(context.program.id, current.id),
+        listResidentOverrides(context.program.id, current.id),
       ])
-    : [[], []];
+    : [[], [], []];
 
   return (
     <div className="space-y-5">
@@ -52,6 +57,10 @@ export default async function CohortsPage() {
           memberCount: cohort.member_count,
           active: cohort.active,
           notes: cohort.notes,
+          startDate: cohort.start_date
+            ? cohort.start_date.toISOString().slice(0, 10)
+            : null,
+          endDate: cohort.end_date ? cohort.end_date.toISOString().slice(0, 10) : null,
         }))}
         structures={structures.map((structure) => ({
           id: structure.id,
@@ -74,6 +83,15 @@ export default async function CohortsPage() {
           serviceId: assignment.service_id,
           serviceName: assignment.service_name,
           label: assignment.label,
+        }))}
+        overrides={overrides.map((override) => ({
+          residentId: override.resident_id,
+          residentName: override.resident_name,
+          blockId: override.block_id,
+          blockLabel: override.block_label,
+          serviceName: override.service_name,
+          label: override.label,
+          reason: override.reason,
         }))}
         residents={roster.map((resident) => ({
           id: resident.id,

@@ -6,7 +6,11 @@ import { createCohort, listCohorts } from "@/server/domain/cohorts";
 export const dynamic = "force-dynamic";
 
 const createSchema = z.object({
-  label: z.string().min(1).max(120),
+  /* No `min(1)`: an empty label is a thing a scheduler does by accident, and
+     the domain answers it with "Give the cohort a label." Zod would answer it
+     with "some of the information provided isn't valid", which is true and
+     useless. The cap stays here, where it belongs. */
+  label: z.string().max(120),
   pgyLevel: z.number().int().min(1).max(10),
   startDate: z.string().date().nullable().optional(),
   endDate: z.string().date().nullable().optional(),

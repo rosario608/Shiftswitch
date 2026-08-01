@@ -10,6 +10,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { NewDraftButton } from "@/components/app/new-draft-button";
 import { requirePageCapability } from "@/server/auth/page-guards";
 import { loadSchedulerSnapshot } from "@/server/domain/scheduler-dashboard";
 import { fmtDate } from "@/lib/format";
@@ -112,12 +113,15 @@ export default async function SchedulerPage() {
       )}
 
       <section aria-labelledby="drafts-heading">
-        <h2
-          id="drafts-heading"
-          className="mb-2 px-1 text-sm font-semibold tracking-wide text-ink-muted uppercase"
-        >
-          Draft schedules
-        </h2>
+        <div className="mb-2 flex items-center justify-between gap-3 px-1">
+          <h2
+            id="drafts-heading"
+            className="text-sm font-semibold tracking-wide text-ink-muted uppercase"
+          >
+            Draft schedules
+          </h2>
+          <NewDraftButton timezone={context.program.timezone} />
+        </div>
         {schedule.drafts.length === 0 ? (
           <EmptyState
             title="No drafts in progress"
@@ -163,7 +167,7 @@ export default async function SchedulerPage() {
         </h2>
         <ul className="grid gap-2 sm:grid-cols-2">
           <SummaryCard
-            href="/admin/users"
+            href="/admin/roster"
             icon={<Users className="h-4 w-4" aria-hidden="true" />}
             title="Residents"
             headline={`${roster.schedulable} schedulable of ${roster.total}`}

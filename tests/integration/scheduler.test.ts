@@ -1,12 +1,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { query, queryOne } from "@/server/db/pool";
 import { createBlockStructure, generateBlocks, listBlocks } from "@/server/domain/blocks";
+import { createRule, listRulesForService } from "@/server/domain/admin";
 import {
   addCohortMember,
   assignCohortToBlock,
+  clearResidentOverride,
   createCohort,
   deleteCohort,
   listCohorts,
+  listResidentOverrides,
   setResidentOverride,
   updateCohort,
 } from "@/server/domain/cohorts";
@@ -19,10 +22,13 @@ import {
   updateSchedulingData,
 } from "@/server/domain/roster";
 import {
+  assignDraftShift,
   createScheduleVersion,
   diffScheduleVersion,
   discardScheduleVersion,
+  listDraftShifts,
   publishScheduleVersion,
+  removeDraftShift,
 } from "@/server/domain/schedule-versions";
 import { applyServiceTemplate } from "@/server/domain/service-templates";
 import { loadSchedulerSnapshot } from "@/server/domain/scheduler-dashboard";
@@ -279,6 +285,30 @@ describe("cohorts and blocks", () => {
     );
     expect(stored?.reason).toBe("Swapped for a research month.");
   });
+
+  it("lists overrides for the year, and can take one back", async () => {
+    const structure = await year();
+    const blocks = await listBlocks(fixture.program.id, structure.id);
+    await setResidentOverride(chief.context, {
+      residentId: alice.resident.id,
+      blockId: blocks[0].id,
+      serviceId: fixture.services.Floor.id,
+      reason: "Make-up block.",
+    });
+
+    const listed = await listResidentOverrides(fixture.program.id, structure.id);
+    expect(listed).toHaveLength(1);
+    expect(listed[0].resident_name).toBe("Alice A");
+    expect(listed[0].block_label).toBe(blocks[0].label);
+
+    /* An override that cannot be removed is a trap: the first one entered by
+       mistake would sit in the year forever. */
+    await clearResidentOverride(chief.context, alice.resident.id, blocks[0].id);
+    expect(await listResidentOverrides(fixture.program.id, structure.id)).toHaveLength(0);
+    await expect(
+      clearResidentOverride(chief.context, alice.resident.id, blocks[0].id),
+    ).rejects.toThrow(/no longer exists/);
+  });
 });
 
 describe("resident scheduling data", () => {
@@ -500,11 +530,18 @@ describe("draft and published schedules", () => {
       draftShifts[0].id,
       bob.resident.id,
     ]);
-    // And add one that does not exist live.
-    await createShift(fixture.program, { inDays: 12, residentId: bob.resident.id });
-    await query("UPDATE shifts SET schedule_version_id = $1 WHERE date = $2::date", [
+    /* And add one that does not exist live. Moved by id, not by date: the
+       shift's `date` is the program's local date, and matching it against a
+       UTC date computed here silently selects nothing for the hours either
+       side of midnight — which made this test pass or fail depending on the
+       time of day it ran. */
+    const extra = await createShift(fixture.program, {
+      inDays: 12,
+      residentId: bob.resident.id,
+    });
+    await query("UPDATE shifts SET schedule_version_id = $1 WHERE id = $2", [
       draft.id,
-      new Date(Date.now() + 12 * 86_400_000).toISOString().slice(0, 10),
+      extra.id,
     ]);
 
     const diff = await diffScheduleVersion(fixture.program.id, draft.id, "America/New_York");
@@ -617,6 +654,198 @@ describe("draft and published schedules", () => {
       [fixture.program.id],
     );
     expect(live).toHaveLength(1);
+  });
+});
+
+describe("editing a draft", () => {
+  async function draftWithOneShift() {
+    await createShift(fixture.program, { inDays: 10, residentId: alice.resident.id });
+    const draft = await createScheduleVersion(chief.context, {
+      name: "Draft",
+      periodStart: "2000-01-01",
+      periodEnd: "2100-01-01",
+      copyFromPublished: true,
+    });
+    const shifts = await listDraftShifts(fixture.program.id, draft.id);
+    return { draft, shift: shifts[0] };
+  }
+
+  it("lists the draft's shifts with who is on them", async () => {
+    const { shift } = await draftWithOneShift();
+    expect(shift.resident_id).toBe(alice.resident.id);
+    expect(shift.resident_name).toBe("Alice A");
+  });
+
+  it("reassigns a draft shift without touching the live one", async () => {
+    const { draft, shift } = await draftWithOneShift();
+    await assignDraftShift(chief.context, draft.id, shift.id, bob.resident.id);
+
+    const after = await listDraftShifts(fixture.program.id, draft.id);
+    expect(after[0].resident_id).toBe(bob.resident.id);
+
+    // Alice still holds the live shift. Nothing residents can see has moved.
+    const live = await query<{ resident_id: string }>(
+      `SELECT a.resident_id FROM shift_assignments a
+         JOIN shifts s ON s.id = a.shift_id
+        WHERE s.schedule_version_id IS NULL AND a.assignment_status = 'active'`,
+    );
+    expect(live).toHaveLength(1);
+    expect(live[0].resident_id).toBe(alice.resident.id);
+  });
+
+  it("clears a draft shift, which is a legitimate state to leave it in", async () => {
+    const { draft, shift } = await draftWithOneShift();
+    await assignDraftShift(chief.context, draft.id, shift.id, null);
+    const after = await listDraftShifts(fixture.program.id, draft.id);
+    expect(after[0].resident_id).toBeNull();
+
+    // Exactly one assignment row, ended — not deleted, so the history survives.
+    const rows = await query<{ assignment_status: string }>(
+      "SELECT assignment_status FROM shift_assignments WHERE shift_id = $1",
+      [shift.id],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].assignment_status).toBe("ended");
+  });
+
+  it("refuses to assign somebody who is not available to schedule", async () => {
+    const { draft, shift } = await draftWithOneShift();
+    await updateSchedulingData(chief.context, bob.resident.id, { schedulable: false });
+    await expect(
+      assignDraftShift(chief.context, draft.id, shift.id, bob.resident.id),
+    ).rejects.toThrow(/Bob B is marked as not available to schedule/);
+  });
+
+  it("removes a shift from the draft and leaves the live schedule alone", async () => {
+    const { draft, shift } = await draftWithOneShift();
+    await removeDraftShift(chief.context, draft.id, shift.id);
+    expect(await listDraftShifts(fixture.program.id, draft.id)).toHaveLength(0);
+
+    const live = await query<{ id: string }>(
+      "SELECT id FROM shifts WHERE program_id = $1 AND schedule_version_id IS NULL",
+      [fixture.program.id],
+    );
+    expect(live).toHaveLength(1);
+  });
+
+  it("is not a back door into the live schedule", async () => {
+    /* The defect this guards: pointing the draft editor at a published shift
+       and having it edit the schedule residents are working. Both verbs must
+       refuse, and refuse identically, so the shape of the error cannot be used
+       to find out whether a shift exists. */
+    const { draft } = await draftWithOneShift();
+    const liveShiftId = (await queryOne<{ id: string }>(
+      "SELECT id FROM shifts WHERE program_id = $1 AND schedule_version_id IS NULL",
+      [fixture.program.id],
+    ))!.id;
+
+    await expect(
+      assignDraftShift(chief.context, draft.id, liveShiftId, bob.resident.id),
+    ).rejects.toThrow(/not part of this draft/);
+    await expect(
+      removeDraftShift(chief.context, draft.id, liveShiftId),
+    ).rejects.toThrow(/not part of this draft/);
+  });
+
+  it("stops editing a schedule once it is published", async () => {
+    /* Publishing detaches the version's shifts — they become the live
+       schedule — so afterwards the draft has none, and both verbs refuse for
+       that reason. What matters is that neither of them reaches a shift a
+       resident is now working. */
+    const { draft, shift } = await draftWithOneShift();
+    await publishScheduleVersion(chief.context, draft.id);
+    expect(await listDraftShifts(fixture.program.id, draft.id)).toHaveLength(0);
+
+    await expect(
+      assignDraftShift(chief.context, draft.id, shift.id, bob.resident.id),
+    ).rejects.toThrow(/not part of this draft/);
+    await expect(removeDraftShift(chief.context, draft.id, shift.id)).rejects.toThrow(
+      /not part of this draft, or the draft has been published/,
+    );
+
+    // The published shift still belongs to whoever it was assigned to.
+    const live = await queryOne<{ resident_id: string }>(
+      `SELECT a.resident_id FROM shift_assignments a
+        WHERE a.shift_id = $1 AND a.assignment_status = 'active'`,
+      [shift.id],
+    );
+    expect(live?.resident_id).toBe(alice.resident.id);
+  });
+
+  it("refuses a draft belonging to another program", async () => {
+    const other = await createProgram({ name: "Elsewhere Residency" });
+    const otherChief = await createStaff(other.program, {
+      email: "elsewhere@h.org",
+      role: "chief",
+    });
+    const { draft, shift } = await draftWithOneShift();
+    await expect(
+      assignDraftShift(otherChief.context, draft.id, shift.id, alice.resident.id),
+    ).rejects.toThrow(/not part of this draft/);
+  });
+});
+
+describe("rules that apply to a service", () => {
+  it("includes program-wide rules alongside the service's own", async () => {
+    const micu = fixture.services.MICU.id;
+    await createRule(chief.context, {
+      ruleType: "max_consecutive_shifts",
+      name: "No more than six in a row",
+      description: "",
+      params: { days: 6 },
+      severity: "error",
+      scope: "program",
+      scopeId: null,
+      overridable: false,
+      active: true,
+    });
+    await createRule(chief.context, {
+      ruleType: "approval_required",
+      name: "MICU switches need a chief",
+      description: "",
+      params: {},
+      severity: "warning",
+      scope: "service",
+      scopeId: micu,
+      overridable: true,
+      active: true,
+    });
+
+    const applicable = await listRulesForService(fixture.program.id, micu);
+    expect(applicable.map((rule) => rule.name).sort()).toEqual([
+      "MICU switches need a chief",
+      "No more than six in a row",
+    ]);
+    // Service-specific first: it is the one that is not obvious from elsewhere.
+    expect(applicable[0].scope).toBe("service");
+  });
+
+  it("leaves out another service's rules, and inactive ones", async () => {
+    const micu = fixture.services.MICU.id;
+    await createRule(chief.context, {
+      ruleType: "approval_required",
+      name: "Floor only",
+      description: "",
+      params: {},
+      severity: "warning",
+      scope: "service",
+      scopeId: fixture.services.Floor.id,
+      overridable: true,
+      active: true,
+    });
+    await createRule(chief.context, {
+      ruleType: "approval_required",
+      name: "Switched off",
+      description: "",
+      params: {},
+      severity: "warning",
+      scope: "service",
+      scopeId: micu,
+      overridable: true,
+      active: false,
+    });
+
+    expect(await listRulesForService(fixture.program.id, micu)).toHaveLength(0);
   });
 });
 

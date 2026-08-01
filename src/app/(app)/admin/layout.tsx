@@ -29,6 +29,7 @@ const GROUPS: Array<{
   {
     heading: "People",
     links: [
+      { href: "/admin/roster", label: "Roster", capability: "scheduling.plan" },
       { href: "/admin/users", label: "Users & roles", capability: "users.manage" },
       { href: "/admin/cohorts", label: "Cohorts & blocks", capability: "scheduling.plan" },
     ],

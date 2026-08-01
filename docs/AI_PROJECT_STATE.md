@@ -38,18 +38,25 @@ full — see **Tested**.
 | In the repository | `0001` – `0008` |
 | Applied locally, and proven to apply to an **empty** database in order | `0001` – `0008` |
 | Reported applied to production by the session of 31 July 2026 | `0001` – `0006` |
-| **Not applied to production** | **`0007_notification_route.sql`**, **`0008_scheduler_foundation.sql`** |
+| Reported applied to production by hand, 31 July 2026 | `0007_notification_route.sql` |
+| **Not applied to production** | **`0008_scheduler_foundation.sql`** |
 
-**`0007_notification_route.sql` and `0008_scheduler_foundation.sql` must both be
-applied to production before the code on `main` is deployed.** `0008` adds the
-scheduling tables and `shifts.schedule_version_id`; without it every schedule
-query fails, because that column is now part of the definition of a live shift.
-`0007`: `notify()` now inserts a `route` column; against a database
-without it, every trade action that produces a notification fails. Nothing
-applies migrations automatically — there is no build hook, only
-`npm run db:migrate` against the production `DATABASE_URL`. Production has no
-residents, shifts or notifications yet, so nothing is broken today. It is listed
-under **User action required**.
+**`0008_scheduler_foundation.sql` must be applied to production before the code
+on `main` is deployed.** It adds the scheduling tables and
+`shifts.schedule_version_id`; without it every schedule query fails, because
+that column is now part of the definition of a live shift. Nothing applies
+migrations automatically — there is no build hook, only `npm run db:migrate`
+against the production `DATABASE_URL`. It is listed under **User action
+required**.
+
+`0007_notification_route.sql` **was applied**, by hand in the Neon SQL Editor on
+31 July 2026 — reported, with the confirmation named: the `route` column exists
+on `notifications`, and `schema_migrations` carries a row for the file with its
+checksum. That second part matters more than the first. A column added by hand
+without the `schema_migrations` row would make the next `npm run db:migrate`
+try to apply the file again and fail on the existing column; with the row
+present and the checksum matching, the runner skips it exactly as it would skip
+a migration it had applied itself.
 
 A note on the row above it, because this document previously contradicted
 itself — one section said `0005` was "applied locally, **not yet applied to
@@ -74,9 +81,8 @@ institution's real roster and real block schedule. Nothing technical is blocked.
 
 ## User action required
 
-0. **Apply `db/migrations/0007_notification_route.sql` and
-   `0008_scheduler_foundation.sql` to production**, in that order, before the
-   code on `main` is deployed. `npm run db:migrate` against the production
+0. **Apply `db/migrations/0008_scheduler_foundation.sql` to production**, before
+   the code on `main` is deployed. `npm run db:migrate` against the production
    `DATABASE_URL`. Without it, every trade action that produces a notification
    fails, because `notify()` writes a `route` column the production schema does
    not yet have. Sessions do not do this — see `/CLAUDE.md`.
@@ -154,6 +160,118 @@ write as soon as an administrator legitimately reassigned a shift after a switch
 — an ordinary action, and one the accept-versus-reassign race performs by
 design. Atomicity is a question about the moment of the transaction; the later
 state of a shift is a different question.
+
+### The shape of the scheduler
+
+Decided before building the screens, because a scheduler assembled from whatever
+the tables happen to contain is the failure mode this feature has in every
+product that has one. What follows is the reasoning, so that somebody who
+disagrees can argue with the reasoning rather than guess at it.
+
+**Who this is for.** A chief resident. They are a doctor, they have the job for
+a year, nobody trained them on it, and they are doing it between clinical
+duties — usually on a phone, often while standing up. They did not ask for a
+database. They asked for next block's schedule to be right.
+
+**What they do first.** Not "create a cohort". On the day they inherit the job
+the question is *what is the state of this and what is broken* — so the
+dashboard leads with **Needs a decision**: mandatory services with no coverage,
+unfillable PGY mixes, upcoming shifts with nobody on them, residents in no
+cohort. Each names the problem in a sentence and links to where it is fixed.
+When there is nothing wrong it says so in a sentence rather than showing an
+empty box, because "no problems" is information and blankness is not.
+
+**What they see on arrival**, in this order and for this reason:
+
+1. **Problems** — the reason the screen was opened, most of the time.
+2. **Drafts in progress** — the work actually in hand.
+3. **The four pieces** a schedule is made of — residents, cohorts, services,
+   blocks — each a *door* with a one-line state, not a table.
+4. **The live schedule** — one number and whether anything is uncovered.
+
+**What is one tap away.** The weekly cycle: open a draft → read the diff →
+publish. And the roster, because "who can work" is the question that interrupts
+everything else — somebody calls in sick and the chief needs a phone number and
+a list of who is free, now, not after three screens.
+
+**What is deliberately buried.** Setup, which is done rarely and then never
+again: building a block year (once a year), configuring a service's coverage
+(once a term), loading the service template (once, ever). These live one level
+down behind a labelled door. They are not hidden — a scheduler who wants them
+finds them immediately — but they do not compete for attention with the work
+that happens weekly. Putting a thirteen-column block grid on the landing screen
+would make the common case worse to serve the rare one.
+
+**The one table that earns its place** is the cohort/block grid: cohorts down
+the side, blocks across the top, a service in each cell. Every programme already
+keeps that exact table in a spreadsheet, so showing it directly — with each cell
+editable — is the difference between a tool a chief uses and one they export to
+Excel and abandon. It scrolls inside itself; the page never scrolls sideways.
+
+**What this rules out.** No screen in the scheduler is a list of rows with an
+Edit button and nothing else. Every one leads with what the reader wants to
+know — is this right, what changed, who is free — and offers the record
+underneath. Where that was not true, it was a defect to fix rather than a layout
+to accept: the coverage editor reads as a sentence ("weekdays, 07:00–19:00, 2 to
+3 people, at least one senior") rather than as a row of columns, and the roster
+leads with availability rather than with a directory.
+
+**Editing a draft is cheap; editing the live schedule is expensive.** Assigning
+a draft shift is an inline `<select>` that saves on change, with no
+confirmation, no revalidation of trades, no notification and no offer
+invalidation — because a draft shift is invisible to residents and cannot be
+traded, so none of those consequences exist. The live editor in
+`src/server/domain/admin.ts` keeps all of them. That asymmetry is the entire
+value of drafts: building a month's schedule means doing this a hundred times in
+a sitting, and a dialog per change would make it unbearable. *Rejected:* routing
+draft edits through the live path "for consistency", which would make the safe
+operation feel like the dangerous one; and a sheet per shift, which is three
+taps for a change that should be one. `assignDraftShift` and `removeDraftShift`
+answer "that shift is not part of this draft" for a *published* shift as well
+as a missing one — deliberately the same answer, so the endpoint is not a back
+door into the live schedule and the wording does not invite trying.
+
+**Nobody-yet is a value, not a missing one.** Clearing a draft shift is
+allowed, and the API field is required-and-nullable rather than optional: an
+absent key would be ambiguous between "leave it" and "clear it", and the two
+differ by somebody's weekend. A half-built schedule with unstaffed shifts is
+the normal intermediate state, and it is what the "shifts with nobody on them"
+count exists to surface. *Rejected:* forcing every shift to hold somebody,
+which would make schedulers park people on shifts they are not meant to work.
+
+**Assigning somebody not available to schedule is refused, not warned.** It is
+not a judgement call made deliberately from that screen — it is the wrong row in
+a long list, and the cost is discovering in three weeks that a shift has nobody
+who can actually work it. The message names the person and says where to change
+it. *Rejected:* a warning, which is read as noise by the twentieth assignment.
+
+**Rules are read-only on the service screen.** A service's configuration page
+lists every active rule that governs a trade on it — program-wide ones
+included, because they apply there too and listing only service-scoped rules
+would read as "nothing applies" on a programme whose rules are all program-wide.
+The link to change them goes to Trade rules, and only appears for a role with
+`rules.manage`. *Rejected:* editing rules in two places, which gives two screens
+the power to change program policy and no single place that shows it whole.
+
+**An exception must be removable.** `clearResidentOverride` exists because an
+override that can be created but never removed is a trap: the first one entered
+by mistake would sit in the year forever, and a scheduler who cannot undo a
+thing stops using it. The reason stays required on creation — an override with
+no reason is indistinguishable from a mistake six months later, and the person
+who made it will not be in the room.
+
+**A new draft copies the published schedule by default.** Next month is last
+month with things moved, not a blank page. Starting empty is offered and the
+consequence is stated in the form: publishing an empty draft deletes every
+published shift in the period. *Rejected:* defaulting to empty, which is the
+option that silently clears a month.
+
+**Blank-field messages come from the domain, not from Zod or the client.** The
+cohort routes cap the label's length but no longer require `min(1)`, and the
+client no longer throws its own `Error` for an empty label. Both paths produced
+a worse sentence than the domain's — Zod's "some of the information provided
+isn't valid", and `useAction`'s generic fallback for a non-`ApiError`. One
+authority, one sentence, written for the person reading it.
 
 **`verify` passes `CI` through rather than forcing it.** An earlier version set
 `CI=1` so Playwright would always start its own servers. That also turns on
@@ -327,7 +445,7 @@ in the dangerous direction. The hostname is now parsed and compared.
 | First program | **Internal Medicine / DUH / America/New_York** — corrected from the placeholders by the administrator. The timezone governs every shift time, so it is worth a second look before the first import |
 | Administrator | One, the repository owner's Google account: role `admin`, identity linked, first sign-in 31 July 2026 17:29 UTC |
 | Vercel project | `shiftswitch`, team `rosario608-2488s-projects`, builds from `main`, root directory. Preview deployments are SSO-protected; production is not |
-| Database | Neon, PostgreSQL 17.10, region us-east-1. Migrations `0001`–`0006` reported applied on 31 July 2026, `0007` **not applied** — see Current status. Contents at that time: 1 program, 1 user, 0 residents, 0 services, 0 shifts |
+| Database | Neon, PostgreSQL 17.10, region us-east-1. Migrations `0001`–`0007` reported applied as of 31 July 2026 — `0001`–`0006` by the runner, `0007` by hand in the Neon SQL Editor with a matching `schema_migrations` row. `0008` **not applied**; see Current status. Contents when last reported: 1 program, 1 user, 0 residents, 0 services, 0 shifts |
 | Connection pooling | The **pooled** Neon endpoint is safe — verified empirically, see docs/DEPLOYMENT.md |
 
 Secrets are never in the repository. `.env.production`, `key.properties`,
@@ -673,7 +791,7 @@ Also verified by execution, not inspection:
   double-tapped renames and deactivations settle; repeated role changes leave
   one resident record; and audit entries and shift assignments survive the
   deactivation of the people in them.
-- **Migrations from empty** — `0001`–`0007` applied to a brand-new database, as
+- **Migrations from empty** — `0001`–`0008` applied to a brand-new database, as
   a step of `npm run verify`, with the integration suite then run against the
   rebuilt schema. An earlier session additionally compared the resulting schema
   field by field against the development database and against production and

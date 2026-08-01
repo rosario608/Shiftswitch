@@ -135,6 +135,7 @@ async function main() {
   Coverage rules  ${result.coverageRequirements}  weekday, weekend, a named date and a holiday period
   Cohorts         ${result.cohorts}  paired per PGY class, ${result.cohortMembers} members
   Blocks          ${result.blocks}  a 4+4 year, generated from weeks + alternating kinds
+  Exceptions      ${result.blockOverrides}  one resident off their cohort's block, with a reason
   Draft schedule  ${result.draftShifts} shifts  waiting to be diffed and published
   Phone numbers   ${result.phones}  validated, readable only with residents.contact_info
 

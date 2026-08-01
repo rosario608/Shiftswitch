@@ -5,7 +5,9 @@ import { deleteBlockStructure, listBlocks } from "@/server/domain/blocks";
 import {
   assignCohortToBlock,
   clearBlockAssignment,
+  clearResidentOverride,
   listBlockAssignments,
+  listResidentOverrides,
   setResidentOverride,
 } from "@/server/domain/cohorts";
 
@@ -29,17 +31,23 @@ const assignSchema = z.object({
 export const GET = apiHandler(async (_request: Request, { params }: Params) => {
   const context = await requireCapability("scheduling.plan");
   const { structureId } = await params;
-  const [blocks, assignments] = await Promise.all([
+  const [blocks, assignments, overrides] = await Promise.all([
     listBlocks(context.program.id, structureId),
     listBlockAssignments(context.program.id, structureId),
+    listResidentOverrides(context.program.id, structureId),
   ]);
-  return ok({ blocks, assignments });
+  return ok({ blocks, assignments, overrides });
 });
 
 export const POST = apiHandler(async (request: Request, { params }: Params) => {
   const context = await requireCapability("scheduling.plan");
   await params;
   const input = await parseJson(request, assignSchema);
+
+  if (input.residentId && input.clear) {
+    await clearResidentOverride(context, input.residentId, input.blockId);
+    return ok({ updated: true });
+  }
 
   if (input.residentId) {
     await setResidentOverride(context, {

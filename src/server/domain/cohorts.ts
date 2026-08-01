@@ -660,6 +660,43 @@ export async function listResidentOverrides(
   );
 }
 
+/**
+ * Removes an exception, putting the resident back on their cohort's block.
+ *
+ * An override that can be created but never removed is a trap: the first one
+ * entered by mistake would sit in the year forever, and a scheduler who cannot
+ * undo a thing stops using it.
+ */
+export async function clearResidentOverride(
+  context: AuthedContext,
+  residentId: string,
+  blockId: string,
+): Promise<void> {
+  const removed = await query<{ id: string }>(
+    `DELETE FROM resident_block_overrides o
+      USING residents r, blocks b, block_structures bs
+      WHERE o.resident_id = r.id AND o.block_id = b.id
+        AND b.block_structure_id = bs.id
+        AND o.resident_id = $1 AND o.block_id = $2
+        AND r.program_id = $3 AND bs.program_id = $3
+      RETURNING o.id`,
+    [residentId, blockId, context.program.id],
+  );
+  if (removed.length === 0) {
+    throw notFound("That exception no longer exists.");
+  }
+
+  await recordAudit({
+    programId: context.program.id,
+    actorUserId: context.user.id,
+    actorLabel: context.user.email,
+    action: "cohort.resident_override_cleared",
+    entityType: "resident",
+    entityId: residentId,
+    previousState: { blockId },
+  });
+}
+
 function assertDateOrder(start?: string | Date | null, end?: string | Date | null): void {
   if (!start || !end) return;
   const from = typeof start === "string" ? start : start.toISOString().slice(0, 10);

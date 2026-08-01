@@ -56,6 +56,7 @@ export type AuditAction =
   | "cohort.member_removed"
   | "cohort.block_assigned"
   | "cohort.resident_override"
+  | "cohort.resident_override_cleared"
   | "schedule_version.created"
   | "schedule_version.published"
   | "schedule_version.discarded"

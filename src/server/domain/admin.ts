@@ -366,6 +366,29 @@ export async function listRules(programId: string): Promise<RuleRow[]> {
   );
 }
 
+/**
+ * Every active rule that governs a trade on this service.
+ *
+ * Program-scoped rules are included, because they apply here too — the
+ * question a scheduler is asking on a service screen is "what happens when
+ * somebody tries to trade a MICU shift", and the answer is not "only the rules
+ * with MICU written on them". Listing only service-scoped rules would read as
+ * "nothing applies" on a program whose rules are all program-wide, which is
+ * most of them.
+ */
+export async function listRulesForService(
+  programId: string,
+  serviceId: string,
+): Promise<RuleRow[]> {
+  return query<RuleRow>(
+    `SELECT * FROM rules
+      WHERE program_id = $1 AND active = true
+        AND (scope = 'program' OR (scope = 'service' AND scope_id = $2))
+      ORDER BY scope DESC, rule_type`,
+    [programId, serviceId],
+  );
+}
+
 export async function createRule(
   context: AuthedContext,
   input: RuleInput,

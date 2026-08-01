@@ -72,6 +72,11 @@ test("a chief configures a multi-PGY programme from the UI alone", async ({ page
   await expect(second.getByRole("alert")).toContainText(/no schedule could satisfy|capped at 2/i);
   await second.getByRole("button", { name: /^cancel$/i }).click();
 
+  /* The rules that govern a trade on this service are on the service's own
+     screen, read-only. A scheduler configuring MICU should not have to guess
+     what happens when somebody tries to swap out of it. */
+  await expect(page.getByRole("heading", { name: "Rules that apply here" })).toBeVisible();
+
   // --- Cohorts and the block year -------------------------------------------
   await page.goto("/admin/cohorts");
   await expect(page.getByRole("heading", { name: "Cohorts and blocks" })).toBeVisible();
@@ -90,8 +95,12 @@ test("a chief configures a multi-PGY programme from the UI alone", async ({ page
   const cohortSheet = page.getByRole("dialog");
   await cohortSheet.getByLabel("Label").fill("PGY-2 Cohort A");
   await cohortSheet.getByLabel("Training level").selectOption("2");
+  // Off-cycle intakes are real, so a cohort can carry its own span.
+  await cohortSheet.getByLabel("Starts").fill("2026-07-01");
+  await cohortSheet.getByLabel("Ends").fill("2027-06-30");
   await cohortSheet.getByRole("button", { name: /create cohort/i }).click();
   await expect(page.getByText("PGY-2 Cohort A").first()).toBeVisible();
+  await expect(page.getByText("2026-07-01 to 2027-06-30")).toBeVisible();
 
   await page.getByRole("button", { name: /new cohort/i }).first().click();
   const second2 = page.getByRole("dialog");
@@ -137,11 +146,70 @@ test("a chief configures a multi-PGY programme from the UI alone", async ({ page
     page.getByRole("row").filter({ hasText: "PGY-2 Cohort A" }).getByText("General Medicine Wards"),
   ).toBeVisible();
 
+  // --- An exception for one resident, recorded rather than remembered -------
+  await page.getByRole("button", { name: /new exception/i }).click();
+  const exception = page.getByRole("dialog");
+  await exception.getByLabel("Resident").selectOption({ index: 1 });
+  await exception.getByLabel("Service").selectOption({ label: "General Medicine Wards" });
+  await exception.getByLabel("Reason").fill("Make-up block for time missed.");
+  await exception.getByRole("button", { name: /save exception/i }).click();
+  await expect(page.getByText(/make-up block for time missed/i)).toBeVisible();
+
+  // And it can be taken back — an override that cannot be removed is a trap.
+  const exceptionRow = page
+    .locator("li")
+    .filter({ hasText: "Make-up block for time missed." })
+    .first();
+  await exceptionRow.getByRole("button", { name: /^remove$/i }).click();
+  await expect(page.getByText(/nobody is doing anything different/i)).toBeVisible();
+
   // --- The dashboard reflects all of it -------------------------------------
   await page.goto("/admin/scheduler");
   await expect(page.getByRole("heading", { name: "Scheduler" })).toBeVisible();
   await expect(page.getByText(/2 cohorts/i)).toBeVisible();
   await expect(page.getByText(/with coverage defined/i)).toBeVisible();
+});
+
+test("a chief builds a draft, edits it, and sees the diff before publishing", async ({
+  page,
+}) => {
+  /* The whole reason drafts exist: change next month without anybody seeing a
+     half-finished schedule, then look at exactly what publishing would do. */
+  await signIn(page, ACCOUNTS.chief);
+  await page.goto("/admin/scheduler");
+
+  await page.getByRole("button", { name: /start a draft/i }).click();
+  const sheet = page.getByRole("dialog");
+  await sheet.getByLabel("Name").fill("Next month");
+  await sheet.getByLabel("Covers from").fill("2000-01-01");
+  await sheet.getByLabel("To", { exact: true }).fill("2100-01-01");
+  await sheet.getByRole("button", { name: /create draft/i }).click();
+
+  // Landed on the draft, which copied the published schedule verbatim…
+  await expect(page.getByRole("heading", { level: 1, name: "Next month" })).toBeVisible();
+  await expect(page.getByText(/nothing would change/i)).toBeVisible();
+  await expect(page.getByText(/changing anything here is safe/i)).toBeVisible();
+
+  // …and it is editable. Move the first shift to somebody who is not on it.
+  const picker = page.getByRole("combobox").first();
+  await expect(picker).toBeVisible();
+  const labels = await picker.locator("option").allTextContents();
+  const current = await picker.locator("option:checked").textContent();
+  const target = labels.find((label) => label !== "Nobody yet" && label !== current);
+  await picker.selectOption({ label: target! });
+
+  // The diff notices, which is the point of the screen.
+  await expect(page.getByText("Reassigned")).toBeVisible({ timeout: 20_000 });
+
+  // Clearing a shift is allowed — "nobody yet" is a real state while building.
+  await picker.selectOption({ label: "Nobody yet" });
+  await expect(page.getByText(/have nobody on them/i)).toBeVisible({ timeout: 20_000 });
+
+  // A resident still cannot see any of it.
+  await signOut(page);
+  await signIn(page, ACCOUNTS.alice);
+  await page.goto("/admin/scheduler");
+  await expect(page).toHaveURL(/\/\?denied=1$/);
 });
 
 test("a resident cannot reach any of it", async ({ page }) => {

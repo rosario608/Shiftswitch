@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import { ServiceConfig } from "@/components/app/service-config";
 import { requirePageCapability } from "@/server/auth/page-guards";
+import { can } from "@/server/auth/roles";
+import { listRulesForService } from "@/server/domain/admin";
 import { listCoverage } from "@/server/domain/coverage";
 import { listSites } from "@/server/domain/roster";
+import { summariseRule } from "@/server/domain/rules/handlers";
 import { listServices } from "@/server/domain/services";
 
 export const dynamic = "force-dynamic";
@@ -26,11 +31,13 @@ export default async function ServiceConfigPage({
   const context = await requirePageCapability("services.manage");
   const { serviceId } = await params;
 
-  const [services, sites, coverage] = await Promise.all([
+  const [services, sites, coverage, rules] = await Promise.all([
     listServices(context.program.id, "service"),
     listSites(context.program.id),
     listCoverage(context.program.id, { serviceId, includeInactive: true }),
+    listRulesForService(context.program.id, serviceId),
   ]);
+  const mayEditRules = can(context.user.role, "rules.manage");
 
   const service = services.find((record) => record.id === serviceId);
   if (!service) notFound();
@@ -98,6 +105,53 @@ export default async function ServiceConfigPage({
           notes: requirement.notes,
         }))}
       />
+
+      {/* Read-only on purpose. Rules are program policy and are edited in one
+          place; showing them here answers "what happens when somebody tries to
+          trade this" without giving two screens the power to change them. */}
+      <section aria-labelledby="rules-heading">
+        <h2
+          id="rules-heading"
+          className="mb-2 px-1 text-sm font-semibold tracking-wide text-ink-muted uppercase"
+        >
+          Rules that apply here
+        </h2>
+        <Card className="px-4 py-3.5">
+          {rules.length === 0 ? (
+            <p className="text-sm text-ink-muted">
+              No rules are active, so any trade on {service.name} is checked for
+              nothing more than the two residents being able to work the shifts.
+            </p>
+          ) : (
+            <ul className="space-y-2.5">
+              {rules.map((rule) => (
+                <li key={rule.id} className="text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-ink">{rule.name}</span>
+                    <Badge tone={rule.severity === "error" ? "critical" : "caution"}>
+                      {rule.severity === "error" ? "Blocks the trade" : "Warns"}
+                    </Badge>
+                    {rule.scope === "service" ? (
+                      <Badge tone="neutral">This service only</Badge>
+                    ) : (
+                      <Badge tone="neutral">Program-wide</Badge>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-ink-muted">{summariseRule(rule)}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+          {mayEditRules ? (
+            <Link
+              href="/admin/rules"
+              className="mt-3 inline-block text-sm font-semibold text-brand"
+            >
+              Change these in Trade rules
+            </Link>
+          ) : null}
+        </Card>
+      </section>
     </div>
   );
 }

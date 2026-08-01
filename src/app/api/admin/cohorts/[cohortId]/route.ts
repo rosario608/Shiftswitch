@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
 type Params = { params: Promise<{ cohortId: string }> };
 
 const patchSchema = z.object({
-  label: z.string().min(1).max(120).optional(),
+  /** See the create route: the blank-label message is the domain's to give. */
+  label: z.string().max(120).optional(),
   pgyLevel: z.number().int().min(1).max(10).optional(),
   startDate: z.string().date().nullable().optional(),
   endDate: z.string().date().nullable().optional(),

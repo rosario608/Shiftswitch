@@ -5,12 +5,18 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DraftActions } from "@/components/app/draft-actions";
+import { DraftShiftEditor } from "@/components/app/draft-shift-editor";
 import { requirePageCapability } from "@/server/auth/page-guards";
 import {
   diffScheduleVersion,
   getScheduleVersion,
+  listDraftShifts,
 } from "@/server/domain/schedule-versions";
+import { listRoster } from "@/server/domain/roster";
 import { fmtDate, fmtTimestamp } from "@/lib/format";
+
+/** Enough to work through a month at a sitting without shipping a whole year. */
+const SHIFT_LIMIT = 300;
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Draft schedule" };
@@ -35,6 +41,13 @@ export default async function DraftPage({
 
   const timezone = context.program.timezone;
   const diff = await diffScheduleVersion(context.program.id, versionId, timezone);
+  const [draftShifts, roster] =
+    version.status === "draft"
+      ? await Promise.all([
+          listDraftShifts(context.program.id, versionId, { limit: SHIFT_LIMIT }),
+          listRoster(context),
+        ])
+      : [[], []];
   const nothingChanges =
     diff.added.length === 0 && diff.removed.length === 0 && diff.reassigned.length === 0;
 
@@ -174,6 +187,39 @@ export default async function DraftPage({
               </Card>
             </section>
           ) : null}
+
+          <section aria-labelledby="shifts-heading">
+            <h2
+              id="shifts-heading"
+              className="mb-2 px-1 text-sm font-semibold tracking-wide text-ink-muted uppercase"
+            >
+              The shifts in this draft
+            </h2>
+            <p className="mb-2 max-w-prose px-1 text-sm text-ink-muted">
+              Changing anything here is safe: nobody can see this schedule, and
+              nothing in it can be traded until it is published.
+            </p>
+            <DraftShiftEditor
+              versionId={version.id}
+              timezone={timezone}
+              truncated={version.shift_count > draftShifts.length}
+              shifts={draftShifts.map((shift) => ({
+                id: shift.id,
+                serviceName: shift.service_name,
+                start: shift.start_datetime.toISOString(),
+                end: shift.end_datetime.toISOString(),
+                residentId: shift.resident_id,
+                residentName: shift.resident_name,
+              }))}
+              residents={roster
+                .filter((resident) => resident.active && resident.schedulable)
+                .map((resident) => ({
+                  id: resident.id,
+                  name: resident.name,
+                  pgyLevel: resident.pgy_level,
+                }))}
+            />
+          </section>
 
           <DraftActions
             versionId={version.id}
