@@ -39,15 +39,17 @@ jobs:
 
       - run: npm ci
 
-      - name: Check the connection string is configured
+      # Checked before anything connects, and reported in words. The first real
+      # run of this workflow failed with `getaddrinfo EAI_AGAIN base` — the DNS
+      # resolver saying "there is no computer called base", which is what half
+      # a connection string looks like from the inside. Fine for an engineer
+      # reading a log; useless to the person whose phone did the copying.
+      #
+      # Nothing it prints contains the secret, or any part of it.
+      - name: Check the connection string looks like one
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
-        run: |
-          if [ -z "$DATABASE_URL" ]; then
-            echo "::error::The PRODUCTION_DATABASE_URL secret is not set. Add it in Settings → Secrets and variables → Actions, then run this again."
-            exit 1
-          fi
-          echo "The secret is set. Not printing it."
+        run: npx tsx scripts/check-connection-string.ts
 
       - name: Show what is about to be applied
         run: |
