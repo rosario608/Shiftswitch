@@ -287,6 +287,10 @@ export const PUSH_CATEGORIES: Record<NotificationType, string> = {
   "approval.granted": "approvals",
   "approval.rejected": "approvals",
   "shift.changed": "schedule",
+  /* Both land in the same category as a shift change, because to a resident
+     that is what they are: their schedule is different from what it was. */
+  "schedule.published": "schedule",
+  "schedule.corrected": "schedule",
   "trade.expired": "offers",
   "trade.cancelled": "offers",
   "switch.completed": "switches",

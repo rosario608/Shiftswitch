@@ -52,6 +52,7 @@ describe("what each role may do", () => {
       "analytics.view",
       "audit.view",
       "scheduling.plan",
+      "schedule.publish",
       "residents.contact_info",
     ],
     apd: [
@@ -59,6 +60,7 @@ describe("what each role may do", () => {
       "approvals.decide",
       "schedule.manage",
       "scheduling.plan",
+      "schedule.publish",
       "residents.contact_info",
       "schedule.export_program",
       "analytics.view",
@@ -74,6 +76,7 @@ describe("what each role may do", () => {
       "approvals.decide",
       "schedule.manage",
       "scheduling.plan",
+      "schedule.publish",
       "residents.contact_info",
       "schedule.export_program",
       "analytics.view",

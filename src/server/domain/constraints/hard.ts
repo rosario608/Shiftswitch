@@ -82,8 +82,15 @@ function bandLabel(requirement: {
   return "";
 }
 
-/** Every (date, requirement) pair in the window, with what is actually on it. */
-function* coverageCells(snapshot: ScheduleSnapshot) {
+/**
+ * Every (date, requirement) pair in the window, with what is actually on it.
+ *
+ * Exported for the scheduler's heat map, which is the same question asked for
+ * a different reason. Exported rather than reimplemented deliberately: a grid
+ * that tinted a cell green while the validator called it short would be worse
+ * than no grid, because a scheduler would believe the colour.
+ */
+export function* coverageCells(snapshot: ScheduleSnapshot) {
   const services = new Map(snapshot.services.map((s) => [s.id, s]));
   const active = snapshot.coverage.filter((r) => r.active);
 

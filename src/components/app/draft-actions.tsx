@@ -8,7 +8,13 @@ import { apiFetch } from "@/lib/api-client";
 import { useAction } from "@/lib/use-action";
 
 /**
- * Publish or discard a draft.
+ * Approve, publish or discard a draft.
+ *
+ * Two steps, not one. Publication governs a month of a hospital's staffing, and
+ * for something like that a single button is a single accident — so a draft is
+ * signed off first, and the sign-off records the score and every hard violation
+ * knowingly accepted. There is no combined "approve and publish": the pause is
+ * the feature.
  *
  * Publishing over live switches is possible and deliberately awkward: the
  * override is a second, separate confirmation rather than a checkbox sitting
@@ -19,13 +25,41 @@ import { useAction } from "@/lib/use-action";
 export function DraftActions({
   versionId,
   hasBlockers,
+  approvedBy,
+  approvedAt,
+  approvalNotes,
+  canPublish,
 }: {
   versionId: string;
   hasBlockers: boolean;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  approvalNotes: string;
+  /** False for somebody who may build a schedule but not make it live. */
+  canPublish: boolean;
 }) {
   const router = useRouter();
   const [confirmingOverride, setConfirmingOverride] = React.useState(false);
   const [confirmingDiscard, setConfirmingDiscard] = React.useState(false);
+  const [notes, setNotes] = React.useState("");
+
+  const approve = useAction(
+    async () =>
+      apiFetch(`/api/admin/schedule-versions/${versionId}`, {
+        method: "POST",
+        body: JSON.stringify({ action: "approve", notes }),
+      }),
+    { onSuccess: () => router.refresh() },
+  );
+
+  const withdraw = useAction(
+    async () =>
+      apiFetch(`/api/admin/schedule-versions/${versionId}`, {
+        method: "POST",
+        body: JSON.stringify({ action: "withdraw-approval" }),
+      }),
+    { onSuccess: () => router.refresh() },
+  );
 
   const publish = useAction(
     async (force: boolean) =>
@@ -50,10 +84,79 @@ export function DraftActions({
   return (
     <Card className="space-y-3 px-4 py-4">
       <div>
+        <h2 className="font-semibold text-ink">Approve</h2>
+        <p className="mt-0.5 text-sm text-ink-muted">
+          Sign this schedule off before it goes live. What the check currently
+          says — the score, and any hard problem still outstanding — is recorded
+          against your name.
+        </p>
+      </div>
+
+      {approve.error ? (
+        <p role="alert" className="text-sm text-critical">
+          {approve.error}
+        </p>
+      ) : null}
+      {withdraw.error ? (
+        <p role="alert" className="text-sm text-critical">
+          {withdraw.error}
+        </p>
+      ) : null}
+
+      {approvedAt ? (
+        <div className="space-y-2">
+          <p className="text-sm text-positive">
+            Approved by {approvedBy ?? "somebody"} on {approvedAt}.
+          </p>
+          {approvalNotes ? (
+            <p className="text-sm text-ink-muted italic">
+              &ldquo;{approvalNotes}&rdquo;
+            </p>
+          ) : null}
+          {canPublish ? (
+            <Button
+              variant="ghost"
+              loading={withdraw.pending}
+              loadingLabel="Withdrawing…"
+              onClick={() => withdraw.run()}
+            >
+              Withdraw approval
+            </Button>
+          ) : null}
+        </div>
+      ) : canPublish ? (
+        <div className="space-y-2">
+          <label htmlFor="approval-notes" className="block text-sm text-ink">
+            Anything worth recording (optional)
+          </label>
+          <textarea
+            id="approval-notes"
+            rows={2}
+            value={notes}
+            maxLength={1000}
+            onChange={(event) => setNotes(event.target.value)}
+            placeholder="e.g. Two gaps accepted; night float will cover."
+            className="w-full rounded-xl border border-border-strong bg-surface px-3 py-2.5 text-base text-ink placeholder:text-ink-subtle"
+          />
+          <Button
+            loading={approve.pending}
+            loadingLabel="Approving…"
+            onClick={() => approve.run()}
+          >
+            Approve this schedule
+          </Button>
+        </div>
+      ) : (
+        <p className="text-sm text-ink-muted">
+          Somebody with authority to publish has to sign this off.
+        </p>
+      )}
+
+      <div className="border-t border-border-base pt-3">
         <h2 className="font-semibold text-ink">Publish</h2>
         <p className="mt-0.5 text-sm text-ink-muted">
           Replaces the live schedule for this period only. The rest of the year
-          is untouched. Residents see the change immediately.
+          is untouched. Everybody with a shift in it is told.
         </p>
       </div>
 
@@ -63,7 +166,16 @@ export function DraftActions({
         </p>
       ) : null}
 
-      {hasBlockers && !confirmingOverride ? (
+      {!canPublish ? (
+        <p className="text-sm text-ink-muted">
+          You can build and edit this draft. Making it live is a separate
+          authority your role does not hold.
+        </p>
+      ) : !approvedAt ? (
+        <p className="text-sm text-ink-muted">
+          Approve it first. Publishing replaces what residents are working from.
+        </p>
+      ) : hasBlockers && !confirmingOverride ? (
         <div className="space-y-2">
           <p className="text-sm text-critical">
             Publishing is blocked: shifts in this period are part of a live

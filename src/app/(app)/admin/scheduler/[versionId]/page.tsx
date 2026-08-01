@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, LayoutGrid } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -8,6 +8,7 @@ import { DraftActions } from "@/components/app/draft-actions";
 import { DraftShiftEditor } from "@/components/app/draft-shift-editor";
 import { ScheduleCheck } from "@/components/app/schedule-check";
 import { requirePageCapability } from "@/server/auth/page-guards";
+import { can } from "@/server/auth/roles";
 import {
   diffScheduleVersion,
   getScheduleVersion,
@@ -93,6 +94,16 @@ export default async function DraftPage({
 
       {version.status === "draft" ? (
         <>
+          {/* First, because it is where the work happens. This page is for the
+              decision to publish; that one is for finishing the schedule. */}
+          <Link
+            href={`/admin/scheduler/${version.id}/build`}
+            className="flex min-h-[2.75rem] items-center justify-center gap-2 rounded-xl bg-brand px-4 font-semibold text-white"
+          >
+            <LayoutGrid className="h-4 w-4" aria-hidden="true" />
+            Open the grid and finish this schedule
+          </Link>
+
           <section aria-labelledby="diff-heading">
             <h2
               id="diff-heading"
@@ -234,6 +245,12 @@ export default async function DraftPage({
           <DraftActions
             versionId={version.id}
             hasBlockers={diff.blockers.length > 0}
+            approvedBy={version.approved_by_name}
+            approvedAt={
+              version.approved_at ? fmtTimestamp(version.approved_at, timezone) : null
+            }
+            approvalNotes={version.approval_notes}
+            canPublish={can(context.user.role, "schedule.publish")}
           />
         </>
       ) : (

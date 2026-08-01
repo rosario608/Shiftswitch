@@ -21,6 +21,7 @@ const GROUPS: Array<{
     links: [
       { href: "/admin", label: "Overview", capability: "audit.view" },
       { href: "/admin/scheduler", label: "Scheduler", capability: "scheduling.plan" },
+      { href: "/admin/coverage", label: "Coverage", capability: "scheduling.plan" },
       { href: "/admin/approvals", label: "Approvals", capability: "approvals.decide" },
       { href: "/admin/schedule", label: "Schedule", capability: "schedule.manage" },
       { href: "/admin/import", label: "Import", capability: "schedule.manage" },

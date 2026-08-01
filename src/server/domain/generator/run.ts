@@ -4,6 +4,7 @@ import { validationFailed } from "@/server/http/errors";
 import { recordAudit } from "@/server/domain/audit";
 import { loadScheduleSnapshot } from "@/server/domain/constraints/snapshot";
 import type { ScheduleAssignment } from "@/server/domain/constraints/types";
+import { locksForGeneration } from "@/server/domain/schedule-locks";
 import { createScheduleVersion } from "@/server/domain/schedule-versions";
 import { zonedWallTimeToInstant } from "@/server/domain/time";
 import { assignmentsToRecords } from "./source";
@@ -72,8 +73,18 @@ export async function generateDraftSchedule(
     MAX_TIME_BUDGET_MS,
   );
   const seed = input.seed ?? 1;
-  const locks = input.locks ?? [];
   const period = { start: input.periodStart, end: input.periodEnd };
+
+  /* Locks come from the draft unless the caller named some explicitly. That
+     default is what makes "regenerate the remainder" a thing a scheduler can
+     do: they lock six placements they care about, press generate again for a
+     better seed, and keep the six. Passing locks explicitly stays possible for
+     tests and for a caller that is composing a run rather than continuing one. */
+  const locks =
+    input.locks ??
+    (input.versionId
+      ? await locksForGeneration(context.program.id, input.versionId)
+      : []);
 
   const program = {
     id: context.program.id,

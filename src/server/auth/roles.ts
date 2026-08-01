@@ -111,6 +111,17 @@ export const CAPABILITIES = [
    */
   "scheduling.plan",
   /**
+   * Approve a draft schedule, and make it the live one.
+   *
+   * Separate from `scheduling.plan`, which is about *building* a schedule.
+   * Publication is the moment a plan becomes a month of people's lives, and a
+   * programme that wants a senior resident building next block's schedule
+   * without the authority to make it live can now say so. It is also what
+   * `rolesWith` is asked when the product needs to know who to tell that a
+   * schedule is waiting for sign-off.
+   */
+  "schedule.publish",
+  /**
    * Read a resident's phone number.
    *
    * Its own capability because it is the one genuinely personal field in the
@@ -139,6 +150,7 @@ const ROLE_CAPABILITIES: Record<UserRole, ReadonlySet<Capability>> = {
     "analytics.view",
     "audit.view",
     "scheduling.plan",
+    "schedule.publish",
     "residents.contact_info",
   ]),
 
@@ -147,6 +159,7 @@ const ROLE_CAPABILITIES: Record<UserRole, ReadonlySet<Capability>> = {
     "approvals.decide",
     "schedule.manage",
     "scheduling.plan",
+    "schedule.publish",
     "residents.contact_info",
     "schedule.export_program",
     "analytics.view",
@@ -163,6 +176,7 @@ const ROLE_CAPABILITIES: Record<UserRole, ReadonlySet<Capability>> = {
     "approvals.decide",
     "schedule.manage",
     "scheduling.plan",
+    "schedule.publish",
     "residents.contact_info",
     "schedule.export_program",
     "analytics.view",

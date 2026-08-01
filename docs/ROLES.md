@@ -42,10 +42,11 @@ guess.
 | `contacts.manage` | Programme notification contacts | | | ● | ● | ● |
 | `program.manage` | Name, institution, timezone, approved domains | | | | ● | ● |
 | `scheduling.plan` | Cohorts, block years, coverage planning, draft schedules | | ● | ● | ● | ● |
+| `schedule.publish` | Approve a draft and make it the live schedule | | ● | ● | ● | ● |
 | `residents.contact_info` | Read a resident's phone number | | ● | ● | ● | ● |
 | `maintenance.run` | Housekeeping: expire stale posts, recompute | | | | | ● |
 
-Two of these deserve a note.
+Three of these deserve a note.
 
 **`scheduling.plan`** is deliberately separate from `schedule.manage`.
 `schedule.manage` is about individual shifts — create one, move one, reassign
@@ -53,6 +54,15 @@ one. `scheduling.plan` is about the shape of the programme's year: cohorts,
 blocks, coverage requirements and draft schedules. A **chief resident holds
 both**, because in most programmes the chief is the person who actually builds
 the schedule, and a scheduler screen a chief cannot open is not a scheduler.
+
+**`schedule.publish`** is separate again from `scheduling.plan`, and separate
+for a reason that is about consequence rather than difficulty. Building a draft
+changes nothing; approving one and publishing it replaces a month of what people
+are working. A programme that wants a senior resident building next block's
+schedule without the authority to make it live can now say so, and publication
+refuses an unapproved draft — the two taps are the feature, not friction to be
+optimised away. It is also what `rolesWith` is asked when the product needs to
+know who to tell that a schedule is waiting for sign-off.
 
 **`residents.contact_info`** guards one field: a resident's phone number. It has
 its own capability because it is the one genuinely personal thing in the roster.

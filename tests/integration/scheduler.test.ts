@@ -22,6 +22,7 @@ import {
   updateSchedulingData,
 } from "@/server/domain/roster";
 import {
+  approveScheduleVersion,
   assignDraftShift,
   createScheduleVersion,
   diffScheduleVersion,
@@ -62,6 +63,26 @@ beforeEach(async () => {
   chief = await createStaff(fixture.program, { email: "chief@h.org", role: "chief", name: "Casey Chief" });
   admin = await createStaff(fixture.program, { email: "admin@h.org", role: "admin", name: "Ada Admin" });
 });
+
+/**
+ * Approve, then publish.
+ *
+ * Publication refuses an unapproved draft on purpose, so every test that
+ * publishes signs the draft off first. Written once here rather than inline so
+ * that the tests below stay about what they are testing — the window, the
+ * override, the trade entanglement — rather than about the workflow around it.
+ */
+async function approveAndPublish(
+  context: Parameters<typeof publishScheduleVersion>[0],
+  versionId: string,
+  options: { force?: boolean } = {},
+) {
+  await approveScheduleVersion(context, versionId, {
+    report: { score: 100, hard: 0, soft: 0, shifts: 0, accepted: [] },
+  });
+  return publishScheduleVersion(context, versionId, options);
+}
+
 
 describe("service configuration and coverage", () => {
   it("records coverage that varies by weekday, weekend, date and period", async () => {
@@ -566,7 +587,7 @@ describe("draft and published schedules", () => {
       periodEnd: to.toISOString().slice(0, 10),
     });
 
-    await publishScheduleVersion(chief.context, draft.id);
+    await approveAndPublish(chief.context, draft.id);
 
     // The in-window shift was replaced by an empty draft; the far one survives.
     const survivors = await query<{ id: string }>(
@@ -590,6 +611,9 @@ describe("draft and published schedules", () => {
       periodEnd: to.toISOString().slice(0, 10),
     });
 
+    await approveScheduleVersion(chief.context, draft.id, {
+      report: { score: 100, hard: 0, soft: 0, shifts: 0, accepted: [] },
+    });
     await expect(publishScheduleVersion(chief.context, draft.id)).rejects.toThrow(
       /part of a live switch involving Alice A/,
     );
@@ -628,7 +652,7 @@ describe("draft and published schedules", () => {
       periodStart: "2026-01-01",
       periodEnd: "2026-01-31",
     });
-    await publishScheduleVersion(chief.context, draft.id);
+    await approveAndPublish(chief.context, draft.id);
     await expect(discardScheduleVersion(chief.context, draft.id)).rejects.toThrow(
       /residents are working it/,
     );
@@ -753,7 +777,7 @@ describe("editing a draft", () => {
        that reason. What matters is that neither of them reaches a shift a
        resident is now working. */
     const { draft, shift } = await draftWithOneShift();
-    await publishScheduleVersion(chief.context, draft.id);
+    await approveAndPublish(chief.context, draft.id);
     expect(await listDraftShifts(fixture.program.id, draft.id)).toHaveLength(0);
 
     await expect(

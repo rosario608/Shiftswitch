@@ -3,6 +3,7 @@ import { query, queryOne, withTransaction } from "@/server/db/pool";
 import type { AuthedContext } from "@/server/auth/guards";
 import { conflict, notFound, validationFailed } from "@/server/http/errors";
 import { recordAudit } from "./audit";
+import { notify } from "./notifications";
 import { formatShiftDate, formatShiftRange } from "./time";
 
 /**
@@ -52,17 +53,40 @@ export interface ScheduleVersion {
   published_by: string | null;
   published_by_name: string | null;
   published_at: Date | null;
+  approved_by: string | null;
+  approved_by_name: string | null;
+  approved_at: Date | null;
+  approval_notes: string;
+  approval_report: ApprovalReport | null;
   created_at: Date;
   shift_count: number;
 }
 
+/**
+ * What the validator said at the moment somebody signed the schedule off.
+ *
+ * Stored rather than recomputed, because the answer depends on data that keeps
+ * moving: rerunning the validator next month against next month's roster does
+ * not tell you what the approver was looking at.
+ */
+export interface ApprovalReport {
+  score: number;
+  hard: number;
+  soft: number;
+  shifts: number;
+  /** Hard violations knowingly accepted, in the words they were shown in. */
+  accepted: string[];
+}
+
 const SELECT = `
   SELECT v.*, cu.full_name AS created_by_name, pu.full_name AS published_by_name,
+         au.full_name AS approved_by_name,
          (SELECT count(*) FROM shifts s WHERE s.schedule_version_id = v.id)::int
            AS shift_count
     FROM schedule_versions v
     LEFT JOIN users cu ON cu.id = v.created_by
-    LEFT JOIN users pu ON pu.id = v.published_by`;
+    LEFT JOIN users pu ON pu.id = v.published_by
+    LEFT JOIN users au ON au.id = v.approved_by`;
 
 export async function listScheduleVersions(
   programId: string,
@@ -424,6 +448,104 @@ async function loadShifts(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Approval
+// ---------------------------------------------------------------------------
+
+/**
+ * Signing a draft off.
+ *
+ * Publication used to be one button, and for something that governs a month of
+ * a hospital's staffing, one button is one accident. The person who builds a
+ * schedule and the person accountable for it are usually not the same person;
+ * even when they are, "I have read this" and "this is now live" are two
+ * decisions worth recording separately, and the audit trail is the whole reason
+ * anybody can answer "who agreed to this" three weeks later.
+ *
+ * Approval is deliberately *not* a validity check. The validator has already
+ * said what is wrong; a chief who approves a schedule with two hard violations
+ * because the alternative is no schedule at all is making a real decision, and
+ * the product's job is to record it, not to refuse it. What it must never do is
+ * let that happen invisibly — so the violations being accepted are written into
+ * the approval alongside the score.
+ */
+export async function approveScheduleVersion(
+  context: AuthedContext,
+  versionId: string,
+  input: { notes?: string; report: ApprovalReport },
+): Promise<ScheduleVersion> {
+  return withTransaction(async (client) => {
+    const version = await queryOne<{ id: string; name: string; status: string }>(
+      `SELECT id, name, status::text AS status FROM schedule_versions
+        WHERE id = $1 AND program_id = $2 FOR UPDATE`,
+      [versionId, context.program.id],
+      client,
+    );
+    if (!version) throw notFound("That draft schedule no longer exists.");
+    if (version.status !== "draft") {
+      throw conflict("Only a draft can be approved.");
+    }
+
+    await query(
+      `UPDATE schedule_versions
+          SET approved_by = $2, approved_at = now(), approval_notes = $3,
+              approval_report = $4::jsonb
+        WHERE id = $1`,
+      [versionId, context.user.id, (input.notes ?? "").trim(), JSON.stringify(input.report)],
+      client,
+    );
+
+    await recordAudit(
+      {
+        programId: context.program.id,
+        actorUserId: context.user.id,
+        actorLabel: context.user.email,
+        action: "schedule_version.approved",
+        entityType: "schedule_version",
+        entityId: versionId,
+        newState: {
+          name: version.name,
+          score: input.report.score,
+          hardViolationsAccepted: input.report.hard,
+        },
+        reason: input.notes ?? null,
+      },
+      client,
+    );
+
+    return (await getVersionInTransaction(client, context.program.id, versionId))!;
+  });
+}
+
+/** Takes an approval back, so an edited draft has to be looked at again. */
+export async function withdrawApproval(
+  context: AuthedContext,
+  versionId: string,
+): Promise<ScheduleVersion> {
+  const version = await getScheduleVersion(context.program.id, versionId);
+  if (!version) throw notFound("That draft schedule no longer exists.");
+  if (version.status !== "draft") throw conflict("Only a draft can be un-approved.");
+
+  await query(
+    `UPDATE schedule_versions
+        SET approved_by = NULL, approved_at = NULL, approval_notes = '',
+            approval_report = NULL
+      WHERE id = $1`,
+    [versionId],
+  );
+  await recordAudit({
+    programId: context.program.id,
+    actorUserId: context.user.id,
+    actorLabel: context.user.email,
+    action: "schedule_version.approval_withdrawn",
+    entityType: "schedule_version",
+    entityId: versionId,
+    previousState: { approvedBy: version.approved_by_name },
+  });
+
+  return (await getScheduleVersion(context.program.id, versionId))!;
+}
+
 /**
  * Makes the draft the live schedule for its window.
  *
@@ -432,13 +554,21 @@ async function loadShifts(
  * alternative — cancelling those trades as a side effect of publishing — takes
  * a switch two residents have agreed on and destroys it without either of them
  * being asked.
+ *
+ * Refuses an unapproved draft, which is the deliberateness the workflow is for.
+ * There is no "approve and publish" shortcut: the two taps are the point, and a
+ * combined verb would leave an approval record that nobody ever paused over.
+ *
+ * Everybody who gains, loses or keeps a shift in the window is told, with a
+ * stored route to the schedule. A published schedule that reaches nobody is a
+ * schedule people are working from a screenshot of the old one.
  */
 export async function publishScheduleVersion(
   context: AuthedContext,
   versionId: string,
   options: { force?: boolean } = {},
-): Promise<{ published: number; replaced: number }> {
-  return withTransaction(async (client) => {
+): Promise<{ published: number; replaced: number; notified: number }> {
+  const outcome = await withTransaction(async (client) => {
     const version = await queryOne<ScheduleVersion>(
       "SELECT * FROM schedule_versions WHERE id = $1 AND program_id = $2 FOR UPDATE",
       [versionId, context.program.id],
@@ -450,6 +580,12 @@ export async function publishScheduleVersion(
         version.status === "published"
           ? "This schedule has already been published."
           : "This schedule was archived and can no longer be published.",
+      );
+    }
+    if (!version.approved_at) {
+      throw conflict(
+        "This schedule has not been approved yet. Review the check, then approve it — " +
+          "publishing replaces what residents are working from.",
       );
     }
 
@@ -492,10 +628,32 @@ export async function publishScheduleVersion(
       client,
     );
 
+    /* `schedule_version_id` goes to null — null is what "published" means, and
+       that is load-bearing everywhere. `published_version_id` records where the
+       shift came from, which is what makes "what did we publish, and what has
+       changed since" answerable at all. */
     const published = await query<{ id: string }>(
-      `UPDATE shifts SET schedule_version_id = NULL
+      `UPDATE shifts SET schedule_version_id = NULL, published_version_id = $1
         WHERE schedule_version_id = $1
         RETURNING id`,
+      [versionId],
+      client,
+    );
+
+    /* Everybody with a shift in the new window, which is not the same set as
+       everybody whose shift changed: a resident whose week is untouched still
+       needs to know the schedule they are working is now the published one, and
+       working out who is genuinely unaffected requires the diff — an expensive
+       question to ask inside the transaction that is doing the replacing. */
+    const affected = await query<{ user_id: string; shifts: number }>(
+      `SELECT u.id AS user_id, count(*)::int AS shifts
+         FROM shifts s
+         JOIN shift_assignments a
+           ON a.shift_id = s.id AND a.assignment_status = 'active'
+         JOIN residents r ON r.id = a.resident_id
+         JOIN users u ON u.id = r.user_id
+        WHERE s.published_version_id = $1 AND u.active = true
+        GROUP BY u.id`,
       [versionId],
       client,
     );
@@ -523,8 +681,38 @@ export async function publishScheduleVersion(
       client,
     );
 
-    return { published: published.length, replaced: replaced.length };
+    await notify(
+      affected.map((row) => ({
+        recipientUserId: row.user_id,
+        type: "schedule.published" as const,
+        title: `${version.name} is now your schedule`,
+        body:
+          `${plural(row.shifts, "shift")} for you between ` +
+          `${formatShiftDate(version.period_start, context.program.timezone)} and ` +
+          `${formatShiftDate(version.period_end, context.program.timezone)}. ` +
+          "Check it before you next work.",
+        relatedEntityType: "schedule_version",
+        relatedEntityId: versionId,
+        /* Stored, as every notification's route is. A push that opens the app
+           and lands nowhere is a notification that made somebody pick up their
+           phone for nothing. */
+        route: "/schedule",
+      })),
+      client,
+    );
+
+    return {
+      published: published.length,
+      replaced: replaced.length,
+      notified: affected.length,
+    };
   });
+
+  return outcome;
+}
+
+function plural(count: number, one: string): string {
+  return `${count} ${one}${count === 1 ? "" : "s"}`;
 }
 
 /** Throws the draft away. Its shifts go with it — they were never live. */

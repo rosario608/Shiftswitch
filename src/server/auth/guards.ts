@@ -86,6 +86,8 @@ const CAPABILITY_REFUSAL: Record<Capability, (role: UserRole) => string> = {
     `Approving switches is for chief residents and program leadership. You are signed in as ${ROLE_LABEL[role]}.`,
   "schedule.manage": (role) =>
     `Managing the schedule is for chief residents and program leadership. You are signed in as ${ROLE_LABEL[role]}.`,
+  "schedule.publish": (role) =>
+    `Approving and publishing a schedule is for chief residents and program leadership. You are signed in as ${ROLE_LABEL[role]}.`,
   "schedule.export_program": () =>
     "Exporting the whole program schedule is for chief residents and program leadership.",
   "analytics.view": () =>
