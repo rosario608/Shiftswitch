@@ -266,7 +266,8 @@ test("identifiers from another program leak nothing through error messages", asy
   ).not.toBe(inventedBody.error.requestId);
 
   const withoutReference = (body: { error: Record<string, unknown> }) => {
-    const { requestId: _ignored, ...rest } = body.error;
+    const rest = { ...body.error };
+    delete rest.requestId;
     return rest;
   };
   expect(
