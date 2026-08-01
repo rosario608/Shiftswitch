@@ -24,7 +24,7 @@ of it is produced by the same domain functions a coordinator's taps call.
 
 | What | Where to see it |
 | --- | --- |
-| A starting configuration applied, with its guesses still marked as guesses | **Admin → Set up services** — the list of defaults nobody has confirmed |
+| A starting configuration applied, with its guesses still marked as guesses | **Admin → First-time setup** — the list of defaults nobody has confirmed |
 | A live enrollment link | **Admin → Getting people in** |
 | Three imported rows for people with no account, two of them since claimed | The same screen, "shifts waiting for" |
 | Somebody who arrived and found their schedule already there | Ines Okonkwo's schedule |

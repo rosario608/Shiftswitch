@@ -28,7 +28,7 @@ the following fortnight, and it is no longer the order.
 
 For a coordinator with a spreadsheet and an afternoon:
 
-1. **Admin → Set up services.** Pick your starting configuration and the
+1. **Admin → First-time setup.** Pick your starting configuration and the
    academic year. Then check the things it says it guessed — a default nobody
    has confirmed fills in nothing, on purpose.
 2. **Admin → Import schedule.** Upload the file. Rows for people who have not

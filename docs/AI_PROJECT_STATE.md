@@ -1868,6 +1868,18 @@ a wrong assertion and a wrong claim. Last run: **12/12**.
 
 ## Known issues
 
+- **Per-person block *length* variation has a table and no surface.**
+  `block_structure_exceptions` (migration `0010`) can express "this resident's
+  block 7 is eleven days rather than fourteen, and starts two days late, for
+  this reason" — and nothing reads or writes it yet. What *does* work is the
+  per-person exception a programme actually asked for first: a resident placed
+  outside their cohort's block, with a reason, on `/admin/cohorts`. **How it
+  gets verified:** when a programme supplies a real irregular cadence, which is
+  the point at which the shape of the surface stops being a guess. **What a
+  human must supply:** one programme's actual block irregularities. Recorded
+  here rather than built on speculation, because a screen for a shape nobody has
+  described is a screen that will be wrong.
+
 - **iOS has never been compiled.** Building it needs Xcode, so macOS.
   **How it gets verified:** an hour on any Mac, following `docs/IOS_BUILD.md`,
   ending at **Profile → Check this phone**. **What a human must supply:** the

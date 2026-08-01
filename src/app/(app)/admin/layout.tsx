@@ -27,7 +27,7 @@ const GROUPS: Array<{ heading: string; links: NavLink[] }> = [
       { href: "/admin/scheduler", label: "Scheduler", capabilities: ["scheduling.plan"] },
       { href: "/admin/coverage", label: "Coverage", capabilities: ["scheduling.plan"] },
       { href: "/admin/approvals", label: "Approvals", capabilities: ["approvals.decide"] },
-      { href: "/admin/schedule", label: "Schedule", capabilities: ["schedule.manage"] },
+      { href: "/admin/schedule", label: "Program schedule", capabilities: ["schedule.manage"] },
       { href: "/admin/corrections", label: "Corrections", capabilities: ["schedule.manage"] },
       { href: "/admin/import", label: "Import", capabilities: ["schedule.manage"] },
     ],
@@ -45,15 +45,20 @@ const GROUPS: Array<{ heading: string; links: NavLink[] }> = [
       },
       { href: "/admin/users", label: "Users & roles", capabilities: ["users.manage"] },
       { href: "/admin/cohorts", label: "Cohorts & blocks", capabilities: ["scheduling.plan"] },
-      { href: "/admin/cycles", label: "Coverage cycles", capabilities: ["scheduling.plan"] },
+      { href: "/admin/cycles", label: "Rotation cycles", capabilities: ["scheduling.plan"] },
     ],
   },
   {
     heading: "Program setup",
     links: [
+      /* Named for what it is rather than for what it configures. It sat next to
+         "Services" as "Set up services", which made two adjacent nav entries
+         whose names contained each other — ambiguous to a screen reader, to a
+         Playwright locator, and to a coordinator looking for the services
+         screen. */
       {
         href: "/admin/setup",
-        label: "Set up services",
+        label: "First-time setup",
         capabilities: ["services.manage"],
       },
       {

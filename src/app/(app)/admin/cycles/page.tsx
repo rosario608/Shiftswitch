@@ -52,7 +52,7 @@ export default async function CyclesPage() {
         <h1 className="text-2xl font-semibold text-ink">Coverage cycles</h1>
         <p className="mt-1 max-w-prose text-sm text-ink-muted">
           {patterns.length === 0
-            ? "No cycles yet. Set up services first — a starting configuration brings its cycles with it."
+            ? "No cycles yet. Run first-time setup — a starting configuration brings its cycles with it."
             : `${patterns.length} cycle${patterns.length === 1 ? "" : "s"}. A cycle is a length and an ordered list of days, which is what a rotating day off actually is — a week is one shape of a cycle, not the model.`}
         </p>
       </header>

@@ -6,7 +6,7 @@ import {
 } from "@/server/domain/starting-configuration";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Set up services" };
+export const metadata = { title: "First-time setup" };
 
 /**
  * Where a program gets its shape, and where the product admits what it guessed.
@@ -31,7 +31,7 @@ export default async function SetupPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold text-ink">Set up services</h1>
+        <h1 className="text-2xl font-semibold text-ink">First-time setup</h1>
         <p className="mt-1 max-w-prose text-sm text-ink-muted">
           {unconfirmed.length > 0
             ? `${unconfirmed.length} default${unconfirmed.length === 1 ? " is" : "s are"} still our guess, so nothing is filled in from ${unconfirmed.length === 1 ? "it" : "them"}. Checking one takes a tap.`

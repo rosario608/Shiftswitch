@@ -291,12 +291,15 @@ test("a chief sees the schedule and the approvals queue, and nothing else", asyn
   // The navigation reflects it: schedule yes, users no.
   await page.goto("/admin");
   const nav = page.getByRole("navigation", { name: "Administration" });
-  // Exact, because "Scheduler" contains "Schedule" and they are two links to
-  // two different screens: the shift editor and the planning dashboard.
-  await expect(nav.getByRole("link", { name: "Schedule", exact: true })).toBeVisible();
+  /* No `exact` needed any more. These were "Schedule" and "Scheduler" — one
+     letter apart, two different screens — and the workaround lived here rather
+     than the ambiguity being fixed. The shift editor is now named for what its
+     own heading says, "Program schedule", and `tests/unit/admin-nav.test.ts`
+     refuses any future pair whose names contain each other. */
+  await expect(nav.getByRole("link", { name: "Program schedule" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Approvals" })).toBeVisible();
   // A chief plans the schedule, so the scheduler and the cohort grid are theirs.
-  await expect(nav.getByRole("link", { name: "Scheduler", exact: true })).toBeVisible();
+  await expect(nav.getByRole("link", { name: "Scheduler" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Cohorts & blocks" })).toBeVisible();
   await expect(nav.getByRole("link", { name: "Users & roles" })).toHaveCount(0);
   await expect(nav.getByRole("link", { name: "Program settings" })).toHaveCount(0);
