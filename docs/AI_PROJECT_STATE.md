@@ -3,8 +3,17 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 1 August 2026, after **the deliberate design pass this product had
-never had**: one word for the exchange (*switch*) enforced by a test that fails
+Last updated: 1 August 2026, after **closing the gap between what is tested and
+what has been observed**: an on-device self-test a resident reaches from
+Settings and runs in one tap, a push round trip that reports what the service
+actually said, every way the first invitation can fail given its own diagnosis,
+the iOS project checked line by line without a Mac — which found the
+associated-domains placeholder that would have sent every tapped notification to
+Safari — and **User action required** rewritten so each entry names the
+artefact, where it comes from, how long it takes and what stays broken until it
+exists.
+
+Before that, **the deliberate design pass this product had never had**: one word for the exchange (*switch*) enforced by a test that fails
 on the rejected ones, every resident flow cut to two taps and the numbers
 recorded, screens whose heading is the answer rather than the name of the
 section, empty states that teach the next action, and the twelve questions the
@@ -153,55 +162,48 @@ are genuine prerequisites for a pilot.
 
 ## User action required
 
-**1 to 4 are the prerequisites for a pilot.** Two of them are hosted
-infrastructure and the production database, which `/CLAUDE.md` forbids a session
-from touching; two are the institution's own data, which cannot be invented.
-5 is a one-time repository setting. 6 to 8 are store accounts and identities,
-needed only for the mobile release.
+Every row names **the artefact**, **where it comes from**, **roughly how long**,
+and **what stays broken until it exists**. Nothing here is a session's to do:
+each is either hosted infrastructure, the production database, the institution's
+own data, or an identity that requires a human with a payment method.
 
-1. **Configure a separate Neon branch for preview deployments.** The Neon
-   integration set one `DATABASE_URL` across production, preview and
-   development, so **a pull-request preview writes to production data** — a
-   preview that seeds, migrates or truncates would do it to the live programme.
-   Previews are SSO-protected, so nobody outside the team can reach one, which
-   is why this has not been urgent; it stops being merely untidy the moment a
-   second person opens a pull request. Neon → Branches → create a `preview`
-   branch, then Vercel → Settings → Environment Variables → set `DATABASE_URL`
-   for the Preview environment only. A session cannot do this: it is a change to
-   hosted infrastructure, and reaching the production database to make it is
-   forbidden by `/CLAUDE.md`.
+### Before a pilot
 
-2. **Apply `db/migrations/0008_scheduler_foundation.sql` and then
-   `db/migrations/0009_schedule_operations.sql` to production**, before the code
-   on `main` is deployed. `npm run db:migrate` against the production
-   `DATABASE_URL` applies both in order. Without `0008` every schedule query
-   fails; without `0009` publishing a schedule, recording availability and
-   correcting a published shift all fail. Sessions do not do this — see
-   `/CLAUDE.md`.
+| # | The artefact | Where it comes from | Time | Until then |
+| --- | --- | --- | --- | --- |
+| 1 | A `preview` branch in Neon, and `DATABASE_URL` set for Vercel's Preview environment only | Neon → Branches → New branch; then Vercel → Settings → Environment Variables → Preview | 10 min | **Every pull-request preview reads and writes the live programme.** Previews are SSO-protected so nobody outside the team can reach one — this stops being merely untidy the moment a second person opens a pull request. |
+| 2 | `0008_scheduler_foundation.sql`, then `0009_schedule_operations.sql`, applied to production | Already in `db/migrations/`. `DATABASE_URL='<production>' npm run db:migrate` applies both in order | 5 min | Without `0008`, every schedule query fails. Without `0009`, publishing a schedule, recording availability and correcting a published shift all fail. The build refuses to run queries against a schema behind it and names the file — see `/admin/diagnostics`. |
+| 3 | The residents' email addresses | The institution's roster. Any format: commas, semicolons, one per line, a spreadsheet column | You have it or you don't | Nobody can be invited, so nobody can sign in. `npm run demo:seed` exists so no development waits for this. |
+| 4 | The block schedule, as CSV or XLSX | The institution's scheduling office. Column set documented in `docs/ONBOARDING.md` | You have it or you don't | There is no schedule to switch shifts on. |
 
-3. **The residents' email addresses**, for **Admin → Users & roles → Invite
-   people**. Any format: commas, semicolons, one per line, or a spreadsheet
-   column. This is the institution's real roster; it cannot be invented, and
-   `npm run demo:seed` exists so that nothing waits for it.
-4. **The block schedule**, as CSV or XLSX, for **Admin → Import**. Likewise the
-   institution's, and likewise not blocking any development.
-5. **Make CI a required check on `main`.** The `CI` workflow already runs
-   typecheck, both lints, the unit, integration and both end-to-end suites, and
-   a production build on every pull request, and reports its verdict — but
-   nothing currently stops somebody merging past a red one. Branch protection is
-   a repository *setting*, not a file, so no session can write it. **GitHub →
-   Settings → Rules → Rulesets → New branch ruleset**, target `main`, enable
-   **Require a pull request before merging** and **Require status checks to
-   pass**, and add these four by name: `Typecheck, lint, tests, build`,
-   `End-to-end`, `Client — typecheck, lint, tests, build`,
-   `Native client — end-to-end`. Also in `docs/RUNBOOK.md`.
-6. **A Google Play developer account.** $25 plus identity verification.
-7. **An Apple Developer account.** $99/year plus identity verification.
-8. **A bundle id on a domain the institution controls**, replacing
-   `org.shiftswitch.app`. It can never be changed after the first store upload.
+### One repository setting
 
-Also eventually: a Mac for the iOS build, and 12 real testers for 14 days if
-Play requires closed testing.
+| # | The artefact | Where it comes from | Time | Until then |
+| --- | --- | --- | --- | --- |
+| 5 | A branch ruleset on `main` requiring the four CI checks | GitHub → Settings → Rules → Rulesets → New branch ruleset. Require a pull request; require `Typecheck, lint, tests, build`, `End-to-end`, `Client — typecheck, lint, tests, build`, `Native client — end-to-end` | 5 min | CI runs and reports on every pull request, but nothing stops somebody merging past a red one. Step-by-step in `docs/RUNBOOK.md`. |
+
+### Before notifications work at all
+
+| # | The artefact | Where it comes from | Time | Until then |
+| --- | --- | --- | --- | --- |
+| 6 | `google-services.json` | Firebase console → add an Android app with the exact package name | 5 min | Android phones never register for notifications. Safe to commit — it identifies the app, it does not authorise sending. |
+| 7 | `GoogleService-Info.plist` | Firebase console → add an iOS app with the exact bundle id | 5 min | iPhones never register. Also safe to commit. |
+| 8 | `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY` in Vercel Production | Firebase → Project settings → Service accounts → Generate new private key, then three fields out of the JSON | 10 min | The server records every notification as **skipped** and says so; nothing is ever claimed as sent. **This one is a secret** — delete the downloaded file afterwards. |
+| 9 | An APNs auth key (`.p8`), its Key ID and Team ID, uploaded to Firebase | Apple Developer → Certificates, Identifiers & Profiles → Keys → + → APNs. Needs the paid membership | 10 min | iPhone notifications are accepted by Firebase and delivered nowhere. Apple lets you download the key **once**. |
+
+All four, in order, with what each failure looks like: `docs/PUSH_SETUP.md`.
+Verify with **Profile → Check this phone** on a real handset; the report names
+which step failed.
+
+### Before the app stores
+
+| # | The artefact | Where it comes from | Time | Until then |
+| --- | --- | --- | --- | --- |
+| 10 | A Google Play developer account | play.google.com/console — $25 once, plus identity verification | 20 min, then 1–3 days for verification | No Android release. The signed bundle already builds. |
+| 11 | An Apple Developer account | developer.apple.com — $99/year, plus identity verification | 20 min, then 1–2 days | No iPhone build at all: a free account cannot use push notifications. |
+| 12 | An hour on any Mac with Xcode installed | Borrowed, rented, or a colleague's | 1 hour | The iOS binary has never been compiled. Step-by-step in `docs/IOS_BUILD.md`; everything checkable without macOS is already enforced by the test suite. |
+| 13 | A bundle id on a domain the institution controls, replacing `org.shiftswitch.app` | A decision, not a download | 5 min to decide | **This cannot be changed after the first upload — not renamed, not transferred.** Decide before uploading, not after. What has to change in lockstep is listed at the end of `docs/IOS_BUILD.md`. |
+| 14 | 12 testers for 14 continuous days | Real people with Google accounts | 14 days, in parallel with everything else | Google Play may refuse a first release from a personal developer account without it. Not required for Apple. |
 
 Do not ask the user for passwords or verification codes at any point.
 
@@ -1259,6 +1261,18 @@ migration `0005`.
   suite, a static guard sweep over every route handler, and a consistency
   check reformulated to be sound rather than merely strict. No migration.
   See **Audit, 1 August 2026**.
+- **Closing the gap between tested and observed** — an on-device self-test
+  (Settings → Check this phone) that exercises the Keychain, notification
+  permission, registration, a real push round trip, its arrival, link handling
+  and the network, reporting pass, fail or skipped-with-a-reason and producing
+  one copyable report carrying no name, address or schedule; `POST
+  /api/devices/self-test`; five integration cases pinning that an undeliverable
+  notification is recorded failed and a no-op transport records skipped, never
+  sent; the native client given the web's three-state delivery model, which it
+  had never had; every invitation failure given its own diagnosis and its own
+  message; the iOS project asserted from source without macOS; and
+  `docs/PUSH_SETUP.md`, `docs/FIRST_INVITATION.md` and `docs/IOS_BUILD.md`.
+  No migration.
 - **The design pass** — one vocabulary (*switch*, at every stage) enforced
   across the UI, notifications, rule failures, route paths and the native
   client by `tests/unit/vocabulary.test.ts`, which fails on the rejected words;
@@ -1720,14 +1734,32 @@ a wrong assertion and a wrong claim. Last run: **12/12**.
 
 ## Known issues
 
-- **iOS has never been compiled.** Building it needs Xcode, so macOS. The
-  project, entitlements, privacy manifest and icons are complete and committed,
-  but nothing about the iOS binary has been observed.
-- **Push delivery is untested.** Without FCM/APNs credentials the no-op
-  transport records every attempt as *skipped*; it never claims delivery.
-- **The Capacitor plugins are untested on a device** — secure storage, push
+- **iOS has never been compiled.** Building it needs Xcode, so macOS.
+  **How it gets verified:** an hour on any Mac, following `docs/IOS_BUILD.md`,
+  ending at **Profile → Check this phone**. **What a human must supply:** the
+  Mac (item 12) and an Apple Developer membership (item 11). Everything
+  checkable without macOS now *is* checked, in `npm run verify` —
+  `mobile/src/native/ios-config.test.ts` asserts the entitlements, the plist
+  keys, the privacy manifest and the icon, and it found a real defect doing so:
+  the associated-domains entitlement still carried its generated placeholder
+  host, which would have sent every notification a resident tapped to Safari.
+- **Push delivery has never been observed.** Without FCM/APNs credentials the
+  no-op transport records every attempt as *skipped* and never claims delivery
+  — asserted in `tests/integration/mobile-backend.test.ts`, along with an
+  undeliverable notification being recorded as *failed* rather than sent.
+  **How it gets verified:** **Profile → Check this phone** on a real handset,
+  which sends one to the caller's own devices and reports what the service
+  said. **What a human must supply:** items 6 to 9 — the two Firebase config
+  files, the service-account key, and the APNs key. `docs/PUSH_SETUP.md` is the
+  sequence.
+- **The Capacitor plugins have never run on a device** — secure storage, push
   registration, the OS back button, haptics. They have no browser
-  implementation, so the end-to-end suite cannot reach them.
+  implementation, so no end-to-end suite can reach them.
+  **How it gets verified:** **Profile → Check this phone**, which exercises each
+  one and reports pass, fail or skipped-with-a-reason. The two that nothing in
+  JavaScript can observe — whether the phone buzzed, whether the back button did
+  anything — are asked rather than asserted. **What a human must supply:** a
+  phone, and one tap.
 - **Preview deployments share the production database.** The Neon integration
   set `DATABASE_URL` for all three targets, so a pull-request preview writes to
   production data. Previews are SSO-protected, so this is not urgent, but a
@@ -1751,11 +1783,16 @@ a wrong assertion and a wrong claim. Last run: **12/12**.
   two residents; `finaliseTrade` writes two legs. The schema would carry more.
   Nothing in the product claims otherwise.
 - **No invitation has been *accepted* through a real Google account.** The live
-  path was verified up to Google's own consent screen (see Tested); the step
-  past it needs a second human Google account and cannot be automated. The
-  redemption logic itself is tested directly with the identity the callback
-  supplies, and the callback's signature verification against a local OpenID
-  provider.
+  path is verified up to Google's own consent screen (see Tested); the step past
+  it needs a second human Google account and cannot be automated.
+  **How it gets verified:** send one invitation to an address you can read and
+  accept it on a phone — a two-minute rehearsal. **What a human must supply:**
+  that second Google account. Everything on either side of the consent screen is
+  covered: the callback's signature, PKCE, state, nonce, audience, issuer and
+  expiry against a local OpenID provider, and every way redemption can fail —
+  unrecognised, expired, already used, revoked, forwarded — each now with its
+  own message rather than one shared sentence. `docs/FIRST_INVITATION.md` maps
+  each to what to do about it.
 - **No per-resident load view.** A PD arriving with "who is carrying the
   programme" cannot answer it here: the roster holds every resident's shifts and
   nothing renders them as a comparison. Named under **Decisions → The three
@@ -1784,9 +1821,16 @@ a wrong assertion and a wrong claim. Last run: **12/12**.
   deliberately. No user-visible effect; recorded rather than tidied away,
   because an aborted request logged as a client fault is misleading in
   production.
-- **App Links / Universal Links are unverified.** The route-parsing logic is
-  unit-tested, including that it refuses foreign origins, but verification needs
-  a real host and a real device.
+- **App Links / Universal Links have never opened the app from outside it.**
+  The route-parsing logic is unit-tested, including that it refuses foreign
+  origins and that links sent before the screens were renamed still resolve, and
+  the self-test exercises the same function the OS handler calls.
+  **How it gets verified:** tap a `https://shiftswitch.vercel.app/switches/<id>`
+  link from a message on a real phone and see the app open rather than Safari.
+  **What a human must supply:** a device with the app installed. The iOS half
+  needed a fix first — the entitlement named a placeholder host until this
+  session; the Android half needs `ANDROID_CERT_FINGERPRINTS` set on the server
+  so the association file names the signing key.
 
 ## Tested
 
@@ -2025,6 +2069,9 @@ token. It has already caught three real defects.
 | The draft schedule generator, and what determinism does and does not hold | `docs/GENERATOR.md` |
 | Approving, publishing, correcting; availability and locks | `docs/SCHEDULE_OPERATIONS.md` |
 | When something is wrong, for the person who does not troubleshoot | `docs/RUNBOOK.md` |
+| Turning on notifications, for somebody who has never opened Firebase | `docs/PUSH_SETUP.md` |
+| When somebody cannot accept their invitation | `docs/FIRST_INVITATION.md` |
+| Building the iPhone app in an hour on a borrowed Mac | `docs/IOS_BUILD.md` |
 | Every way this can fail, and what happens then | `docs/FAILURE_PATHS.md` |
 | What each suite covers | `docs/TESTING.md` |
 
