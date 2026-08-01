@@ -99,8 +99,12 @@ test("05 — choosing a shift to offer, with the rules checked", async ({ page }
 
 test("06 — reviewing an offer", async ({ page }) => {
   await signIn(page, ACCOUNTS.alice);
-  await expect(page.getByText(/offers? on your/).first()).toBeVisible();
-  await page.getByText(/offers? on your/).first().click();
+  /* One offer is named after the person who sent it — "Bob Brennan offered you
+     a switch" — and several are counted. The native home renders whichever the
+     server sent. */
+  const waiting = page.getByText(/offered you a switch|offers on your/).first();
+  await expect(waiting).toBeVisible();
+  await waiting.click();
   await expect(page.getByRole("heading", { name: "Your post" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Accept" })).toBeVisible();
   await page.screenshot({ path: `${OUTPUT}/phone-06-review-offer.png` });
