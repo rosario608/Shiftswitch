@@ -1,0 +1,70 @@
+name: Apply migrations to production
+
+# Never on a push. Only when a human with write access presses the button and
+# types the confirmation word — applying a migration to production is a human
+# step by the standing rules in /CLAUDE.md, and this does not change that. It
+# only removes the requirement that the human own a laptop.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type APPLY to confirm. Anything else stops before connecting.'
+        required: true
+        default: ''
+
+# One at a time, and never cancelled halfway.
+concurrency:
+  group: production-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Apply outstanding migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check the confirmation word
+        if: ${{ inputs.confirm != 'APPLY' }}
+        run: |
+          echo "::error::Type APPLY in the confirmation box to run this. Nothing was done."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check the connection string is configured
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::The PRODUCTION_DATABASE_URL secret is not set. Add it in Settings → Secrets and variables → Actions, then run this again."
+            exit 1
+          fi
+          echo "The secret is set. Not printing it."
+
+      - name: Show what is about to be applied
+        run: |
+          echo "Migrations in this build:"
+          ls -1 db/migrations/*.sql | xargs -n1 basename
+
+      # The same command a developer would run, with the same runner: forward
+      # only, each file in its own transaction, already-applied files skipped,
+      # and a refusal if an applied file's contents have changed.
+      - name: Apply
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          NODE_ENV: production
+        run: npm run db:migrate
+
+      - name: What to check now
+        if: success()
+        run: |
+          echo "Done. Open the app and reload the administration page."
+          echo "If /admin/diagnostics exists in this build, it will now say every migration is applied."
