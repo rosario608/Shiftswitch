@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
 import { useAction } from "@/lib/use-action";
 
@@ -64,7 +65,7 @@ export function RulesManager({
 
   return (
     <div className="space-y-4">
-      {toggle.error ? <Alert tone="error">{toggle.error}</Alert> : null}
+      <ActionAlert action={toggle} />
 
       <Button block onClick={() => setCreating(true)}>
         <Plus className="h-4 w-4" aria-hidden="true" />

@@ -3,12 +3,12 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Phone, Search } from "lucide-react";
-import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Sheet } from "@/components/ui/sheet";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
 import { useAction } from "@/lib/use-action";
 
@@ -391,7 +391,7 @@ function ResidentSheet({
           </fieldset>
         ) : null}
 
-        {save.error ? <Alert tone="error">{save.error}</Alert> : null}
+        <ActionAlert action={save} />
 
         <div className="flex gap-2">
           <Button loading={save.pending} loadingLabel="Saving…" onClick={() => save.run()}>

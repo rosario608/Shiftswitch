@@ -8,9 +8,9 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input, Label, Select, Textarea } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
-import { Alert } from "@/components/ui/alert";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
-import { useAction } from "@/lib/use-action";
+import { useAction, type ActionState } from "@/lib/use-action";
 
 /**
  * When somebody cannot work.
@@ -122,8 +122,8 @@ export function AvailabilityManager({
         <Button onClick={() => setOpen(true)}>Add</Button>
       </div>
 
-      {remove.error ? <Alert tone="error">{remove.error}</Alert> : null}
-      {confirm.error ? <Alert tone="error">{confirm.error}</Alert> : null}
+      <ActionAlert action={remove} />
+      <ActionAlert action={confirm} />
 
       {absences.length === 0 ? (
         <EmptyState
@@ -199,7 +199,7 @@ export function AvailabilityManager({
         manages={manages}
         selfResidentId={selfResidentId}
         pending={create.pending}
-        error={create.error}
+        action={create}
         onSubmit={(body) => create.run(body)}
       />
     </div>
@@ -214,7 +214,7 @@ function AbsenceSheet({
   manages,
   selfResidentId,
   pending,
-  error,
+  action,
   onSubmit,
 }: {
   open: boolean;
@@ -224,7 +224,7 @@ function AbsenceSheet({
   manages: boolean;
   selfResidentId: string | null;
   pending: boolean;
-  error: string | null;
+  action: Pick<ActionState<unknown>, "error" | "uncertain" | "requestId">;
   onSubmit: (body: unknown) => void;
 }) {
   const [residentId, setResidentId] = React.useState(
@@ -261,7 +261,7 @@ function AbsenceSheet({
   return (
     <Sheet open={open} onClose={onClose} title="Record time away">
       <form onSubmit={submit} className="space-y-4">
-        {error ? <Alert tone="error">{error}</Alert> : null}
+        <ActionAlert action={action} />
 
         {manages && residents.length > 0 ? (
           <div>

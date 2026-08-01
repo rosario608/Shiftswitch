@@ -7,6 +7,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
 import { useAction } from "@/lib/use-action";
 
@@ -187,7 +188,7 @@ export function ShiftCreateButton({
             </Field>
           </div>
 
-          {create.error && <Alert tone="error">{create.error}</Alert>}
+          <ActionAlert action={create} />
 
           <Button block loading={create.pending} onClick={create.run}>
             Add shift

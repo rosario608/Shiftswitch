@@ -3,9 +3,19 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 1 August 2026, after an **independent product, security,
-scheduling and pilot-readiness audit** whose brief was that `npm run verify`
-passing is the floor, not the finding. It treated this document as a claim to be
+Last updated: 1 August 2026, after making **failure invisible to residents and
+self-reporting to the operator**: an error boundary on every route, a mid-flight
+mutation reported as *uncertain* rather than failed, reads that degrade to a
+labelled last-known state, a startup schema gate that refuses rather than fails
+halfway, structured error reports carrying a release, a route, a role and a
+six-character reference and no resident's name, and one page an administrator
+can open that says in a sentence whether residents are affected. See
+`docs/FAILURE_PATHS.md` for the enumeration and `docs/RUNBOOK.md` for what to do
+about each verdict.
+
+Before that, an **independent product, security, scheduling and
+pilot-readiness audit** whose brief was that `npm run verify` passing is the
+floor, not the finding. It treated this document as a claim to be
 checked rather than a description, and it found nine defects — three of them by
 racing the scheduler the way the trade lifecycle was already raced, one by
 reading every route handler off disk, and one by pressing a button in a browser
@@ -44,11 +54,15 @@ ends, rule wording, notification routing, five-role gaps, and concurrency.
 
 ## Current phase
 
-`AUDITED` — the product has been through an independent audit whose brief was
-that a green test suite is the floor rather than the finding, and every defect
-it found is fixed at the root with a regression test. What remains before a
-pilot is not code: two migrations to apply, a preview database branch, and the
-institution's roster. See **User action required**.
+`AUDITED, AND SELF-REPORTING` — the product has been through an independent
+audit whose brief was that a green test suite is the floor rather than the
+finding, and every defect it found is fixed at the root with a regression test.
+On top of that, every failure path enumerated in `docs/FAILURE_PATHS.md` now has
+a designed outcome, and a problem in production announces itself at
+`/admin/diagnostics` and `/api/health` rather than waiting to be noticed by a
+resident. What remains before a pilot is not code: two migrations to apply, a
+preview database branch, one repository setting, and the institution's roster.
+See **User action required**.
 
 ## Current status
 
@@ -133,7 +147,8 @@ are genuine prerequisites for a pilot.
 **1 to 4 are the prerequisites for a pilot.** Two of them are hosted
 infrastructure and the production database, which `/CLAUDE.md` forbids a session
 from touching; two are the institution's own data, which cannot be invented.
-5 to 7 are store accounts and identities, needed only for the mobile release.
+5 is a one-time repository setting. 6 to 8 are store accounts and identities,
+needed only for the mobile release.
 
 1. **Configure a separate Neon branch for preview deployments.** The Neon
    integration set one `DATABASE_URL` across production, preview and
@@ -161,9 +176,19 @@ from touching; two are the institution's own data, which cannot be invented.
    `npm run demo:seed` exists so that nothing waits for it.
 4. **The block schedule**, as CSV or XLSX, for **Admin → Import**. Likewise the
    institution's, and likewise not blocking any development.
-5. **A Google Play developer account.** $25 plus identity verification.
-6. **An Apple Developer account.** $99/year plus identity verification.
-7. **A bundle id on a domain the institution controls**, replacing
+5. **Make CI a required check on `main`.** The `CI` workflow already runs
+   typecheck, both lints, the unit, integration and both end-to-end suites, and
+   a production build on every pull request, and reports its verdict — but
+   nothing currently stops somebody merging past a red one. Branch protection is
+   a repository *setting*, not a file, so no session can write it. **GitHub →
+   Settings → Rules → Rulesets → New branch ruleset**, target `main`, enable
+   **Require a pull request before merging** and **Require status checks to
+   pass**, and add these four by name: `Typecheck, lint, tests, build`,
+   `End-to-end`, `Client — typecheck, lint, tests, build`,
+   `Native client — end-to-end`. Also in `docs/RUNBOOK.md`.
+6. **A Google Play developer account.** $25 plus identity verification.
+7. **An Apple Developer account.** $99/year plus identity verification.
+8. **A bundle id on a domain the institution controls**, replacing
    `org.shiftswitch.app`. It can never be changed after the first store upload.
 
 Also eventually: a Mac for the iOS build, and 12 real testers for 14 days if
@@ -484,6 +509,129 @@ in the end-to-end suite.
 Choices made without asking, as `/CLAUDE.md` requires. Each says what was
 chosen, why, and what was rejected, so any of them can be revisited by someone
 who disagrees rather than rediscovered.
+
+### Failure, and what counts as an error worth reporting
+
+The judgements behind `docs/FAILURE_PATHS.md`, `src/server/health/` and
+`src/server/observability/`. The organising question throughout: *who is this
+message for, and what can they do about it?*
+
+**A mutation interrupted mid-flight is reported as uncertain, not as failed.**
+This is the decision the rest of the offline handling hangs off. `fetch` cannot
+tell a request that never left the phone from one whose response was lost on the
+way back, but the *product* can: if the browser was already offline when the
+call started, nothing was sent and the resident is told exactly that — "nothing
+was sent and nothing has changed". If the connection dropped after the request
+went out, the honest answer is that ShiftSwitch does not know, and the amber
+banner says so and offers *Reload and check*. Rejected: calling it a failure,
+which is the conventional choice and is *wrong here* — a resident told their
+offer failed will make it again, and a duplicate offer on a shift somebody has
+already accepted is precisely the state the trade lifecycle is built to
+prevent. Also rejected: retrying automatically, which turns "we don't know" into
+"we did it twice".
+
+**Stale reads are shown, and labelled.** The service worker previously cached
+nothing, on the reasoning that a wrong schedule is a clinical problem. That is
+right about the risk and wrong about the remedy: a resident on a hospital lift
+with no signal got a blank screen, which tells them nothing at all, rather than
+last night's schedule with the time it was captured written across the top. The
+new rule is *shown with its age, never silently*: page shells are cached with an
+`x-shiftswitch-cached-at` stamp and a banner names the capture time in the
+product's own date words. `/api/` is still never cached — the labelled
+last-known state is a *page*, not a data source a mutation could be built on.
+
+**A missing migration is a failure; an unexpected one is only degraded.** The
+build carries its manifest and compares it to `schema_migrations`. Missing means
+the code is ahead of the schema, and the next query is going to name a column
+that is not there — refuse now, with the filename. Extra means the *database* is
+ahead, which is what a rollback deliberately leaves behind, and every migration
+here is additive, so older code runs happily against a newer schema; saying
+"broken" would push an operator toward a down-migration, which is how a database
+loses data. A checksum that has *changed* is failed rather than degraded: an
+applied migration whose bytes differ means the two histories have diverged, and
+nothing downstream can be trusted to mean what it says.
+
+**Doubt is not drift.** When the comparison cannot be made at all — the database
+is unreachable — the gate lets the request through rather than blaming the
+schema. The query that follows raises a database error saying exactly what is
+wrong; converting that into "a migration is missing" would send somebody to
+apply migrations against a database that is not answering. `migrationState()`
+returns `MigrationState | null` rather than a boolean so this cannot be got
+wrong by accident.
+
+**Drift is reported once per verdict, not once per refused request.** Every
+request in flight raises `schema_drift`, so reporting at the point of refusal
+would emit one report per resident per tap for as long as the drift lasted —
+burying whatever else was wrong, at the moment somebody is trying to read the
+dashboard. The report is raised where the verdict is computed, which the
+thirty-second cache already limits to once per window. This is the general rule
+in miniature: **a refusal the product designed is not an incident; the condition
+that caused it is.**
+
+**Unconfigured delivery is degraded, never failed; unconfigured sign-in is
+failed.** Nobody's schedule is wrong because email is not set up, and the
+product already says out loud wherever it matters that an invitation was not
+sent — so it is the "when convenient" verdict. Nobody can use the product at all
+if Google sign-in is unconfigured, so it is the loud one. With one environmental
+exception: where `ALLOW_TEST_LOGIN` is open — development and the end-to-end
+suites — missing OAuth credentials are `degraded`, because there *is* a way in
+and calling it broken would make every local diagnostic red and teach whoever
+reads it to ignore the colour. Production cannot reach that branch:
+`describeEnvironment` refuses the test door twice over.
+
+**4xx is expected noise; 5xx is an incident.** A refused capability, a validation
+failure, a rule the swap breaks — these are the product working, and they are
+logged at `warn` with the request id and never reported. Only a 5xx becomes a
+report, because only a 5xx means nobody designed what just happened. Rejected:
+reporting everything and filtering at the dashboard, which puts the judgement
+somewhere the person who owns this project will never go.
+
+**Client reports carry a scrubbed route, never the URL.** `/trades/<uuid>`
+becomes `/trades/:id` before it leaves the browser, long opaque segments become
+`:token`, digits become `:n`. What survives is the shape, which is what tells you
+*which screen*, and nothing that identifies a resident or a shift. The four
+scrubbers on the server side — email addresses, phone numbers, connection
+strings, bearer tokens — apply to every message and stack, bounded to 2000
+characters, so a driver error that quotes a row cannot smuggle one out. The
+native boundary deliberately omits React's `componentStack`, which quotes props.
+Tags are a *fixed typed set* — release, route, role, request id, kind, code —
+rather than a free map, so leaking is a type error rather than an oversight.
+
+**The report carries the role, never the person.** "chief", not who. Everything
+an operator needs to reproduce a fault is in the release, the route and the
+role; a name adds nothing they can act on and turns an error dashboard into a
+place resident data lives.
+
+**Six characters, from an alphabet with no ambiguous letters.** The request id a
+resident reads off their screen and says down a corridor. No `0`/`O`, no `1`/`l`,
+lower case. Rejected: a UUID, which is unsayable and therefore never actually
+gets quoted, which is the whole point of having one.
+
+**`/api/health` needs no sign-in.** It is the answer to "the site will not load
+at all", and a check you cannot reach while broken is not a check. It reports
+component names, a release id, filenames and whether settings are *configured* —
+never a value, never a connection string, never a count of anybody. It answers
+503 when residents are affected and 200 when they are not, so an uptime monitor
+can be pointed at it without reading the body.
+
+**No error-reporting SDK.** `DsnTransport` writes the Sentry envelope format
+directly, in about forty lines. Rejected: adding the SDK, which would install a
+global error hook, its own fetch patching and a large dependency into a product
+whose entire error surface is already enumerated in `docs/FAILURE_PATHS.md` — and
+would make the "never send resident data" rule a matter of configuring somebody
+else's default rather than a property of the one function that builds the
+payload. With no `ERROR_REPORTING_DSN` set, the default transport logs and
+reports `delivered: false`, in keeping with the standing rule that nothing here
+claims a delivery that did not happen.
+
+**Source maps are not published.** Rejected: `productionBrowserSourceMaps`,
+which would serve the whole client source to anybody who asked; the native
+bundle already ships deliberately without maps, for the same reason. What
+replaces symbolication: the error *name and message* survive minification
+unchanged, the scrubbed route says which screen, the release id pins the build,
+and the request id joins the client report to the server log line that has the
+full unminified stack. If an error service is ever configured, uploading maps to
+it needs that service's credential and is a human step.
 
 ### The audit
 
@@ -992,6 +1140,21 @@ migration `0005`.
   suite, a static guard sweep over every route handler, and a consistency
   check reformulated to be sound rather than merely strict. No migration.
   See **Audit, 1 August 2026**.
+- **Resilience and self-reporting** — every failure path enumerated by walking
+  the code (`docs/FAILURE_PATHS.md`, 26 numbered paths across six areas) and
+  given a designed outcome:
+  route-level error boundaries on the web and in the native client, including a
+  `global-error` that renders its own document when the layout itself is what
+  failed; mutations that report *not sent* and *we don't know* as different
+  things; reads that degrade to a last known state with the time it was
+  captured written on it; a schema gate that compares the build's migration
+  manifest against `schema_migrations` and refuses with the filename rather than
+  failing halfway through; `/api/health` and an administrator-reachable
+  `/admin/diagnostics` that prints a plain-language verdict and a copyable,
+  resident-free report; and structured error reporting on both sides tagged with
+  release, route, role and a six-character reference the resident can read off
+  their screen. No migration; the manifest is generated by
+  `npm run migrations:manifest`. See `docs/RUNBOOK.md`.
 
 ## Demo data
 
@@ -1408,6 +1571,11 @@ a wrong assertion and a wrong claim. Last run: **12/12**.
   works on the repository. A session cannot do it — it is hosted infrastructure,
   and reaching production is forbidden. Listed first under **User action
   required**.
+- **CI is not yet a *required* check.** It runs on every pull request and
+  reports its verdict, but branch protection is a repository setting rather than
+  a file, so nothing currently stops a red pull request being merged. One
+  five-minute setting, written out step by step in `docs/RUNBOOK.md` and listed
+  fifth under **User action required**.
 - **A large programme's generated schedule is not reproducible.** The
   improvement search is bounded by iterations, so a run that *finishes* is
   byte-identical on any machine; each iteration re-scores the whole schedule, so
@@ -1424,6 +1592,19 @@ a wrong assertion and a wrong claim. Last run: **12/12**.
   redemption logic itself is tested directly with the identity the callback
   supplies, and the callback's signature verification against a local OpenID
   provider.
+- **No error-reporting service is configured.** With `ERROR_REPORTING_DSN`
+  unset — which is the current state everywhere — reports go to the log and
+  record `delivered: false` rather than pretending. The envelope transport that
+  sends them to a service is written and unit-tested against a fake endpoint,
+  but no report has ever been *received* by one, because there is nothing to
+  receive it. Everything else in the diagnostic chain works without it:
+  `/api/health` and `/admin/diagnostics` read the live system directly.
+- **Client stacks are minified in production and are not symbolicated.** Source
+  maps are deliberately not published — see **Decisions → Failure**. A client
+  report therefore carries the error's name and message (which survive
+  minification), the scrubbed route, the release and the request id, but not
+  legible line numbers. The server side is unaffected: its stacks are logged
+  unminified.
 - **One unexplained log line.** During an end-to-end run a single
   `api.rejected … /api/admin/schedule-workspace … "The request body was not
   valid JSON."` appeared while the browser was navigating away from the grid.
@@ -1559,6 +1740,49 @@ Also verified by execution, not inspection:
   but 200 on the import template; an invitation link shows nothing but the
   program and the invited address, and an unissued or revoked token renders the
   same neutral message as an expired one.
+- **The health check and the schema gate** (`tests/unit/health.test.ts`,
+  29 tests; `tests/integration/health.test.ts`, 10 tests). The unit tests cover
+  the comparison — missing, changed, unexpected, and every combination — the
+  scrubbers, the request id's alphabet and header validation, and that
+  `checkAuth` is failed in production and degraded only where the test door is
+  open. The integration tests do it against a real database and end by rendering
+  the **copyable report**, because that string is the deliverable: the three
+  states the goal named — healthy, a migration missing, a database that cannot
+  be reached — each produce the right verdict in the payload *and* in the text,
+  the outage is never reported as drift, the connection string never appears,
+  the verdict recovers the moment the migration is applied without a redeploy,
+  and the drift is reported once per verdict rather than once per refused
+  request.
+- **Honest behaviour on a bad network** (`tests/unit/offline.test.ts`,
+  14 tests). The three delivery states and their wording: a mutation refused
+  before anything is sent says so with certainty, a connection that drops
+  mid-flight refuses to claim it failed, a server that answers is certain either
+  way, the request id is taken from the header when the body has none, a crash
+  report's route keeps its shape and loses its ids, and a cached page's age is
+  labelled in minutes, hours or a weekday — and says nothing at all rather than
+  guessing when the stamp is unreadable.
+- **The service worker's own rules** (`tests/unit/service-worker.test.ts`,
+  10 tests). It only registers in a production build and the browser runs it in
+  a scope no end-to-end test can drive, so it is loaded as source into a fake
+  worker global and actually executed: a `POST`, `PATCH` or `DELETE` is never
+  intercepted online *or* off; `/api/` is never cached; a resident's page is
+  fetched network-first and stored stamped with the moment it was captured;
+  that stamp survives to the offline read; the admin area is not stored at all;
+  a foreign origin is left alone; the activate handler drops the previous
+  version's caches; and the file registers no `sync` handler, which is how an
+  offline queue would arrive by accident.
+- **What a resident and an operator see when it goes wrong**
+  (`tests/e2e/resilience.spec.ts`, 10 tests, in a real browser with the network
+  severed and throttled rather than simulated): `/api/health` answers without a
+  session and says nothing about any person; every response carries an id a
+  resident can read out, and a refusal carries the same id in the body where the
+  app can show it; a mutation with the network severed says it does not know
+  rather than that it failed; a slow network shows progress and then resolves,
+  never an endless spinner; an administrator can read a plain-language verdict
+  and copy a report; a resident and a chief are both refused the diagnostics
+  page; and a client crash report reaches the server naming no one. Refusing a
+  mutation while *already* offline is covered in `mobile-ux.spec.ts`, where it
+  has been since the resident-experience session.
 - **The demo seeder** (`tests/integration/demo-data.test.ts`, 24 tests): the
   interlock refuses production, a remote database without explicit opt-in, a
   production-looking database name and a production-looking `APP_URL`; the
@@ -1623,6 +1847,8 @@ token. It has already caught three real defects.
 | The constraint model and the schedule validator | `docs/CONSTRAINTS.md` |
 | The draft schedule generator, and what determinism does and does not hold | `docs/GENERATOR.md` |
 | Approving, publishing, correcting; availability and locks | `docs/SCHEDULE_OPERATIONS.md` |
+| When something is wrong, for the person who does not troubleshoot | `docs/RUNBOOK.md` |
+| Every way this can fail, and what happens then | `docs/FAILURE_PATHS.md` |
 | What each suite covers | `docs/TESTING.md` |
 
 ## Rules for this project

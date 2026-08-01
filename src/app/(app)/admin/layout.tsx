@@ -60,6 +60,11 @@ const GROUPS: Array<{ heading: string; links: NavLink[] }> = [
     links: [
       { href: "/admin/analytics", label: "Analytics", capabilities: ["analytics.view"] },
       { href: "/admin/audit", label: "Audit log", capabilities: ["audit.view"] },
+      {
+        href: "/admin/diagnostics",
+        label: "Diagnostics",
+        capabilities: ["maintenance.run"],
+      },
     ],
   },
 ];

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
 import { useAction, useOnline } from "@/lib/use-action";
 
@@ -52,7 +53,7 @@ export function CancelPostButton({ tradeRequestId }: { tradeRequestId: string })
           </div>
         }
       >
-        {cancel.error ? <Alert tone="error">{cancel.error}</Alert> : null}
+        <ActionAlert action={cancel} />
       </Sheet>
     </>
   );

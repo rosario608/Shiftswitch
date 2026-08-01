@@ -3,12 +3,12 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
-import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Sheet } from "@/components/ui/sheet";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
 import { useAction } from "@/lib/use-action";
 
@@ -471,7 +471,7 @@ function ServiceFields({
           </div>
         </fieldset>
 
-        {save.error ? <Alert tone="error">{save.error}</Alert> : null}
+        <ActionAlert action={save} />
 
         <Button loading={save.pending} loadingLabel="Saving…" onClick={() => save.run()}>
           Save
@@ -789,8 +789,8 @@ function CoverageSheet({
           />
         </Labelled>
 
-        {save.error ? <Alert tone="error">{save.error}</Alert> : null}
-        {remove.error ? <Alert tone="error">{remove.error}</Alert> : null}
+        <ActionAlert action={save} />
+        <ActionAlert action={remove} />
 
         <div className="flex flex-wrap gap-2">
           <Button loading={save.pending} loadingLabel="Saving…" onClick={() => save.run()}>

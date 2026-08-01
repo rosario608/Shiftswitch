@@ -95,6 +95,10 @@ const NO_GUARD: Record<string, string> = {
     "The development invitation sandbox. Refuses outright outside a development environment.",
   "well-known/apple-app-site-association": "A public static document, by Apple's spec.",
   "well-known/assetlinks": "A public static document, by Google's spec.",
+  health:
+    "The health check. A monitor cannot hold a session, and the first thing that breaks when the database is down is the ability to authenticate — a health check that needs one goes silent exactly when it matters. Exposes filenames and whether variables are set, never anybody's data.",
+  "client-errors":
+    "Where a browser reports a crash it survived. Reads the session when there is one, to tag the report with a role, but must accept a report from a screen that broke before sign-in.",
 };
 
 /**
@@ -117,6 +121,9 @@ const EXPECTED: Record<string, Capability | "session" | "resident"> = {
   "admin/contacts": "contacts.manage",
   "admin/contacts/[contactId]": "contacts.manage",
   "admin/corrections": "schedule.manage",
+  /* Reports the shape of the deployment. Nothing about a person, but no reason
+     for a chief resident to read environment configuration either. */
+  "admin/diagnostics": "maintenance.run",
   /* Coverage is the generator's input, so it belongs to whoever builds the
      schedule — `scheduling.plan` — and not to `services.manage`, which is
      about what a service is. See the note on the route itself. */

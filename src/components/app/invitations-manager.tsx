@@ -10,6 +10,7 @@ import { Card, CardBody } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { EmailListInput, toEntries } from "@/components/ui/email-input";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
 import { useAction } from "@/lib/use-action";
 
@@ -210,7 +211,7 @@ export function InvitationsManager({
             </ol>
           </div>
 
-          {invite.error && <Alert tone="error">{invite.error}</Alert>}
+          <ActionAlert action={invite} />
 
           {rejected.length > 0 && (
             <Alert tone="warning">

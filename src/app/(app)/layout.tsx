@@ -2,6 +2,7 @@ import { can, ROLE_SHORT_LABEL } from "@/server/auth/roles";
 import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 import { BottomNav } from "@/components/app/bottom-nav";
+import { StaleBanner } from "@/components/app/stale-banner";
 import { requirePageUser } from "@/server/auth/page-guards";
 import { countUnread } from "@/server/domain/notifications";
 import { initials } from "@/lib/format";
@@ -22,6 +23,9 @@ export default async function AppLayout({
 
   return (
     <div className="flex min-h-full flex-col">
+      {/* Above the header, so it is the first thing read and cannot be scrolled
+          past. Renders nothing at all while online. */}
+      <StaleBanner />
       <header className="sticky top-0 z-20 border-b border-border-base bg-surface/95 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
           <Link href="/" className="flex min-w-0 items-center gap-2">

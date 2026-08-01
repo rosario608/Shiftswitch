@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
 import { useAction } from "@/lib/use-action";
 
@@ -86,8 +87,8 @@ export function TemplatePicker() {
         </div>
 
         {result ? <Alert tone="success">{result}</Alert> : null}
-        {apply.error ? <Alert tone="error">{apply.error}</Alert> : null}
-        {load.error ? <Alert tone="error">{load.error}</Alert> : null}
+        <ActionAlert action={apply} />
+        <ActionAlert action={load} />
 
         {templates === null ? (
           <Button

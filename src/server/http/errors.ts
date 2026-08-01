@@ -16,6 +16,16 @@ export type AppErrorCode =
   | "rule_violation"
   | "offline"
   | "rate_limited"
+  /**
+   * The deployed schema is behind the code that is running.
+   *
+   * Its own code rather than `internal` because it is the one 5xx with a known
+   * cause and a known remedy, and because the remedy belongs to the operator
+   * rather than to whoever is looking at the screen. 503 rather than 500: the
+   * service is unavailable *for now*, and a monitor should treat it as
+   * something that will come back.
+   */
+  | "schema_drift"
   | "internal";
 
 const STATUS_BY_CODE: Record<AppErrorCode, number> = {
@@ -29,6 +39,7 @@ const STATUS_BY_CODE: Record<AppErrorCode, number> = {
   rule_violation: 422,
   offline: 503,
   rate_limited: 429,
+  schema_drift: 503,
   internal: 500,
 };
 
@@ -61,6 +72,9 @@ export const conflict = (message: string, details?: unknown) =>
 
 export const validationFailed = (message: string, details?: unknown) =>
   new AppError("validation_failed", message, details);
+
+export const schemaDrift = (message: string, details?: unknown) =>
+  new AppError("schema_drift", message, details);
 
 /**
  * Translates known Postgres error codes into resident-friendly messages.

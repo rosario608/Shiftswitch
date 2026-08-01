@@ -4,12 +4,12 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, Pencil, Plus, Settings, X } from "lucide-react";
-import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
 import { useAction } from "@/lib/use-action";
 
@@ -209,7 +209,7 @@ function Row({
             </div>
           </div>
 
-          {toggle.error && <Alert tone="error">{toggle.error}</Alert>}
+          <ActionAlert action={toggle} />
 
           <div className="flex flex-wrap gap-2">
             {mayManage ? (
@@ -362,7 +362,7 @@ function ServiceSheet({
           </label>
         )}
 
-        {save.error && <Alert tone="error">{save.error}</Alert>}
+        <ActionAlert action={save} />
 
         <Button block loading={save.pending} onClick={save.run}>
           {row ? "Save changes" : copy.add}

@@ -2,10 +2,10 @@
 
 import * as React from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown } from "lucide-react";
-import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
+import { ActionAlert } from "@/components/app/action-alert";
 import { apiFetch } from "@/lib/api-client";
 import { useAction } from "@/lib/use-action";
 
@@ -112,7 +112,7 @@ export function ScheduleCheck({
           </Button>
         </div>
 
-        {check.error ? <Alert tone="error">{check.error}</Alert> : null}
+        <ActionAlert action={check} />
 
         {result ? (
           <div className="space-y-3 border-t border-border-base pt-3">

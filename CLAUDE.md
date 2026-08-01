@@ -97,6 +97,15 @@ right**; do not set the override to get past it.
 Migrations are forward-only and checksummed. An applied migration is never
 edited — write a new one.
 
+**A new migration means a new manifest.** The build carries the list of
+migrations it needs (`src/server/db/migration-manifest.ts`, generated) and
+refuses to run queries against a database that is behind it, naming the file.
+After writing a migration, run `npm run migrations:manifest` and commit the
+result. Skipping it does not break the product — the gate treats a database
+that is *ahead* as merely degraded — but it makes the diagnostic page lie about
+what this build needs, and that page is the only thing standing between a
+production problem and a resident finding it.
+
 ## Permissions come from the capability matrix
 
 `src/server/auth/roles.ts` is the source of truth. Five roles: resident, chief,
@@ -179,6 +188,8 @@ worse than one that says "copy this link".
 | Approving, publishing, correcting; availability and locks | `docs/SCHEDULE_OPERATIONS.md` |
 | The demo program and its scenarios | `docs/DEMO_DATA.md` |
 | Inviting residents, importing a schedule | `docs/ONBOARDING.md` |
+| When something is wrong, and what the verdict means | `docs/RUNBOOK.md` |
+| Every failure path and its designed outcome | `docs/FAILURE_PATHS.md` |
 | What each test suite covers | `docs/TESTING.md` |
 | Architecture | `docs/ARCHITECTURE.md` |
 | Deployment | `docs/DEPLOYMENT.md` |
