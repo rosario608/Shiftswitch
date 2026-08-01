@@ -23,6 +23,7 @@ import {
 import { correctOwnShift } from "@/server/domain/self-report";
 import { zonedWallTimeToInstant } from "@/server/domain/time";
 import { listResidentSchedule } from "@/server/domain/schedule";
+import { getResidentDashboard } from "@/server/domain/dashboard";
 import { acceptOffer, createOffer, postShiftForTrade } from "@/server/domain/trades";
 import {
   assertDatabaseConsistent,
@@ -375,10 +376,56 @@ describe("a program onboarding for the first time", () => {
     expect(waiting[0].email).toBe("sam.okafor@gmail.invalid");
     expect(waiting[0].shifts).toBe(1);
 
+    /* The board is the largest "anybody else" in the product, and the screen
+       that shows a slice of it is `requirePageUser` rather than a capability —
+       so the capability guard cannot reach it and the rule has to be applied
+       where the data is fetched. Asserted here because a hole in it would be
+       silent: the screen would simply work.
+
+       Something has to be *on* the board for the assertion to mean anything, so
+       a confirmed colleague posts a shift first. Without that, "sees nothing"
+       and "there is nothing" are the same observation. */
+    const other = await createResident(program, {
+      email: "confirmed@betahospital.org",
+      name: "Confirmed Person",
+    });
+    const posterDate = day(30);
+    const posterShift = (await queryOne<{ id: string }>(
+      `INSERT INTO shifts (program_id, service_id, date, start_datetime, end_datetime,
+                           shift_type, provenance)
+       VALUES ($1, (SELECT id FROM services WHERE program_id = $1 AND name = 'MICU'),
+               $2, $3, $4, 'day', 'imported')
+       RETURNING id`,
+      [
+        program.id,
+        posterDate,
+        zonedWallTimeToInstant(posterDate, "07:00", program.timezone),
+        zonedWallTimeToInstant(posterDate, "19:00", program.timezone),
+      ],
+    ))!;
+    await query("INSERT INTO shift_assignments (shift_id, resident_id) VALUES ($1, $2)", [
+      posterShift.id,
+      other.resident.id,
+    ]);
+    await postShiftForTrade(other.context, { shiftId: posterShift.id });
+
+    /* A third person, because the board never shows you your own posting: with
+       only the poster to compare against, "sees nothing" would be true of
+       everybody and prove nothing. */
+    const bystander = await createResident(program, {
+      email: "bystander@betahospital.org",
+      name: "Bystander Person",
+    });
+    expect((await getResidentDashboard(bystander.context)).availableTrades).toHaveLength(1);
+    expect((await getResidentDashboard(sam)).availableTrades).toHaveLength(0);
+
+    /* Admitted, and the same call now answers differently — which is what makes
+       the restriction a restriction rather than an accident of this fixture. */
     await admitMember(admin.context, joined.user.id);
     const after = await contextFor(joined.user.id);
     expect(after.user.enrollmentStatus).toBe("confirmed");
     expect(allowsWhilePending(after.user.enrollmentStatus, "trade.participate")).toBe(true);
+    expect((await getResidentDashboard(after)).availableTrades).toHaveLength(1);
 
     /* Every enrollment is recorded, including why it landed the way it did. */
     const events = await listEnrollmentEvents(program.id);

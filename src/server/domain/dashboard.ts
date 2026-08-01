@@ -1,5 +1,5 @@
 import { query } from "@/server/db/pool";
-import type { AuthedContext } from "@/server/auth/guards";
+import { isPending, type AuthedContext } from "@/server/auth/guards";
 import { can } from "@/server/auth/roles";
 import type { ShiftDetail } from "@/server/db/types";
 import { listResidentSchedule } from "./schedule";
@@ -61,11 +61,14 @@ export async function getResidentDashboard(
     ? await listMyTradeActivity(residentId, context.program.id)
     : { posted: [], offersMade: [] };
 
-  const availableTrades = await listAvailableTrades(
-    context.program.id,
-    residentId,
-    { limit: 5 },
-  );
+  /* An account waiting to be confirmed sees nothing about anybody else, and
+     the board is the largest "anybody else" in the product. The capability
+     guards cannot reach here — the home screen is `requirePageUser`, not a
+     capability — so the rule is applied where the data is fetched rather than
+     where the screen is entered. */
+  const availableTrades = isPending(context)
+    ? []
+    : await listAvailableTrades(context.program.id, residentId, { limit: 5 });
 
   const pendingActions: PendingAction[] = [];
 

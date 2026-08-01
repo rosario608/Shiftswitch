@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { requirePageUser } from "@/server/auth/page-guards";
+import { isPending } from "@/server/auth/guards";
 import {
   MATCH_BAND_LABEL,
   summariseMatches,
@@ -86,6 +87,27 @@ export default async function TradesPage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const context = await requirePageUser();
+
+  /* An account the program has not confirmed sees nothing about anybody else.
+     Told rather than emptied: a board with no postings and no explanation reads
+     as "nobody is switching anything", which is a different and wrong fact. */
+  if (isPending(context)) {
+    return (
+      <EmptyState
+        title="Your program hasn't confirmed you yet"
+        description="Once they do, everything colleagues have posted shows up here and you can offer on it. Until then your own schedule is yours to see and correct — whoever sent you the link can confirm you in a couple of taps."
+        action={
+          <Link
+            href="/schedule"
+            className="inline-flex min-h-[2.75rem] items-center rounded-xl bg-brand px-4 font-semibold text-white"
+          >
+            My schedule
+          </Link>
+        }
+      />
+    );
+  }
+
   const params = await searchParams;
   const tab = (TABS.find((t) => t.key === params.tab)?.key ?? "available") as
     | "available"

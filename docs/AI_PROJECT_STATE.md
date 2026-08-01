@@ -3,15 +3,27 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 1 August 2026, after **closing the gap between what is tested and
-what has been observed**: an on-device self-test a resident reaches from
-Settings and runs in one tap, a push round trip that reports what the service
-actually said, every way the first invitation can fail given its own diagnosis,
-the iOS project checked line by line without a Mac — which found the
-associated-domains placeholder that would have sent every tapped notification to
-Safari — and **User action required** rewritten so each entry names the
-artefact, where it comes from, how long it takes and what stays broken until it
-exists.
+Last updated: 1 August 2026, after **the last goal before a beta**: a program can
+now be onboarded without waiting for anybody. The importer holds rows naming
+people who have no account and hands them their schedule the moment they sign
+in; one enrollment link replaces forty typed addresses; a resident who arrives
+before their block does enters it themselves; every shift says where it came
+from, to both parties, before either accepts; and the configuration a program
+starts with marks every guess as a guess and refuses to generate anything from
+one until a person confirms it.
+
+The whole path is driven end to end by `tests/integration/beta-path.test.ts` —
+which found, immediately, that a rotation cycle read back from the database was
+answering every question with the character `{`.
+
+Before that, **closing the gap between what is tested and what has been
+observed**: an on-device self-test a resident reaches from Settings and runs in
+one tap, a push round trip that reports what the service actually said, every
+way the first invitation can fail given its own diagnosis, the iOS project
+checked line by line without a Mac — which found the associated-domains
+placeholder that would have sent every tapped notification to Safari — and
+**User action required** rewritten so each entry names the artefact, where it
+comes from, how long it takes and what stays broken until it exists.
 
 Before that, **the deliberate design pass this product had never had**: one word for the exchange (*switch*) enforced by a test that fails
 on the rejected ones, every resident flow cut to two taps and the numbers
@@ -1367,6 +1379,22 @@ migration `0005`.
   suite, a static guard sweep over every route handler, and a consistency
   check reformulated to be sound rather than merely strict. No migration.
   See **Audit, 1 August 2026**.
+- **The last goal before a beta** — the importer extended (never rebuilt) to the
+  ten-column interchange format, identifying a person by name as well as by
+  address, and *holding* rows for people who have not joined instead of refusing
+  the file; enrollment links, expiring, revocable, rate limited per link and
+  audited on every use, with the programme's own email domains deciding who is
+  admitted outright and everybody else joining pending — able to hold and
+  correct their own schedule and see nothing about anybody else; resident
+  self-entry built around a pattern and a grid of days rather than a form per
+  shift; `shift_provenance` on every shift, surfaced on the card, on the shift's
+  own page, and inside the accept sheet against *both* shifts before either
+  schedule moves; `shifts.self_report` and `shifts.confirm` as separate
+  capabilities, so nobody vouches for their own hours; a starting configuration
+  in which every claim is STATED or ASSUMED and an ASSUMED default generates
+  nothing until confirmed; and one test driving the whole beta path, which found
+  a silent defect nothing else could have. Migrations `0010_beta_onboarding.sql`
+  and `0011_pending_enrollment.sql`. Four decisions recorded under **Decisions**.
 - **Closing the gap between tested and observed** — an on-device self-test
   (Settings → Check this phone) that exercises the Keychain, notification
   permission, registration, a real push round trip, its arrival, link handling
