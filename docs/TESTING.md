@@ -195,6 +195,32 @@ never grants a role.
 | A manual edit is revalidated and only the newly-introduced problems are reported | `tests/integration/generator.test.ts` |
 | One draft diffed against another | `tests/integration/generator.test.ts` |
 | Nobody holds two places on one service at one time, even with no overlap rule configured | `tests/unit/generator.test.ts`, `tests/unit/constraints.test.ts` |
+| A recorded absence reaches the validator as unavailability, and the message says why | `tests/unit/constraints.test.ts`, `tests/integration/availability.test.ts` |
+| A range expands to every day it covers, including one that started before the window | `tests/integration/availability.test.ts` |
+| An unconfirmed absence is scored and never invalidates a schedule | `tests/unit/constraints.test.ts`, `tests/integration/availability.test.ts` |
+| A resident may record their own availability and may not confirm it | `tests/integration/availability.test.ts` |
+| Absences and the jsonb lists are unioned rather than one replacing the other | `tests/integration/availability.test.ts` |
+| Locks survive a regeneration with a different seed, with their row identifiers | `tests/integration/schedule-workflow.test.ts` |
+| An assignment lock resolves through the person and the day, not the shift id | `tests/integration/schedule-workflow.test.ts` |
+| A lock whose target is gone is reported rather than silently dropped | `tests/integration/schedule-workflow.test.ts` |
+| Publishing refuses an unapproved draft, and an approval can be withdrawn | `tests/integration/schedule-workflow.test.ts` |
+| Approval records the score and the hard violations knowingly accepted | `tests/integration/schedule-workflow.test.ts` |
+| Publishing tells everybody with a shift in the window, with a stored route | `tests/integration/schedule-workflow.test.ts` |
+| Every published shift is stamped with the version that produced it | `tests/integration/schedule-workflow.test.ts` |
+| The grid's heat map and the validator agree about what is short | `tests/integration/schedule-workspace.test.ts` |
+| Coverage counts people rather than rows, and the biggest gap leads the queue | `tests/integration/schedule-workspace.test.ts` |
+| The coverage report restates nothing — every message came from the validator | `tests/integration/schedule-workspace.test.ts` |
+| Bulk reassignment reports what it replaced, so undo is the inverse operation | `tests/integration/schedule-workspace.test.ts` |
+| Bulk operations refuse a published schedule | `tests/integration/schedule-workspace.test.ts` |
+| Repeating a pattern never creates or deletes a shift, and refuses overlapping stretches | `tests/integration/schedule-workspace.test.ts` |
+| A switch that would leave a service short is refused, naming the switch as the cause | `tests/integration/schedule-lifecycle.test.ts` |
+| A switch that leaves coverage unchanged gets an explicit pass, not silence | `tests/integration/schedule-lifecycle.test.ts` |
+| A correction demands a reason, tells both residents, and is visible afterwards | `tests/integration/schedule-lifecycle.test.ts` |
+| Correcting a draft shift is refused, and the refusal names the right verb | `tests/integration/schedule-lifecycle.test.ts` |
+| The whole path — configure, generate, approve, publish, trade, correct — with the database consistent at every step | `tests/integration/schedule-lifecycle.test.ts` |
+| Nobody in two places at once, reconstructed from assignment history | `assertDatabaseConsistent` in `tests/integration/helpers.ts` |
+| No shift orphaned between a schedule version and a trade | `assertDatabaseConsistent` |
+| Every correction records what it replaced | `assertDatabaseConsistent` |
 
 ---
 

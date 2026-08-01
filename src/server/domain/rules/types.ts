@@ -77,6 +77,18 @@ export interface TradeContext {
   now: Date;
   legs: TradeLegContext[];
   rules: RuleRow[];
+  /**
+   * What the switch would do to service coverage, already evaluated.
+   *
+   * Carried on the context rather than computed inside `validateTrade` because
+   * answering it needs the whole programme's schedule for the days involved,
+   * and `validateTrade` is pure and synchronous — a property worth keeping, as
+   * it is what lets the rules engine be tested without a database.
+   *
+   * Absent means nobody asked. That is not the same as "coverage is fine", and
+   * the screens say so.
+   */
+  coverageChecks?: ValidationCheck[];
 }
 
 export type CheckStatus = "pass" | "fail" | "warn";

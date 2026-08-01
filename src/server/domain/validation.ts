@@ -210,6 +210,11 @@ export function validateTrade(context: TradeContext): TradeValidationResult {
   const checks = sortChecks([
     ...evaluateSystemChecks(context),
     ...evaluateRules(context),
+    /* Coverage comes from the constraint model, evaluated by whoever built the
+       context — the same catalogue the generator is graded against and the
+       scheduler's grid is coloured from. It arrives already decided so that
+       this function stays pure. */
+    ...(context.coverageChecks ?? []),
   ]);
 
   const failures = checks.filter((check) => check.status === "fail");

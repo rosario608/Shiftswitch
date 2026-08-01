@@ -246,6 +246,7 @@ the same domain functions the scheduler screens call:
 | Not schedulable | Varga, on parental leave — active on the roster but off the schedule |
 | Site eligibility | Abiodun and Sorensen not credentialed for the VA |
 | Exception | One PGY-2 on Demo Clinic for block 2 instead of their cohort's service, with a reason — the row that would otherwise be a spreadsheet column called NOTES |
+| Availability | Three absences covering all three states: a confirmed vacation clear of the schedule (the ordinary case), a confirmed vacation over a shift somebody works (a hard violation with a reason in it), and an unconfirmed conference over shifts somebody works (scored, never enforced) |
 | Draft schedule | A fortnight copied from the published one, so the diff has something to show, and every shift in it editable |
 
 Some things are deliberately left wrong, because a demo where nothing is wrong
@@ -260,6 +261,13 @@ cannot show what any of the checking is for.
   situation the availability constraint exists to catch — she is on the roster,
   off the schedule, and still on nine shifts somebody has to cover.
 - **Aliyev works eight days in a row**, against a programme limit of six.
+- **Mbeki is on approved vacation and is scheduled for Demo Clinic that day.**
+  One line, naming the person, the day, the service and the reason — which is
+  what a structured absence buys over a date in a jsonb array.
+
+Varga deliberately has **no** recorded absence, even though she is on leave. Her
+leave is already expressed by `schedulable = false`, and recording it twice
+reported her nine shifts twice — which teaches a chief to skim the report.
 
 Sign in as **demo.whitfield@demo.invalid** (chief resident) and open
 **Admin → Scheduler** to meet it. Press **Check it** for the whole report:

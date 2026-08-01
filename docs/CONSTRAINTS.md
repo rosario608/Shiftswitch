@@ -169,6 +169,27 @@ a future screen, and a constraint that threw on an unexpected value would take
 the whole report down — reporting nothing about a schedule, which is worse than
 ignoring one malformed key.
 
+### Structured availability feeds the same two lists
+
+`resident_absences` is the way a person actually records being away: a **range**
+with a kind and a hardness, entered once. See `docs/SCHEDULE_OPERATIONS.md`.
+
+It has **no constraint of its own**. `hardConstraintsOf` merges every confirmed
+absence into `unavailableDates`, and `preferencesOf` merges every unconfirmed
+one into `requestedDaysOff` — so `personal-unavailability` and
+`stated-preferences` picked it up without changing a line, and so did the
+generator's feasibility check.
+
+That is deliberate. A second constraint would mean a schedule that scheduled
+over somebody's leave was wrong in a *different* way depending on which screen
+recorded it, and a chief would have to learn two names for one problem. The only
+thing the constraint reads about an absence directly is its label, so the
+message can say *why*: "Thandiwe Mbeki is on vacation and is scheduled for Demo
+Clinic on Wed, Aug 12", rather than "is recorded as unavailable", which sends
+the reader off to find out.
+
+A programme writing both keeps both — the two are unioned, not chosen between.
+
 ## What is deliberately absent
 
 **Per-resident rotation quotas** — "every PGY-1 does at least two blocks of

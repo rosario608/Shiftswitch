@@ -46,19 +46,22 @@ full — see **Tested**.
 
 | | |
 |---|---|
-| In the repository | `0001` – `0008` |
-| Applied locally, and proven to apply to an **empty** database in order | `0001` – `0008` |
+| In the repository | `0001` – `0009` |
+| Applied locally, and proven to apply to an **empty** database in order | `0001` – `0009` |
 | Reported applied to production by the session of 31 July 2026 | `0001` – `0006` |
 | Reported applied to production by hand, 31 July 2026 | `0007_notification_route.sql` |
-| **Not applied to production** | **`0008_scheduler_foundation.sql`** |
+| **Not applied to production** | **`0008_scheduler_foundation.sql`**, **`0009_schedule_operations.sql`** |
 
-**`0008_scheduler_foundation.sql` must be applied to production before the code
-on `main` is deployed.** It adds the scheduling tables and
+**`0008` and `0009` must both be applied to production, in that order, before
+the code on `main` is deployed.** `0008` adds the scheduling tables and
 `shifts.schedule_version_id`; without it every schedule query fails, because
-that column is now part of the definition of a live shift. Nothing applies
-migrations automatically — there is no build hook, only `npm run db:migrate`
-against the production `DATABASE_URL`. It is listed under **User action
-required**.
+that column is now part of the definition of a live shift. `0009` adds
+`resident_absences`, `schedule_version_locks`, `schedule_corrections`, the
+approval columns on `schedule_versions` and `shifts.published_version_id`;
+without it publishing a schedule fails, because publication now stamps the
+provenance column. Nothing applies migrations automatically — there is no build
+hook, only `npm run db:migrate` against the production `DATABASE_URL`. Both are
+listed under **User action required**.
 
 `0007_notification_route.sql` **was applied**, by hand in the Neon SQL Editor on
 31 July 2026 — reported, with the confirmation named: the `route` column exists
@@ -92,11 +95,13 @@ institution's real roster and real block schedule. Nothing technical is blocked.
 
 ## User action required
 
-0. **Apply `db/migrations/0008_scheduler_foundation.sql` to production**, before
-   the code on `main` is deployed. `npm run db:migrate` against the production
-   `DATABASE_URL`. Without it, every trade action that produces a notification
-   fails, because `notify()` writes a `route` column the production schema does
-   not yet have. Sessions do not do this — see `/CLAUDE.md`.
+0. **Apply `db/migrations/0008_scheduler_foundation.sql` and then
+   `db/migrations/0009_schedule_operations.sql` to production**, before the code
+   on `main` is deployed. `npm run db:migrate` against the production
+   `DATABASE_URL` applies both in order. Without `0008` every schedule query
+   fails; without `0009` publishing a schedule, recording availability and
+   correcting a published shift all fail. Sessions do not do this — see
+   `/CLAUDE.md`.
 
 1. **The residents' email addresses**, for **Admin → Users & roles → Invite
    people**. Any format: commas, semicolons, one per line, or a spreadsheet
@@ -163,6 +168,101 @@ host. Still needed: `ANDROID_PACKAGE_NAME`, `ANDROID_CERT_FINGERPRINTS`,
 Choices made without asking, as `/CLAUDE.md` requires. Each says what was
 chosen, why, and what was rejected, so any of them can be revisited by someone
 who disagrees rather than rediscovered.
+
+### The operational workflow
+
+**Publication requires an approval, and there is no combined verb.** A draft
+must be signed off before it can be made live, and `publishScheduleVersion`
+refuses an unapproved one. *Rejected:* an "approve and publish" button, which
+would leave an approval record nobody ever paused over — the record would exist
+and mean nothing. *Rejected also:* making approval a validity check that refuses
+a schedule with hard violations. A chief who approves a month with two gaps
+because the alternative is no schedule at all is making a real decision; the
+product's job is to record it, not to overrule it. What it must never do is let
+that happen invisibly, so the accepted violations are stored with the approval.
+
+**Approval stores what the approver was shown, rather than being recomputed.**
+`schedule_versions.approval_report` carries the score, the counts and the hard
+violations accepted, in the words they were shown in. *Rejected:* recomputing on
+demand, which answers a different question — next month's roster and next
+month's rules produce a different report about the same schedule. The report is
+computed **server-side at the moment of approval**, not taken from the client:
+an approval carrying a score the browser worked out three edits ago is a
+signature on a document nobody read.
+
+**`schedule.publish` is its own capability**, held by the same four roles as
+`scheduling.plan` today. *Rejected:* reusing `scheduling.plan`, on the grounds
+that the holders coincide. They coincide because there are five roles, not
+because the two authorities are the same thing: building a schedule changes
+nothing, and publishing one replaces a month of what people are working. The
+capability is what `rolesWith` will be asked when the product needs to know who
+to tell that a schedule is waiting for sign-off.
+
+**Locks are rows keyed by what the scheduler pointed at, not flags on shifts.**
+*Rejected:* a `locked` column on `shifts`. Three of the five lock kinds — a
+resident, a cohort, a service — do not name a shift at all, and regeneration
+deletes and recreates the unlocked shifts, which would take a per-shift flag
+with them. An assignment lock is stored as a **person and a day** and resolved
+to a shift id at generation time, for the same reason.
+
+**A lock whose target no longer exists is listed, not dropped.** `target_id` is
+not a foreign key, because the four kinds point into four tables. *Rejected:*
+silently ignoring an unresolvable lock, which is how a scheduler loses the
+placement they were most careful about without ever being told.
+
+**Structured availability has no constraint of its own.** `resident_absences`
+merges into `unavailableDates` and `requestedDaysOff` inside `person.ts`.
+*Rejected:* a `recorded-absence` constraint alongside `personal-unavailability`,
+which would mean a schedule that scheduled over somebody's leave was wrong in a
+*different* way depending on which screen recorded it, and a chief would have to
+learn two names for one problem. The merge also meant every existing constraint,
+generator check and test picked up the feature without changing a line.
+
+**Hard versus soft on an absence is a column, not derived from the kind.**
+*Rejected:* deriving it, which would mean either refusing the transition a
+conference makes when the programme approves it, or inventing a second kind for
+every kind that has one.
+
+**A resident may record their own absence and may not confirm it.** *Rejected:*
+letting them, which would give any resident a way to invalidate the programme's
+schedule unilaterally; the first time it was used to get out of a night float,
+nobody would trust the field again.
+
+**Coverage for a trade is asked of the constraint model, not the rules engine.**
+`checkTradeCoverage` runs the hard coverage constraints twice and reports only
+what the swap introduces. *Rejected:* a coverage rule in the rules engine, which
+would be a second definition of "covered" — and the first time the two disagreed
+the product would be telling a resident one thing and a chief another.
+*Rejected also:* reporting every coverage violation on the affected days, rather
+than only the introduced ones: a programme whose numbers are aspirational
+already has shortfalls, and blocking every switch that touched a day already
+short would block nearly all of them while fixing nothing.
+
+**A correction cancels live switches rather than refusing.** Publication refuses
+to destroy a switch; a correction does not. *Rejected:* symmetry with publish. A
+correction usually *is* the response to whatever made the switch impossible, and
+refusing would leave a resident holding a shift the programme has already
+decided they are not working. `invalidateTradesForShift` notifies everybody
+involved, so cancelling here is not silent.
+
+**Corrections are recorded as a list of departures, not as a second version.**
+*Rejected:* snapshotting the published schedule so the "original" could be
+diffed against it. Publication makes the draft's rows the live ones; there is no
+second copy, and creating one would double every published shift. What somebody
+actually asks is "what changed and why", and a diff of two snapshots could not
+have answered the second half.
+
+**The workspace uses the draft's declared period, capped at 120 days.**
+*Rejected:* clamping to the span of shifts that exist, which was the first
+implementation and which hid exactly the gap somebody opens the screen to find —
+a Tuesday with nothing on it. The cap is what makes a draft declared over
+"everything, ever" survivable.
+
+**The scheduling invariants are scoped to published shifts.**
+`assertDatabaseConsistent`'s "exactly one holder" rule now excludes draft
+shifts. *Rejected:* applying it everywhere, which would make every generator
+test that legitimately leaves a slot unfilled look like a torn write. A draft
+shift with *two* holders is still a defect, and is still checked.
 
 **`verify` is a TypeScript script, not a chain of `&&` in package.json.**
 `scripts/verify.ts` can set per-step environment — the from-scratch migration

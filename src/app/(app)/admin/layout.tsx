@@ -24,6 +24,7 @@ const GROUPS: Array<{
       { href: "/admin/coverage", label: "Coverage", capability: "scheduling.plan" },
       { href: "/admin/approvals", label: "Approvals", capability: "approvals.decide" },
       { href: "/admin/schedule", label: "Schedule", capability: "schedule.manage" },
+      { href: "/admin/corrections", label: "Corrections", capability: "schedule.manage" },
       { href: "/admin/import", label: "Import", capability: "schedule.manage" },
     ],
   },
