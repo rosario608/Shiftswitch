@@ -8,6 +8,18 @@ const nextConfig: NextConfig = {
   // The dev overlay indicator sits on top of the bottom navigation on a phone
   // viewport, so it is hidden; compile and runtime errors still surface.
   devIndicators: false,
+  async redirects() {
+    /* The screens were renamed when the product settled on one word for the
+       exchange. Links were not: they are in push notifications already
+       delivered, in emails already sent, in `notifications.route` rows written
+       before the rename, and in messages residents forwarded to each other.
+       Permanent redirects keep every one of them working. A dead link is a dead
+       end, and this is four lines. */
+    return [
+      { source: "/trades", destination: "/switches", permanent: true },
+      { source: "/trades/:id", destination: "/switches/:id", permanent: true },
+    ];
+  },
   async rewrites() {
     // Deep-link association files must live at /.well-known with exact content
     // types; they are generated from environment configuration.

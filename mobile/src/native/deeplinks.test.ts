@@ -13,6 +13,9 @@ const UUID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 
 describe("routeFromUrl", () => {
   it("routes universal links from the app's own origin", () => {
+    /* An old link still resolves. Every notification sent before the product
+       settled on one word for the exchange points at /trades, and those are
+       already on residents' phones. */
     expect(routeFromUrl(`http://localhost:3000/trades/${UUID}`)).toBe(
       `/switches/${UUID}`,
     );
