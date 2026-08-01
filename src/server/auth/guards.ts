@@ -72,7 +72,7 @@ export async function requireCapability(
   if (!can(context.user.role, capability)) {
     throw forbidden(CAPABILITY_REFUSAL[capability](context.user.role));
   }
-  if (context.user.enrollmentStatus === "pending" && !PENDING_MAY.has(capability)) {
+  if (!allowsWhilePending(context.user.enrollmentStatus, capability)) {
     throw forbidden(PENDING_REFUSAL);
   }
   return context;
@@ -88,15 +88,30 @@ export async function requireCapability(
  * because an account that lands on an empty screen with nothing to do is an
  * account nobody opens twice.
  *
- * The set is empty rather than a list of exceptions because everything a
+ * The list is short rather than a list of exceptions because everything a
  * pending account may do is either uncapabilitied (reading their own schedule)
  * or gated on `shifts.self_report`, which is theirs by role. If a future
- * capability belongs here, it goes in this set and nowhere else — this is the
- * one place the restriction is decided.
+ * capability belongs here it goes in this set and nowhere else — this is the
+ * one place the restriction is decided, which is what stops a new screen from
+ * quietly forgetting it.
  */
 const PENDING_MAY: ReadonlySet<Capability> = new Set<Capability>(["shifts.self_report"]);
 
-const PENDING_REFUSAL =
+/**
+ * The policy itself, as a function of two facts and nothing else.
+ *
+ * Separated from the guard so it can be asserted directly: the guard needs a
+ * cookie, a session and a database, and a rule that can only be tested through
+ * three of those is a rule that ends up tested through none.
+ */
+export function allowsWhilePending(
+  status: "confirmed" | "pending",
+  capability: Capability,
+): boolean {
+  return status !== "pending" || PENDING_MAY.has(capability);
+}
+
+export const PENDING_REFUSAL =
   "Your program has not confirmed your account yet, so for now you can see and correct your own schedule but not anybody else's. Whoever sent you the link can confirm you in a couple of taps.";
 
 /** Whether this context is a member waiting to be admitted. */
@@ -125,8 +140,9 @@ export async function requireAnyCapability(
     throw forbidden(CAPABILITY_REFUSAL[capabilities[0]](context.user.role));
   }
   if (
-    context.user.enrollmentStatus === "pending" &&
-    !capabilities.some((capability) => PENDING_MAY.has(capability))
+    !capabilities.some((capability) =>
+      allowsWhilePending(context.user.enrollmentStatus, capability),
+    )
   ) {
     throw forbidden(PENDING_REFUSAL);
   }

@@ -62,6 +62,25 @@ export const ROTATION_STATE_LABEL: Record<RotationState, string> = {
   clinic: "Clinic",
 };
 
+/**
+ * Every column of `rotation_patterns`, with the one that needs help.
+ *
+ * `states` is `rotation_state[]` — an array of a *custom enum*, whose type OID
+ * `pg` does not know, so it hands back the literal text `{on,post,pre}` rather
+ * than an array. Indexing into that returns `"{"`, and the symptom is a
+ * resident told they are `{` on a day they are on call.
+ *
+ * Casting to `text[]` in the query is what makes it an array again. It is
+ * spelled out in every read rather than left to `SELECT *`, because the version
+ * of this that only appears at run time is the one that shipped.
+ */
+const PATTERN_COLUMNS = `
+  id, program_id, service_id, name, cycle_days,
+  states::text[] AS states,
+  anchor_date, provenance, confirmed_by, confirmed_at, notes, active,
+  created_at, updated_at
+`;
+
 export interface RotationPattern {
   id: string;
   program_id: string;
@@ -108,6 +127,16 @@ export function stateOn(
   date: Date | string,
   offsetDays = 0,
 ): RotationState {
+  /* Loud rather than silent. If a query ever forgets the `::text[]` cast,
+     `states` arrives as the string "{on,post,pre}" — which has a `.length`, and
+     indexes to "{" — and the symptom is a resident told they are off on a day
+     they are on call. There is no version of that worth degrading gracefully
+     into. */
+  if (!Array.isArray(pattern.states)) {
+    throw new Error(
+      "A rotation pattern's states came back as text rather than an array. The query that read it is missing its ::text[] cast.",
+    );
+  }
   const length = pattern.states.length;
   if (length === 0) {
     throw validationFailed("That rotation pattern has no days in it.");
@@ -199,7 +228,7 @@ export async function createRotationPattern(
     `INSERT INTO rotation_patterns
        (program_id, service_id, name, cycle_days, states, anchor_date, provenance, notes)
      VALUES ($1, $2, $3, $4, $5::rotation_state[], $6, $7, $8)
-     RETURNING *`,
+     RETURNING ${PATTERN_COLUMNS}`,
     [
       input.programId,
       input.serviceId ?? null,
@@ -220,7 +249,7 @@ export async function listRotationPatterns(
   executor?: Queryable,
 ): Promise<RotationPattern[]> {
   return query<RotationPattern>(
-    `SELECT * FROM rotation_patterns
+    `SELECT ${PATTERN_COLUMNS} FROM rotation_patterns
       WHERE program_id = $1 AND active
       ORDER BY name`,
     [programId],
@@ -296,7 +325,7 @@ export async function listExceptions(
   executor?: Queryable,
 ): Promise<PatternException[]> {
   return query<PatternException>(
-    `SELECT id, starts_on, ends_on, replacement_states, reason
+    `SELECT id, starts_on, ends_on, replacement_states::text[] AS replacement_states, reason
        FROM pattern_exceptions
       WHERE program_id = $1 AND starts_on <= $3 AND ends_on >= $2
       ORDER BY starts_on`,

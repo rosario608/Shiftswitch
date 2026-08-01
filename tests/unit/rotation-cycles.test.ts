@@ -179,3 +179,22 @@ describe("an exception over the pattern", () => {
     expect(applied.filter((d) => d.state === null)).toHaveLength(9);
   });
 });
+
+describe("a pattern that came back from the database unparsed", () => {
+  it("refuses loudly rather than answering with a brace", () => {
+    /* `states` is an array of a custom enum, whose type OID `pg` does not know,
+       so a query without `::text[]` hands back the literal text
+       "{on,post,pre}". That has a `.length` and indexes to "{" — so the naive
+       version of this answers every question with a punctuation mark, and the
+       symptom is a resident told they are off on a day they are on call.
+
+       Found by driving the whole beta path end to end and by nothing else: the
+       cases above all build their patterns in TypeScript, where this cannot
+       happen. */
+    const unparsed = {
+      states: "{on,post,pre}" as unknown as RotationState[],
+      anchor_date: new Date("2026-07-01T00:00:00Z"),
+    };
+    expect(() => stateOn(unparsed, "2026-07-02")).toThrow(/::text\[\] cast/);
+  });
+});

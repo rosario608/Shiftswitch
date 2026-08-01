@@ -12,6 +12,7 @@ import {
   ROLE_ORDER,
   ROLE_SHORT_LABEL,
 } from "@/server/auth/roles";
+import { allowsWhilePending } from "@/server/auth/guards";
 import type { UserRole } from "@/server/db/types";
 
 /**
@@ -181,5 +182,49 @@ describe("supporting predicates", () => {
 
   it("counts leadership as anybody who can manage people", () => {
     expect(ROLE_ORDER.filter(isProgramLeadership)).toEqual(["apd", "pd", "admin"]);
+  });
+});
+
+/**
+ * The second axis of permission: not what role somebody has, but whether the
+ * program has confirmed they belong.
+ *
+ * Somebody who joined by an enrollment link with an address the program had not
+ * listed is a resident in every respect except that nobody has vouched for
+ * them. They hold their own schedule; they see nothing about anybody else. The
+ * rule is one function so that a new screen cannot forget it, and it is tested
+ * here rather than through the guard because the guard needs a cookie, a
+ * session and a database — and a rule reachable only through three of those is
+ * a rule nobody tests.
+ */
+describe("an account waiting to be confirmed", () => {
+  it("can hold and correct its own schedule", () => {
+    expect(allowsWhilePending("pending", "shifts.self_report")).toBe(true);
+  });
+
+  it("cannot reach anything involving another resident", () => {
+    /* The board is the important one: it is the screen a pending account would
+       most plausibly be shown by accident, and it is everybody's shifts. */
+    expect(allowsWhilePending("pending", "trade.participate")).toBe(false);
+    expect(allowsWhilePending("pending", "residents.contact_info")).toBe(false);
+    expect(allowsWhilePending("pending", "schedule.manage")).toBe(false);
+    expect(allowsWhilePending("pending", "approvals.decide")).toBe(false);
+  });
+
+  it("cannot vouch for a shift, which is the point of not being vouched for", () => {
+    expect(allowsWhilePending("pending", "shifts.confirm")).toBe(false);
+  });
+
+  it("closes every capability but the one, so a new one is closed by default", () => {
+    for (const capability of CAPABILITIES) {
+      if (capability === "shifts.self_report") continue;
+      expect(allowsWhilePending("pending", capability), capability).toBe(false);
+    }
+  });
+
+  it("stops mattering the moment somebody is confirmed", () => {
+    for (const capability of CAPABILITIES) {
+      expect(allowsWhilePending("confirmed", capability), capability).toBe(true);
+    }
   });
 });
