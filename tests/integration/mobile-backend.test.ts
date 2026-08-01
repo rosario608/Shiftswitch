@@ -466,7 +466,7 @@ describe("push is tied to the transaction that caused it", () => {
     );
     expect(completionPushes).toHaveLength(2);
     expect(completionPushes[0].message.route).toBe(
-      `/switches/${outcome.completedTradeId}`,
+      `/switches/done/${outcome.completedTradeId}`,
     );
   });
 });
@@ -490,7 +490,9 @@ describe("notification deep links", () => {
         relatedEntityType: "completed_trade",
         relatedEntityId: "def",
       }),
-    ).toBe("/switches/def");
+      /* A finished switch is a different record from the request that produced
+         it, with its own id, so it has its own path. */
+    ).toBe("/switches/done/def");
     expect(
       routeFor({ recipientUserId: "u", type: "shift.changed", title: "t" }),
     ).toBe("/notifications");

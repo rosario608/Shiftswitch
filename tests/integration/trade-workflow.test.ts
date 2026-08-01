@@ -367,7 +367,7 @@ describe("atomic finalisation", () => {
       [carolOffer.offer.id],
     );
     expect(carolStatus?.status).toBe("invalidated");
-    expect(carolStatus?.invalidation_reason).toContain("another completed trade");
+    expect(carolStatus?.invalidation_reason).toContain("another completed switch");
     const carolNotifications = await notificationsFor(carol.user.id);
     expect(carolNotifications.some((n) => n.type === "offer.invalidated")).toBe(true);
   });
