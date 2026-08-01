@@ -9,7 +9,17 @@ import {
   listUnconfirmedDefaults,
   mondayOnOrAfter,
 } from "@/server/domain/starting-configuration";
-import { listRotationPatterns, stateOn } from "@/server/domain/rotation-cycles";
+import {
+  applyExceptions,
+  createPatternException,
+  deletePatternException,
+  listAllExceptions,
+  listExceptions,
+  listRotationPatterns,
+  stateOn,
+  statesOver,
+  winterHolidayRange,
+} from "@/server/domain/rotation-cycles";
 import {
   closeDatabase,
   createProgram,
@@ -285,5 +295,117 @@ describe("an assumed default generates nothing until somebody confirms it", () =
     ))!;
     expect(after.provenance).toBe("confirmed");
     expect(after.confirmed_by).toBe(admin.user.id);
+  });
+});
+
+describe("suspending a cycle over a range", () => {
+  beforeEach(async () => {
+    await applyStartingConfiguration(admin.context, {
+      id: "internal-medicine",
+      academicYear: 2026,
+    });
+  });
+
+  it("replaces the pattern for the range and leaves it intact outside", async () => {
+    const micu = (
+      await listRotationPatterns(program.id)
+    ).find((entry) => entry.name === "MICU, Saturday off")!;
+
+    const holiday = winterHolidayRange(2026);
+    await createPatternException(
+      {
+        programId: program.id,
+        patternId: micu.id,
+        startsOn: holiday.startsOn,
+        endsOn: holiday.endsOn,
+        replacementStates: null,
+        reason: holiday.reason,
+      },
+      admin.user.id,
+    );
+
+    const days = statesOver(micu, "2026-12-20", "2027-01-05");
+    const applied = applyExceptions(
+      days,
+      await listExceptions(program.id, "2026-12-20", "2027-01-05"),
+    );
+
+    /* Inside the fortnight nothing applies — which is not the same as everybody
+       being off, and is the distinction the whole table exists for. */
+    const inside = applied.find((day) => day.date === "2026-12-25")!;
+    expect(inside.state).toBeNull();
+    expect(inside.exception).toMatch(/holiday/i);
+
+    // Before it and after it, the cycle runs exactly as it did.
+    expect(applied.find((day) => day.date === "2026-12-21")!.state).toBe(
+      stateOn(micu, "2026-12-21"),
+    );
+    expect(applied.find((day) => day.date === "2027-01-05")!.state).toBe(
+      stateOn(micu, "2027-01-05"),
+    );
+  });
+
+  it("refuses an override that does not say why", async () => {
+    const micu = (await listRotationPatterns(program.id))[0]!;
+    await expect(
+      createPatternException(
+        {
+          programId: program.id,
+          patternId: micu.id,
+          startsOn: "2026-12-24",
+          endsOn: "2027-01-01",
+          reason: "  ",
+        },
+        admin.user.id,
+      ),
+    ).rejects.toMatchObject({ code: "validation_failed" });
+  });
+
+  it("refuses a range that ends before it starts, and one that applies to nothing", async () => {
+    const micu = (await listRotationPatterns(program.id))[0]!;
+    await expect(
+      createPatternException(
+        {
+          programId: program.id,
+          patternId: micu.id,
+          startsOn: "2027-01-01",
+          endsOn: "2026-12-24",
+          reason: "Backwards",
+        },
+        admin.user.id,
+      ),
+    ).rejects.toMatchObject({ code: "validation_failed" });
+
+    await expect(
+      createPatternException(
+        {
+          programId: program.id,
+          startsOn: "2026-12-24",
+          endsOn: "2027-01-01",
+          reason: "Applies to nothing at all",
+        },
+        admin.user.id,
+      ),
+    ).rejects.toMatchObject({ code: "validation_failed" });
+  });
+
+  it("puts the cycle back when the override is removed", async () => {
+    const micu = (await listRotationPatterns(program.id))[0]!;
+    const created = await createPatternException(
+      {
+        programId: program.id,
+        patternId: micu.id,
+        startsOn: "2026-12-24",
+        endsOn: "2027-01-01",
+        reason: "Winter holiday block",
+      },
+      admin.user.id,
+    );
+    expect(await listAllExceptions(program.id)).toHaveLength(1);
+
+    expect(await deletePatternException(program.id, created.id)).toBe(true);
+    expect(await listAllExceptions(program.id)).toHaveLength(0);
+    // And removing it twice is not an error the caller has to handle twice.
+    expect(await deletePatternException(program.id, created.id)).toBe(false);
   });
 });

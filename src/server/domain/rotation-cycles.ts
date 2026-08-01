@@ -333,3 +333,140 @@ export async function listExceptions(
     executor,
   );
 }
+
+export interface CreateExceptionInput {
+  programId: string;
+  patternId?: string | null;
+  serviceId?: string | null;
+  residentId?: string | null;
+  startsOn: string;
+  endsOn: string;
+  /** Null means *nothing applies here* — see `applyExceptions`. */
+  replacementStates?: RotationState[] | null;
+  reason: string;
+}
+
+/**
+ * Suspends a pattern over a range, and says why.
+ *
+ * The worked example is the winter holiday block: a fortnight with its own
+ * per-service rosters, entered by hand, replacing the normal cycle. It is
+ * stored as an exception rather than by editing the pattern it suspends,
+ * because a pattern quietly edited in December is a pattern nobody can explain
+ * in March — and because the fortnight ends, and the cycle underneath it has to
+ * come back on its own.
+ *
+ * A reason is mandatory at the database level as well as here. An override
+ * without one is a change nobody can account for later, which is the thing this
+ * table exists to prevent.
+ */
+export async function createPatternException(
+  input: CreateExceptionInput,
+  createdBy: string,
+  executor?: Queryable,
+): Promise<PatternException> {
+  const reason = input.reason.trim();
+  if (reason.length < 3) {
+    throw validationFailed(
+      "Say why this range is different — a holiday block, a conference, a leave cover. Somebody reading the schedule in March needs to know.",
+    );
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.startsOn) || !/^\d{4}-\d{2}-\d{2}$/.test(input.endsOn)) {
+    throw validationFailed("Both dates must be calendar dates.");
+  }
+  if (input.endsOn < input.startsOn) {
+    throw validationFailed("The range ends before it starts.");
+  }
+  if (daysBetween(input.startsOn, input.endsOn) > 366) {
+    throw validationFailed("An override cannot be longer than a year.");
+  }
+  if (!input.patternId && !input.serviceId && !input.residentId) {
+    throw validationFailed(
+      "An override has to apply to something: a cycle, a service, or one person.",
+    );
+  }
+
+  const row = await queryOne<PatternException>(
+    `INSERT INTO pattern_exceptions
+       (program_id, pattern_id, service_id, resident_id, starts_on, ends_on,
+        replacement_states, reason, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::rotation_state[], $8, $9)
+     RETURNING id, starts_on, ends_on,
+               replacement_states::text[] AS replacement_states, reason`,
+    [
+      input.programId,
+      input.patternId ?? null,
+      input.serviceId ?? null,
+      input.residentId ?? null,
+      input.startsOn,
+      input.endsOn,
+      input.replacementStates && input.replacementStates.length > 0
+        ? input.replacementStates
+        : null,
+      reason,
+      createdBy,
+    ],
+    executor,
+  );
+  return row!;
+}
+
+export async function deletePatternException(
+  programId: string,
+  id: string,
+  executor?: Queryable,
+): Promise<boolean> {
+  const removed = await query<{ id: string }>(
+    "DELETE FROM pattern_exceptions WHERE id = $1 AND program_id = $2 RETURNING id",
+    [id, programId],
+    executor,
+  );
+  return removed.length > 0;
+}
+
+export interface ExceptionView extends PatternException {
+  pattern_name: string | null;
+  service_name: string | null;
+  resident_name: string | null;
+}
+
+/** Every override in a program, most recent range first. */
+export async function listAllExceptions(
+  programId: string,
+  executor?: Queryable,
+): Promise<ExceptionView[]> {
+  return query<ExceptionView>(
+    `SELECT e.id, e.starts_on, e.ends_on,
+            e.replacement_states::text[] AS replacement_states, e.reason,
+            p.name AS pattern_name, s.name AS service_name, u.full_name AS resident_name
+       FROM pattern_exceptions e
+       LEFT JOIN rotation_patterns p ON p.id = e.pattern_id
+       LEFT JOIN services s ON s.id = e.service_id
+       LEFT JOIN residents r ON r.id = e.resident_id
+       LEFT JOIN users u ON u.id = r.user_id
+      WHERE e.program_id = $1
+      ORDER BY e.starts_on DESC`,
+    [programId],
+    executor,
+  );
+}
+
+/**
+ * The winter holiday fortnight, as the shape most programmes want.
+ *
+ * Offered as a starting point because every programme has one and every one of
+ * them enters it by hand — and because an override with **no** replacement
+ * states is the correct representation of "this roster is decided elsewhere",
+ * which is not obvious and is easy to get wrong by writing `off` instead.
+ */
+export function winterHolidayRange(academicYear: number): {
+  startsOn: string;
+  endsOn: string;
+  reason: string;
+} {
+  return {
+    startsOn: `${academicYear}-12-22`,
+    endsOn: `${academicYear + 1}-01-02`,
+    reason: "Winter holiday block — roster entered by hand",
+  };
+}

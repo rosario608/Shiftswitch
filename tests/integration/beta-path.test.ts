@@ -457,6 +457,56 @@ describe("a program onboarding for the first time", () => {
     expect(events[0].outcome).toBe("refused");
   });
 
+  it("lets a whole class through one link, and stops somebody guessing", async () => {
+    /* The day this is used: a chief posts the link in the group chat and the
+       class opens it within minutes. A limit that counted successes would lock
+       out most of them on the one day it matters — so it counts refusals, which
+       is what guessing produces and what a real class does not. */
+    const link = await createEnrollmentLink(admin.context, { label: "The whole class" });
+
+    for (let index = 0; index < 35; index += 1) {
+      const joined = await enrollWithLink(link.token, {
+        subject: `google-sub-class-${index}`,
+        email: `resident.${index}@betahospital.org`,
+        name: `Resident ${index}`,
+        picture: null,
+      });
+      expect(joined.outcome, `resident ${index}`).toBe("enrolled");
+    }
+    expect(
+      await query("SELECT id FROM users WHERE program_id = $1", [program.id]),
+    ).toHaveLength(36); // 35 residents plus the administrator
+
+    /* Now somebody guessing addresses against the same link. Each attempt is
+       refused for a real reason — they are already in another program — and the
+       refusals are what the limit counts. */
+    const other = await createProgram({ name: "Somewhere Else" });
+    for (let index = 0; index < 30; index += 1) {
+      const email = `guess.${index}@elsewhere.invalid`;
+      await query(
+        `INSERT INTO users (auth_user_id, email, full_name, role, program_id)
+         VALUES ($1, $2, $2, 'resident', $3)`,
+        [`sub-${email}`, email, other.program.id],
+      );
+      await enrollWithLink(link.token, {
+        subject: `sub-${email}`,
+        email,
+        name: "Guess",
+        picture: null,
+      });
+    }
+
+    const blocked = await enrollWithLink(link.token, {
+      subject: "google-sub-late",
+      email: "late.arrival@betahospital.org",
+      name: "Late Arrival",
+      picture: null,
+    });
+    expect(blocked.outcome).toBe("refused");
+    if (blocked.outcome !== "refused") throw new Error("unreachable");
+    expect(blocked.reason).toBe("rate_limited");
+  });
+
   it("does not hand a claimed schedule to the next person with a similar name", async () => {
     /* The failure this whole matching scheme has to not have. "Nadia Osei" and
        "Nadia Okafor" are two residents, and one of them getting the other's

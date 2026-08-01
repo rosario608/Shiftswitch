@@ -48,7 +48,7 @@ import { claimHeldRows, type ClaimResult } from "./held-rows";
 const DEFAULT_TTL_DAYS = 30;
 const MAX_TTL_DAYS = 180;
 
-/** How many attempts one link tolerates in a window, before it stops answering. */
+/** How many *refused* attempts one link tolerates before it stops answering. */
 const RATE_LIMIT_ATTEMPTS = 30;
 const RATE_LIMIT_WINDOW_MINUTES = 10;
 
@@ -364,13 +364,24 @@ export async function enrollWithLink(
       return { outcome: "refused" as const, reason };
     }
 
-    /* Rate limit. Counted per link rather than per address, because the thing
-       being protected is the link: somebody working through a list of addresses
-       against one URL is exactly the attack, and they would use a new address
-       each time. */
+    /* Rate limit. Two things about how it counts, both learned by thinking
+       about the day this is actually used:
+
+       **Per link, not per address.** The thing being protected is the link.
+       Somebody working through a list of addresses against one URL is the
+       attack, and they would use a new address each time — so counting per
+       address would count the wrong thing and catch nobody.
+
+       **Refusals only.** A chief posts the link in the group chat and forty
+       residents open it in the next ten minutes: that is the feature working,
+       and a limit that counted successes would lock out most of a class on the
+       one day it matters. What a limit should notice is repeated *failure*,
+       which is what somebody guessing produces and what a real class does not. */
     const recent = await queryOne<{ count: number }>(
       `SELECT count(*)::int AS count FROM enrollment_events
-        WHERE link_id = $1 AND created_at > now() - ($2 || ' minutes')::interval`,
+        WHERE link_id = $1
+          AND outcome = 'refused'
+          AND created_at > now() - ($2 || ' minutes')::interval`,
       [link.id, String(RATE_LIMIT_WINDOW_MINUTES)],
       client,
     );

@@ -135,6 +135,10 @@ const EXPECTED: Record<string, Capability | "session" | "resident"> = {
   "shifts/mine": "shifts.self_report",
   "shifts/[shiftId]/correct": "shifts.self_report",
   "shifts/[shiftId]/confirm": "shifts.confirm",
+  /* The shape of the programme's year belongs to whoever builds the schedule,
+     which in most programmes is a chief resident rather than the PD. */
+  "admin/cycles/exceptions": "scheduling.plan",
+  "admin/cycles/exceptions/[id]": "scheduling.plan",
   "admin/starting-configuration": "services.manage",
   "admin/starting-configuration/confirm": "services.manage",
   "admin/enrollment/domains": "program.manage",

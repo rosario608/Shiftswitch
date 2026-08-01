@@ -45,6 +45,7 @@ const GROUPS: Array<{ heading: string; links: NavLink[] }> = [
       },
       { href: "/admin/users", label: "Users & roles", capabilities: ["users.manage"] },
       { href: "/admin/cohorts", label: "Cohorts & blocks", capabilities: ["scheduling.plan"] },
+      { href: "/admin/cycles", label: "Coverage cycles", capabilities: ["scheduling.plan"] },
     ],
   },
   {
