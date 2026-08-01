@@ -14,7 +14,9 @@ import { resetDemoProgram, seedDemoProgram, type SeedResult } from "../../script
 import {
   DEMO_EMAIL_DOMAIN,
   DEMO_EXISTING_MEMBER_EMAIL,
+  DEMO_OUTSIDE_EMAIL,
   DEMO_PROGRAM_NAME,
+  DEMO_SUBJECT_PREFIX,
 } from "../../scripts/demo/plan";
 import { closeDatabase, ensureMigrated, makeContext, resetDatabase } from "./helpers";
 
@@ -114,7 +116,10 @@ describe("what gets seeded", () => {
     const byRole = Object.fromEntries(roles.map((r) => [r.role, Number(r.count)]));
     expect(byRole.admin).toBe(1);
     expect(byRole.chief).toBe(2);
-    expect(byRole.resident).toBe(18);
+    /* Eighteen from the plan, plus the two who arrive through the onboarding
+       scenarios — one who was named by the import before they had an account,
+       and one who joined with an address outside the programme's domain. */
+    expect(byRole.resident).toBe(20);
   });
 
   it("uses only addresses that can never reach a real person", async () => {
@@ -122,9 +127,23 @@ describe("what gets seeded", () => {
       "SELECT email FROM users WHERE program_id = $1",
       [program.id],
     );
+    /* The property that matters is *undeliverable*, and `.invalid` is what
+       guarantees it: RFC 2606 reserves the whole tree, so no address under it
+       can ever resolve or belong to anybody.
+
+       Almost every demo address is at the programme's own domain. Exactly one
+       is not, on purpose: somebody who joins by an enrollment link with an
+       address the programme has not listed lands *pending*, and that state
+       cannot be demonstrated by an address inside the domain. It is still
+       `.invalid`, so it is still undeliverable — and the exception is named
+       rather than tolerated, so a second one cannot appear unnoticed. */
     for (const user of users) {
-      expect(user.email.endsWith(`@${DEMO_EMAIL_DOMAIN}`)).toBe(true);
+      expect(user.email.endsWith(".invalid"), user.email).toBe(true);
     }
+    const outside = users
+      .map((user) => user.email)
+      .filter((email) => !email.endsWith(`@${DEMO_EMAIL_DOMAIN}`));
+    expect(outside).toEqual([DEMO_OUTSIDE_EMAIL]);
     const contacts = await query<{ email: string }>(
       "SELECT email FROM program_contacts WHERE program_id = $1",
       [program.id],
@@ -134,12 +153,25 @@ describe("what gets seeded", () => {
     }
   });
 
-  it("gives nobody a sign-in identity", async () => {
-    const withIdentity = await query<{ id: string }>(
-      "SELECT id FROM users WHERE program_id = $1 AND auth_user_id IS NOT NULL",
+  it("gives nobody a sign-in identity a real provider could ever match", async () => {
+    /* Two of the demo's accounts *do* have an `auth_user_id`, because they
+       joined through `enrollWithLink` — the real function, with the identity
+       the OAuth callback would have handed it. That is the point: the enrollment
+       path is demonstrated rather than simulated.
+
+       What has to stay true is that nobody can sign in as one of them. Two
+       independent things guarantee it. The subject is in a shape Google never
+       issues, and the address is under `.invalid`, which can never be a real
+       Google account — so neither the subject match nor the email match can
+       ever be satisfied by a genuine ID token. */
+    const withIdentity = await query<{ email: string; auth_user_id: string }>(
+      "SELECT email, auth_user_id FROM users WHERE program_id = $1 AND auth_user_id IS NOT NULL",
       [program.id],
     );
-    expect(withIdentity).toHaveLength(0);
+    for (const user of withIdentity) {
+      expect(user.auth_user_id.startsWith(DEMO_SUBJECT_PREFIX), user.email).toBe(true);
+      expect(user.email.endsWith(".invalid"), user.email).toBe(true);
+    }
   });
 
   it("configures rules the engine actually implements", async () => {
@@ -203,7 +235,11 @@ describe("what gets seeded", () => {
         WHERE s.program_id = $1 GROUP BY sa.resident_id`,
       [program.id],
     );
-    expect(counts.length).toBe(20);
+    /* Every resident who holds a shift. Derived from what the seed reports
+       rather than written down, so adding a scenario resident does not require
+       remembering to edit a number here — which is how a count assertion turns
+       into a thing people update without reading. */
+    expect(counts.length).toBe(seeded.residentsWithShifts);
     const distinct = new Set(counts.map((c) => c.count));
     expect(distinct.size).toBeGreaterThan(1);
   });
@@ -523,7 +559,7 @@ describe("seeding again", () => {
     // the re-seed, so `before` is *not* the pristine plan. The rebuilt program
     // must match the plan, which is the point: re-seeding repairs whatever the
     // demo was left in, rather than layering on top of it.
-    expect(after).toHaveLength(again.shifts);
+    expect(after).toHaveLength(again.liveShifts);
     expect(after.map((row) => row.signature)).toEqual(
       [...after.map((row) => row.signature)].sort(),
     );

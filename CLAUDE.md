@@ -200,7 +200,7 @@ worse than one that says "copy this link".
 | The draft schedule generator | `docs/GENERATOR.md` |
 | Approving, publishing, correcting; availability and locks | `docs/SCHEDULE_OPERATIONS.md` |
 | The demo program and its scenarios | `docs/DEMO_DATA.md` |
-| Inviting residents, importing a schedule | `docs/ONBOARDING.md` |
+| Onboarding a program: import, enrollment links, self-entry | `docs/ONBOARDING.md` |
 | When something is wrong, and what the verdict means | `docs/RUNBOOK.md` |
 | Every failure path and its designed outcome | `docs/FAILURE_PATHS.md` |
 | What each test suite covers | `docs/TESTING.md` |

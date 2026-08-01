@@ -9,11 +9,13 @@ import {
   anchorMonday,
   buildDemoPlan,
   DEMO_INSTITUTION,
+  DEMO_OUTSIDE_EMAIL,
   DEMO_PEOPLE,
   DEMO_PROGRAM_NAME,
   DEMO_ROTATIONS,
   DEMO_RULES,
   DEMO_SERVICES,
+  DEMO_SUBJECT_PREFIX,
   DEMO_TIMEZONE,
 } from "./plan";
 import { assertDemoAllowed } from "./guard";
@@ -56,6 +58,26 @@ export interface SeedResult {
   phones: number;
   absences: number;
   notifications: number;
+  /** Defaults shipped as a guess that nobody has confirmed. */
+  unconfirmedDefaults: number;
+  /** Import rows still waiting for the person they name to sign in. */
+  unmatchedPeople: number;
+  /** Shifts that appeared on somebody's schedule the moment they enrolled. */
+  claimedOnArrival: number;
+  /** Shifts a resident entered themselves. */
+  selfReported: number;
+  /** Accounts that joined by a link and are waiting to be confirmed. */
+  pendingMembers: number;
+  /** Rows held by the demo's import, before anybody claimed them. */
+  heldRowsImported: number;
+  /**
+   * Shifts on the **live** schedule — the plan, plus the ones produced by the
+   * onboarding scenarios. Distinct from `shifts`, which counts only the plan,
+   * and from the draft schedule's copies, which are not live.
+   */
+  liveShifts: number;
+  /** Residents holding at least one shift. */
+  residentsWithShifts: number;
   /** Plan ref -> shift id, so tests and tooling can address one exact shift. */
   shiftRefs: Record<string, string>;
 }
@@ -374,6 +396,146 @@ export async function seedDemoProgram(
     }
     invitations += 1;
   }
+
+  /* ---------------------------------------------------------------------
+     Onboarding a beta programme, in every state it can be in at once.
+
+     Everything below is produced by the same domain functions a coordinator's
+     taps call, for the same reason as everything above it: a demo assembled by
+     hand shows what somebody imagined the product does. These four states are
+     the ones a programme is actually in during its first fortnight, and each of
+     them has a screen that is empty and untestable without it.
+     --------------------------------------------------------------------- */
+  const { applyStartingConfiguration, listUnconfirmedDefaults } = await import(
+    "@/server/domain/starting-configuration"
+  );
+  const { createEnrollmentLink, addEmailDomain, enrollWithLink } = await import(
+    "@/server/domain/enrollment"
+  );
+  const { addOwnShifts, confirmShift } = await import("@/server/domain/self-report");
+  const { commitImport } = await import("@/server/domain/import");
+  const { listUnmatched } = await import("@/server/domain/held-rows");
+
+  /* 1. The starting configuration, with its guesses still marked as guesses —
+        so `/admin/setup` has something in its queue to confirm. */
+  await applyStartingConfiguration(adminContext, {
+    id: "internal-medicine",
+    academicYear: Number(anchor.slice(0, 4)),
+  });
+  const unconfirmedDefaults = (await listUnconfirmedDefaults(program.id)).length;
+
+  /* 2. A live enrollment link, and the domain that makes an address at the
+        demo hospital admit somebody outright. */
+  await addEmailDomain(adminContext, "demo.invalid");
+  const enrollmentLink = await createEnrollmentLink(adminContext, {
+    label: "PGY-2s, current block",
+    expiresInDays: 30,
+  });
+
+  /* 3. A block naming two people who have not joined, so the administrator's
+        "waiting for somebody" list is not empty — and so the claim path has
+        something real to claim when one of them arrives. */
+  const heldImport = await commitImport(adminContext, [
+    {
+      residentName: "Ines Okonkwo",
+      pgy: 2,
+      date: plan.shifts[0]!.date,
+      startTime: "07:00",
+      endTime: "19:00",
+      service: "MICU",
+      location: "ICU Tower 4",
+    },
+    {
+      residentName: "Okonkwo, Ines",
+      pgy: 2,
+      date: plan.shifts[1]!.date,
+      startTime: "19:00",
+      endTime: "07:00",
+      endsNextDay: true,
+      service: "MICU",
+      location: "ICU Tower 4",
+    },
+    {
+      residentName: "Ravi Chandrasekaran",
+      pgy: 3,
+      date: plan.shifts[2]!.date,
+      startTime: "07:00",
+      endTime: "19:00",
+      service: "Night Float",
+    },
+  ]);
+
+  /* 4. One of them arrives and finds their schedule already there — the whole
+        point of holding the rows, and the only way a reader of the demo can
+        see that it works without signing in as a stranger. */
+  const arrival = await enrollWithLink(enrollmentLink.token, {
+    subject: `${DEMO_SUBJECT_PREFIX}okonkwo`,
+    email: "ines.okonkwo@demo.invalid",
+    name: "Ines Okonkwo",
+    picture: null,
+  });
+  if (arrival.outcome !== "enrolled") {
+    throw new Error(`The demo's enrollment did not work: ${arrival.reason}`);
+  }
+  const claimedOnArrival = arrival.schedule.createdShifts;
+
+  /* 5. Somebody who joined with an address outside the programme's domain, so the "waiting for you to
+        confirm" queue has somebody in it. They keep their own schedule and see
+        nothing else, which is the state that has to be visible to be trusted. */
+  const outsider = await enrollWithLink(
+    enrollmentLink.token,
+    {
+      subject: `${DEMO_SUBJECT_PREFIX}abara`,
+      email: DEMO_OUTSIDE_EMAIL,
+      name: "Nnamdi Abara",
+      picture: null,
+    },
+    { ip: "203.0.113.7" },
+  );
+  if (outsider.outcome !== "enrolled") {
+    throw new Error(`The demo's pending enrollment did not work: ${outsider.reason}`);
+  }
+
+  /* 6. A shift the resident entered themselves, and one a chief has vouched
+        for — so both provenance labels appear somewhere a person can see them,
+        including on the accept sheet if somebody offers on one. */
+  const outsiderContext = {
+    ...adminContext,
+    user: {
+      ...adminContext.user,
+      id: outsider.user.id,
+      email: outsider.user.email,
+      role: "resident" as const,
+      enrollmentStatus: "pending" as const,
+    },
+    resident: { id: outsider.residentId } as ResidentRow,
+  } as AuthedContext & { resident: ResidentRow };
+
+  const selfEntered = await addOwnShifts(outsiderContext, {
+    /* Two distinct days, derived from the anchor rather than from the plan's
+       shift list — several of those fall on the same date, and a "week" that
+       silently collapsed to one day would under-report what this demonstrates. */
+    dates: [addLocalDays(anchor, 3), addLocalDays(anchor, 4)],
+    startTime: "07:00",
+    endTime: "19:00",
+    service: "Wards",
+    location: "Ward 3B",
+  });
+
+  const toConfirm = await queryOne<{ id: string }>(
+    `SELECT s.id FROM shifts s
+       JOIN shift_assignments sa ON sa.shift_id = s.id AND sa.assignment_status = 'active'
+       JOIN residents r ON r.id = sa.resident_id
+      WHERE r.user_id = $1 AND s.provenance = 'imported'
+      ORDER BY s.start_datetime
+      LIMIT 1`,
+    [arrival.user.id],
+  );
+  if (toConfirm) {
+    await confirmShift(contextFor(program, users, residents, "whitfield"), toConfirm.id);
+  }
+
+  const stillUnmatched = (await listUnmatched(program.id)).length;
 
 
   /* The scheduling foundation: sites, service configuration, coverage, cohorts,
@@ -767,6 +929,31 @@ export async function seedDemoProgram(
     draftShifts: draft.shift_count,
     phones,
     absences,
+    unconfirmedDefaults,
+    unmatchedPeople: stillUnmatched,
+    claimedOnArrival,
+    selfReported: selfEntered.created,
+    pendingMembers: 1,
+    heldRowsImported: heldImport.heldRows,
+    liveShifts: Number(
+      (
+        await queryOne<{ count: string }>(
+          `SELECT count(*)::text AS count FROM shifts
+            WHERE program_id = $1 AND schedule_version_id IS NULL`,
+          [program.id],
+        )
+      )?.count ?? 0,
+    ),
+    residentsWithShifts: Number(
+      (
+        await queryOne<{ count: string }>(
+          `SELECT count(DISTINCT sa.resident_id)::text AS count
+             FROM shift_assignments sa JOIN shifts s ON s.id = sa.shift_id
+            WHERE s.program_id = $1`,
+          [program.id],
+        )
+      )?.count ?? 0,
+    ),
     notifications: Number(
       (
         await queryOne<{ count: string }>(

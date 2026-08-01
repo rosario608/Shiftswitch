@@ -140,6 +140,13 @@ async function main() {
   Phone numbers   ${result.phones}  validated, readable only with residents.contact_info
   Availability    ${result.absences}  one confirmed and clear of the schedule, one confirmed over a shift, one requested
 
+  Onboarding a beta programme, in every state at once:
+  Held rows       ${result.heldRowsImported}  imported for people with no account, of which ${result.claimedOnArrival} were claimed on arrival
+  Still waiting   ${result.unmatchedPeople}  named by the file, has not signed in yet
+  Pending member  ${result.pendingMembers}  joined with an outside address, sees only their own schedule
+  Self-reported   ${result.selfReported}  shifts a resident entered themselves
+  Unconfirmed     ${result.unconfirmedDefaults}  defaults shipped as a guess, generating nothing until checked
+
   Administrator   ${admin.email}
   Chief resident  ${chief.email}
 

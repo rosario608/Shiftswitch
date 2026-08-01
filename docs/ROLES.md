@@ -30,6 +30,7 @@ guess.
 | Capability | What it opens | Resident | Chief | APD | PD | Admin |
 | --- | --- | :-: | :-: | :-: | :-: | :-: |
 | `trade.participate` | Post a shift, offer on one, accept an offer | ● | ● | ● | ● | ● |
+| `shifts.self_report` | Enter and correct one's *own* shifts | ● | ● | ● | ● | ● |
 | `approvals.decide` | The approvals queue | | ● | ● | ● | ● |
 | `schedule.manage` | Create, edit, move, reassign, delete shifts; import | | ● | ● | ● | ● |
 | `schedule.export_program` | Export the whole programme's schedule | | ● | ● | ● | ● |
@@ -43,10 +44,27 @@ guess.
 | `program.manage` | Name, institution, timezone, approved domains | | | | ● | ● |
 | `scheduling.plan` | Cohorts, block years, coverage requirements, draft schedules | | ● | ● | ● | ● |
 | `schedule.publish` | Approve a draft and make it the live schedule | | ● | ● | ● | ● |
+| `shifts.confirm` | Mark a shift confirmed — the programme vouching for it | | ● | ● | ● | ● |
 | `residents.contact_info` | Read a resident's phone number | | ● | ● | ● | ● |
 | `maintenance.run` | Housekeeping: expire stale posts, recompute | | | | | ● |
 
-Three of these deserve a note.
+Five of these deserve a note.
+
+**`shifts.self_report`** and **`shifts.confirm`** are the same subject split by
+who is speaking. A resident typing their own hours is telling the product what
+they believe; a resident marking those hours *confirmed* would be telling the
+programme's other forty people that the programme had checked something it had
+not. So entering and correcting is everybody's, and vouching is not — and an
+imported file cannot confer the authority either: a `Status` of `confirmed`
+uploaded by somebody without `shifts.confirm` lands as an ordinary imported
+shift.
+
+`shifts.self_report` is also the one capability an account still *waiting to be
+confirmed* holds. Somebody who joined by an enrollment link with an address the
+programme has not listed can hold and correct their own schedule and see nothing
+about anybody else. That is a second axis of permission, orthogonal to role, and
+it lives in one function — `allowsWhilePending` in `src/server/auth/guards.ts` —
+so a new screen cannot forget it.
 
 **`scheduling.plan`** is deliberately separate from `schedule.manage`.
 `schedule.manage` is about individual shifts — create one, move one, reassign

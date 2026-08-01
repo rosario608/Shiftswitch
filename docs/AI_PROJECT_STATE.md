@@ -2166,7 +2166,7 @@ token. It has already caught three real defects.
 | What was and was not verified | `VERIFICATION_REPORT.md` |
 | Why Capacitor | `docs/MOBILE_ARCHITECTURE.md` |
 | Server deployment | `docs/DEPLOYMENT.md` |
-| Inviting residents and importing a schedule | `docs/ONBOARDING.md` |
+| Onboarding a program: import, enrollment links, self-entry | `docs/ONBOARDING.md` |
 | The synthetic demo program and its scenarios | `docs/DEMO_DATA.md` |
 | Roles and the permission matrix | `docs/ROLES.md` |
 | Standing rules for every session | `/CLAUDE.md` |

@@ -38,6 +38,11 @@ const GROUPS: Array<{ heading: string; links: NavLink[] }> = [
       { href: "/admin/roster", label: "Roster", capabilities: ["scheduling.plan"] },
       { href: "/admin/directory", label: "Directory", capabilities: ["residents.contact_info"] },
       { href: "/admin/availability", label: "Availability", capabilities: ["scheduling.plan"] },
+      {
+        href: "/admin/enrollment",
+        label: "Getting people in",
+        capabilities: ["invitations.manage"],
+      },
       { href: "/admin/users", label: "Users & roles", capabilities: ["users.manage"] },
       { href: "/admin/cohorts", label: "Cohorts & blocks", capabilities: ["scheduling.plan"] },
     ],
@@ -45,6 +50,11 @@ const GROUPS: Array<{ heading: string; links: NavLink[] }> = [
   {
     heading: "Program setup",
     links: [
+      {
+        href: "/admin/setup",
+        label: "Set up services",
+        capabilities: ["services.manage"],
+      },
       {
         href: "/admin/services",
         label: "Services",

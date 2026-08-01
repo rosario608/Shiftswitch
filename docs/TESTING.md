@@ -145,7 +145,16 @@ never grants a role.
 | Import into an empty/new program | `tests/integration/onboarding.test.ts` |
 | Import writes nothing when one row is bad | `tests/integration/onboarding.test.ts` |
 | Deleting a shift with trade history is refused | `tests/integration/onboarding.test.ts` |
-| Whole onboarding path: invite → accept → import → see shifts → trade | `tests/integration/onboarding.test.ts` |
+| Whole onboarding path: invite → accept → import → see shifts → switch | `tests/integration/onboarding.test.ts` |
+| **The whole beta path**: configure a q3 cycle → import a block naming strangers → issue a link → a stranger joins → finds a schedule waiting → corrects its hours → posts it → a second resident accepts | `tests/integration/beta-path.test.ts` |
+| A row naming somebody without an account is held, not refused | `tests/integration/onboarding.test.ts`, `tests/integration/email-and-admin.test.ts` |
+| Held rows attach on enrollment, and only to the right person | `tests/integration/onboarding.test.ts`, `tests/integration/beta-path.test.ts` ("Nadia Okafor" does not receive "Nadia Osei" shifts) |
+| Two spellings of one name match; two people do not | `tests/unit/held-rows.test.ts` |
+| Enrollment refused: revoked, expired, used up, rate limited | `tests/integration/beta-path.test.ts` |
+| Joining with an unrecognised domain lands pending, sees only itself | `tests/integration/beta-path.test.ts`, `tests/unit/roles.test.ts` (`allowsWhilePending`) |
+| A guessed default generates nothing until somebody confirms it | `tests/integration/starting-configuration.test.ts` |
+| A confirmed default survives re-applying the configuration | `tests/integration/starting-configuration.test.ts` |
+| A cycle read back from the database is an array, not its text | `tests/unit/rotation-cycles.test.ts`, and the defect that produced it was found by `tests/integration/beta-path.test.ts` |
 | Residents and chiefs cannot import or invite | `tests/e2e/security.spec.ts` |
 | Invitations are scoped to one program | `tests/integration/onboarding.test.ts` |
 | Whole lifecycle over HTTP: admin invites, imports, edits, reassigns, deletes; resident posts, offers, accepts | `tests/e2e/lifecycle.spec.ts` |
