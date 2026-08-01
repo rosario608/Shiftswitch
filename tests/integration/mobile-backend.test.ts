@@ -23,6 +23,8 @@ import {
   sendPush,
   setNotificationPreference,
   setPushTransport,
+  sendSelfTestPush,
+  NoopPushTransport,
   unregisterDevice,
   type PushMessage,
   type PushResult,
@@ -689,5 +691,111 @@ describe("account deletion", () => {
     );
     expect(deletionRequest?.status).toBe("completed");
     expect(deletionRequest?.email_at_request).toBe("alice@hospital.org");
+  });
+});
+
+describe("the self-test push a resident can send themselves", () => {
+  /**
+   * The gap this closes: push delivery has never been observed. Everything
+   * above proves the *code* records what the transport said; none of it proves
+   * a notification reached a phone, and nothing run on a build server ever
+   * can. So the product ships the round trip as a button, and these cases pin
+   * what it must report in each of the three states somebody will actually hit.
+   */
+  it("says which transport is in use and reports nothing sent when it is the no-op", async () => {
+    /* The state every development machine and every un-configured deployment
+       is in. It must never look like success: a resident who taps "send me a
+       test notification", sees a tick, and then never gets a notification has
+       been lied to about the one thing they were checking. */
+    setPushTransport(new NoopPushTransport());
+    await registerDevice(alice.user.id, {
+      installId: "install-selftest",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+    });
+
+    const outcome = await sendSelfTestPush(alice.user.id);
+    expect(outcome.transport).toBe("noop");
+    expect(outcome.configured).toBe(false);
+    expect(outcome.results).toHaveLength(1);
+    expect(outcome.results[0].status).toBe("skipped");
+    expect(outcome.results[0].errorCode).toBe("not_configured");
+
+    const deliveries = await query<{ status: string; provider: string }>(
+      "SELECT status, provider FROM push_deliveries",
+    );
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].status).toBe("skipped");
+    expect(deliveries[0].status).not.toBe("sent");
+  });
+
+  it("records an undeliverable notification as failed, never as sent", async () => {
+    /* A configured transport that the platform refuses — the token has expired,
+       the service account has lost its role, FCM is down. The distinction that
+       matters is failed against skipped: skipped means nobody tried, failed
+       means somebody tried and it did not work, and an operator does different
+       things about each. */
+    await registerDevice(alice.user.id, {
+      installId: "install-dead",
+      platform: "android",
+      pushToken: "dead-token-1234567890",
+    });
+    transport.nextResult = { status: "failed", errorCode: "SENDER_ID_MISMATCH" };
+
+    const outcome = await sendSelfTestPush(alice.user.id);
+    expect(outcome.results[0].status).toBe("failed");
+    expect(outcome.results[0].errorCode).toBe("SENDER_ID_MISMATCH");
+
+    const deliveries = await query<{ status: string; error_code: string | null }>(
+      "SELECT status, error_code FROM push_deliveries",
+    );
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].status).toBe("failed");
+    expect(deliveries[0].error_code).toBe("SENDER_ID_MISMATCH");
+  });
+
+  it("retires a token the platform says is dead, so the next attempt is honest too", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-gone",
+      platform: "android",
+      pushToken: "gone-token-1234567890",
+    });
+    transport.nextResult = {
+      status: "failed",
+      errorCode: "UNREGISTERED",
+      permanentFailure: true,
+    };
+    await sendSelfTestPush(alice.user.id);
+
+    const rows = await query<{ push_token: string | null; disabled_at: Date | null }>(
+      "SELECT push_token, disabled_at FROM devices WHERE user_id = $1",
+      [alice.user.id],
+    );
+    expect(rows[0].push_token).toBeNull();
+    expect(rows[0].disabled_at).toBeTruthy();
+
+    /* And the second run reports no devices rather than a second failure,
+       which is the truth: there is nothing left to send to. */
+    const again = await sendSelfTestPush(alice.user.id);
+    expect(again.results).toHaveLength(0);
+  });
+
+  it("reports no devices at all rather than pretending there was nothing to do", async () => {
+    const outcome = await sendSelfTestPush(alice.user.id);
+    expect(outcome.results).toEqual([]);
+    /* An empty list is not a pass. The screen turns this into "this phone has
+       not registered for notifications yet", which is a different instruction
+       from "notifications are not configured on the server". */
+  });
+
+  it("only ever targets the caller's own devices", async () => {
+    await registerDevice(bob.user.id, {
+      installId: "bob-install",
+      platform: "ios",
+      pushToken: "bob-token-1234567890",
+    });
+    const outcome = await sendSelfTestPush(alice.user.id);
+    expect(outcome.results).toEqual([]);
+    expect(transport.sent).toHaveLength(0);
   });
 });

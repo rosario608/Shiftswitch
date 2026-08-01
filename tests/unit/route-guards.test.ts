@@ -169,6 +169,7 @@ const EXPECTED: Record<string, Capability | "session" | "resident"> = {
   /* Any signed-in account, deliberately including one with no role yet: a
      person waiting to be configured still needs to be told when they are. */
   "devices": "session",
+  "devices/self-test": "session",
   "emails/[emailId]": "session",
   "emails/[emailId]/status": "session",
   "notifications": "session",

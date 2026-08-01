@@ -27,23 +27,82 @@ export type ApiErrorCode =
   | "internal"
   | "network";
 
+/**
+ * Whether the request reached the server, as far as anybody can tell.
+ *
+ * The web client has carried this since the resilience work; the native client
+ * did not, and told a resident an interrupted action had *failed* when it may
+ * well have succeeded. That is the one wrong answer here: somebody told their
+ * offer failed will make it again, and a duplicate offer on a shift that has
+ * already been accepted is the state the whole trade lifecycle exists to
+ * prevent.
+ *
+ * - `"no"`  — the phone knew it was offline; nothing left it, nothing changed.
+ * - `"unknown"` — it left, and no answer came back. Reload before retrying.
+ * - `"yes"` — the server answered, whatever the answer was.
+ */
+export type Delivery = "no" | "unknown" | "yes";
+
 export class ApiError extends Error {
   readonly code: ApiErrorCode;
   readonly status: number;
   readonly details: unknown;
+  readonly delivery: Delivery;
 
-  constructor(code: ApiErrorCode, message: string, status = 0, details?: unknown) {
+  constructor(
+    code: ApiErrorCode,
+    message: string,
+    status = 0,
+    details?: unknown,
+    delivery: Delivery = "yes",
+  ) {
     super(message);
     this.name = "ApiError";
     this.code = code;
     this.status = status;
     this.details = details;
+    this.delivery = delivery;
   }
 
   /** True when retrying the same request could plausibly succeed. */
   get retryable(): boolean {
     return this.code === "network" || this.code === "offline" || this.status >= 500;
   }
+
+  /** True when nobody knows whether this happened. Never offer a plain retry. */
+  get uncertain(): boolean {
+    return this.delivery === "unknown";
+  }
+}
+
+/**
+ * What to say when `fetch` itself did not complete, and how certain to be.
+ *
+ * Split out and exported because it is the one piece of the offline design that
+ * can be checked on a device without severing the network: the self-test calls
+ * it directly and asserts that a drop while online is reported as *unknown*
+ * rather than as a failure. A check that cannot be run is a claim, not a check.
+ */
+export function networkFailure(online: boolean): ApiError {
+  if (!online) {
+    return new ApiError(
+      "offline",
+      "You\u2019re offline, so this didn\u2019t happen \u2014 nothing was sent and nothing has changed.",
+      0,
+      undefined,
+      "no",
+    );
+  }
+  /* Online as far as the phone knows, and the request still did not complete.
+     On hospital wifi this is the common case, and it is genuinely uncertain:
+     `fetch` cannot say whether the bytes arrived. */
+  return new ApiError(
+    "network",
+    "The connection dropped before ShiftSwitch could confirm this. It may or may not have gone through \u2014 pull down to refresh and see where things stand before trying again.",
+    0,
+    undefined,
+    "unknown",
+  );
 }
 
 type TokenReader = () => string | null;
@@ -89,11 +148,12 @@ export async function request<T>(
       credentials: "omit",
     });
   } catch (error) {
+    /* A deliberate abort is rethrown untouched. The caller aborted, so the
+       caller already knows — `useResource` cancels every in-flight read when a
+       screen unmounts, and turning that into an error would put a banner on
+       every screen somebody navigates away from quickly. */
     if (error instanceof DOMException && error.name === "AbortError") throw error;
-    throw new ApiError(
-      "network",
-      "You appear to be offline. Check your connection and try again.",
-    );
+    throw networkFailure(navigator.onLine);
   }
 
   if (response.status === 204) return undefined as T;

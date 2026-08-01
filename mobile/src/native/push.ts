@@ -37,6 +37,24 @@ export function setPushRouteHandler(handler: RouteHandler): void {
   routeHandler = handler;
 }
 
+const receivedListeners = new Set<() => void>();
+
+/**
+ * Called whenever a notification arrives while the app is in the foreground.
+ * Returns the unsubscribe function. Used by the self-test to prove the whole
+ * chain — server, Apple or Google, this handset — rather than just the half of
+ * it a server can see.
+ */
+/** The token this installation last registered, if any. Read-only view. */
+export function pushTokenValue(): string | null {
+  return currentToken;
+}
+
+export function onPushReceived(listener: () => void): () => void {
+  receivedListeners.add(listener);
+  return () => void receivedListeners.delete(listener);
+}
+
 async function describeDevice() {
   const platform = Capacitor.getPlatform();
   const info = native ? await Device.getInfo().catch(() => null) : null;
@@ -141,6 +159,15 @@ export async function initPush(): Promise<void> {
     // The device simply will not receive push. In-app notifications still
     // work, and Settings shows the real state rather than claiming success.
     currentToken = null;
+  });
+
+  /* Arrival, as opposed to being tapped. Nothing in the product needed this
+     until the self-test: it is the only way to answer "did a notification
+     actually reach this phone" from inside the app, which is the one question
+     no build server can answer. Foreground only, which is why the self-test
+     tells the resident to keep the screen open while it waits. */
+  await PushNotifications.addListener("pushNotificationReceived", () => {
+    for (const listener of receivedListeners) listener();
   });
 
   await PushNotifications.addListener(

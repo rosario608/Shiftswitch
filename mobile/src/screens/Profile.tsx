@@ -147,6 +147,17 @@ export function ProfileScreen() {
         </section>
 
         <div className="space-y-2">
+          {/* Above sign-out on purpose. Somebody whose notifications are not
+              arriving is looking for something to do about it, and the answer
+              has to be in the shipping build — asking a resident on a ward to
+              install a different one is asking them to give up. */}
+          <Button
+            block
+            variant="secondary"
+            onClick={() => navigate("/settings/self-test")}
+          >
+            Check this phone
+          </Button>
           <Button block variant="secondary" onClick={() => setConfirmSignOut(true)}>
             Sign out
           </Button>

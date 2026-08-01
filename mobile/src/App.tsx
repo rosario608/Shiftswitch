@@ -34,6 +34,7 @@ import { SwitchDetailScreen } from "@/screens/SwitchDetail";
 import { ApprovalsScreen } from "@/screens/Approvals";
 import { NotificationsScreen } from "@/screens/Notifications";
 import { ProfileScreen } from "@/screens/Profile";
+import { SelfTestScreen } from "@/screens/SelfTest";
 import { DeleteAccountScreen } from "@/screens/DeleteAccount";
 
 export function App() {
@@ -243,6 +244,7 @@ function Shell() {
             />
             <Route path="/profile" element={<ProfileScreen />} />
             <Route path="/settings" element={<ProfileScreen />} />
+            <Route path="/settings/self-test" element={<SelfTestScreen />} />
             <Route
               path="/settings/delete-account"
               element={<DeleteAccountScreen />}
