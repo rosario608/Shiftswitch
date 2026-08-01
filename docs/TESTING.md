@@ -244,6 +244,11 @@ never grants a role.
 | Every response carries a request id a resident can read out, including a refusal | `tests/e2e/resilience.spec.ts` |
 | An error report carries no name, address, phone number or connection string | `tests/unit/health.test.ts`, `tests/e2e/resilience.spec.ts` |
 | The diagnostic page is reachable by an administrator and by nobody else, and prints a copyable verdict | `tests/e2e/resilience.spec.ts`, `tests/unit/route-guards.test.ts` |
+| The product never says "trade" or "swap" where anybody can read it | `tests/unit/vocabulary.test.ts` |
+| Posting, offering and accepting each cost at most two taps from a cold open | `tests/e2e/taps.spec.ts` |
+| Nothing scrolls sideways at 320 CSS pixels, the narrowest phone still shipping | `tests/e2e/mobile-ux.spec.ts` |
+| Heading, secondary text and the primary button meet 4.5:1, measured from rendered pixels | `tests/e2e/mobile-ux.spec.ts` |
+| Every empty state a resident reaches carries a way forward | `tests/e2e/mobile-ux.spec.ts` |
 
 ---
 

@@ -3,8 +3,17 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 1 August 2026, after making **failure invisible to residents and
-self-reporting to the operator**: an error boundary on every route, a mid-flight
+Last updated: 1 August 2026, after **the deliberate design pass this product had
+never had**: one word for the exchange (*switch*) enforced by a test that fails
+on the rejected ones, every resident flow cut to two taps and the numbers
+recorded, screens whose heading is the answer rather than the name of the
+section, empty states that teach the next action, and the twelve questions the
+five roles arrive with written down with what answers each. The bar was
+adoption — a resident preferring this to the group chat — rather than whether a
+screen works.
+
+Before that, making **failure invisible to residents and self-reporting to the
+operator**: an error boundary on every route, a mid-flight
 mutation reported as *uncertain* rather than failed, reads that degrade to a
 labelled last-known state, a startup schema gate that refuses rather than fails
 halfway, structured error reports carrying a release, a route, a role and a
@@ -1250,6 +1259,16 @@ migration `0005`.
   suite, a static guard sweep over every route handler, and a consistency
   check reformulated to be sound rather than merely strict. No migration.
   See **Audit, 1 August 2026**.
+- **The design pass** — one vocabulary (*switch*, at every stage) enforced
+  across the UI, notifications, rule failures, route paths and the native
+  client by `tests/unit/vocabulary.test.ts`, which fails on the rejected words;
+  every resident flow measured in a real browser and cut to two taps; headings
+  that state the answer rather than name the section, on the resident home, the
+  switch board, the admin landing and analytics; a single waiting offer decided
+  without leaving the home screen; empty states that teach the next action; the
+  twelve questions the five roles arrive with recorded with what answers each;
+  and two ergonomics tests the suite lacked — 320 CSS pixels, and contrast
+  measured from rendered pixels. No migration. See **Decisions**.
 - **Resilience and self-reporting** — every failure path enumerated by walking
   the code (`docs/FAILURE_PATHS.md`, 26 numbered paths across six areas) and
   given a designed outcome:
