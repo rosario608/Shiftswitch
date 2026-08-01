@@ -14,6 +14,7 @@ import {
 } from "@/server/auth/session";
 import { createHandoffCode, nativeCallbackUrl } from "@/server/auth/native";
 import { acceptInvitation } from "@/server/domain/invitations";
+import { enrollWithLink } from "@/server/domain/enrollment";
 import { logger } from "@/server/observability/logger";
 
 export const dynamic = "force-dynamic";
@@ -108,6 +109,49 @@ export async function GET(request: Request) {
         via: "invitation",
       });
       return NextResponse.redirect(new URL("/", request.url));
+    }
+
+    /*
+     * An enrollment link is the other way somebody arrives with a program
+     * already decided. Unlike an invitation it names no address, so it cannot
+     * check one — what it does instead is admit an address inside the
+     * programme's own domains outright and let everybody else in *pending*,
+     * seeing only their own schedule until somebody confirms them.
+     *
+     * Either way they land on a schedule rather than an empty screen: whatever
+     * the programme's imported file said about them was held under their name
+     * and is attached in the same transaction that creates their account.
+     */
+    if (stored.enrollToken) {
+      const joined = await enrollWithLink(
+        stored.enrollToken,
+        {
+          subject: identity.subject,
+          email: identity.email,
+          name: identity.name,
+          picture: identity.picture,
+        },
+        { ip: request.headers.get("x-forwarded-for") ?? undefined },
+      );
+
+      if (joined.outcome === "refused") {
+        logger.warn("auth.enroll_refused", { reason: joined.reason });
+        return loginRedirect(request, { error: `enroll_${joined.reason}` });
+      }
+
+      await createSession(joined.user.id, {
+        userAgent: request.headers.get("user-agent"),
+        ip: request.headers.get("x-forwarded-for"),
+      });
+      logger.info("auth.login", {
+        userId: joined.user.id,
+        client: "web",
+        via: "enrollment",
+      });
+      /* Straight to the welcome, which is the one screen that says what just
+         happened: how many shifts were waiting, and whether they are waiting
+         to be confirmed. */
+      return NextResponse.redirect(new URL("/welcome", request.url));
     }
 
     const result = await provisionUserFromIdentity(identity);

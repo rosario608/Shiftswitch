@@ -126,24 +126,29 @@ which is exactly what you want it to say while you decide what to do next.
 The `CI` workflow runs typecheck, lint, the unit and integration suites, a
 production build, and both end-to-end suites on every pull request.
 
-**This needs to be made a required check once, by hand** — it is a repository
-setting, not a file, so no session can do it:
+**This needs to be turned on once, by hand.** Creating it from a session was
+attempted on 1 August 2026 and refused: `POST /repos/…/rulesets` returns **403 —
+"Write access to this GitHub API path is not permitted through this proxy."**
+Nothing was created.
 
-> **GitHub → the repository → Settings → Rules → Rulesets → New branch ruleset**
-> Target `main`; enable **Require status checks to pass**; add these four by
-> name:
->
-> - `Typecheck, lint, tests, build`
-> - `End-to-end`
-> - `Client — typecheck, lint, tests, build`
-> - `Native client — end-to-end`
->
-> Also enable **Require a pull request before merging**, so nothing reaches
-> `main` without going through the checks at all.
+So the ruleset is committed as a file instead, and turning it on is an import
+rather than a form:
 
-Until that is done, CI *runs* on every pull request and reports its verdict —
-but nothing stops somebody merging past a red one. Listed under **User action
-required** in `docs/AI_PROJECT_STATE.md`.
+> **GitHub → the repository → Settings → Rules → Rulesets → New ruleset →
+> Import a ruleset**, and choose
+> `.github/rulesets/main-pull-request-and-green-ci.json`.
+
+It requires a pull request, requires the four CI checks by their exact names,
+and blocks deletion and force-pushes on `main`. `.github/rulesets/README.md`
+says why each part is there, including why it asks for **zero** approvals — a
+rule that cannot be satisfied on a one-person repository is a rule that gets
+switched off, and a rule that is switched off protects nothing.
+
+Until it is on, CI *runs* on every pull request and reports its verdict, and
+nothing stops somebody merging past a red one — or pushing straight to `main`,
+which now reaches production having passed nothing at all, because
+`apply-migrations.yml` applies migrations whenever CI passes there. Row 1 under
+**User action required** in `docs/AI_PROJECT_STATE.md`.
 
 ---
 

@@ -130,7 +130,26 @@ const EXPECTED: Record<string, Capability | "session" | "resident"> = {
   "admin/coverage": "scheduling.plan",
   "admin/coverage/[coverageId]": "scheduling.plan",
   "admin/export": "session",
+  /* A resident's own schedule. Its own capability so that an account waiting
+     to be confirmed can still put its week in — see PENDING_MAY in guards.ts. */
+  "shifts/mine": "shifts.self_report",
+  "shifts/[shiftId]/correct": "shifts.self_report",
+  "shifts/[shiftId]/confirm": "shifts.confirm",
+  /* The shape of the programme's year belongs to whoever builds the schedule,
+     which in most programmes is a chief resident rather than the PD. */
+  "admin/cycles/exceptions": "scheduling.plan",
+  "admin/cycles/exceptions/[id]": "scheduling.plan",
+  "admin/starting-configuration": "services.manage",
+  "admin/starting-configuration/confirm": "services.manage",
+  "admin/enrollment/domains": "program.manage",
+  "admin/enrollment/links": "invitations.manage",
+  "admin/enrollment/links/[id]/revoke": "invitations.manage",
+  /* Admitting somebody changes who they are in the program, which is user
+     management — not whoever happened to hand out the link. */
+  "admin/enrollment/members/[id]/admit": "users.manage",
   "admin/import": "schedule.manage",
+  "admin/import/unmatched": "schedule.manage",
+  "admin/import/unmatched/[key]": "schedule.manage",
   "admin/import/template": "schedule.manage",
   "admin/invitations": "invitations.manage",
   "admin/invitations/[invitationId]": "invitations.manage",

@@ -8,6 +8,8 @@ import { listCorrections, todayIn } from "@/server/domain/schedule-corrections";
 import { loadWorkspace } from "@/server/domain/schedule-workspace";
 import { listScheduleVersions } from "@/server/domain/schedule-versions";
 import { MaintenanceButton } from "@/components/app/admin-actions";
+import { countPendingMembers } from "@/server/domain/enrollment";
+import { countUnmatched } from "@/server/domain/held-rows";
 import { fmtDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +35,16 @@ export const metadata = { title: "Administration" };
 export default async function AdminHomePage() {
   const context = await requirePageCapability("audit.view");
   const allows = (capability: Capability) => can(context.user.role, capability);
+  /* Two queues that nobody goes looking for and that quietly break somebody's
+     week if they are left: an account waiting to be confirmed, and a block
+     nobody can be given. Surfaced here because this is the screen a chief opens
+     in the morning, and neither has anywhere else it would be seen. */
+  const pendingMembers = allows("invitations.manage")
+    ? await countPendingMembers(context.program.id)
+    : 0;
+  const waitingShifts = allows("schedule.manage")
+    ? await countUnmatched(context.program.id)
+    : 0;
 
   const analytics = await getProgramAnalytics(context.program.id);
 
@@ -147,6 +159,26 @@ export default async function AdminHomePage() {
           href="/admin/analytics"
         />
       </div>
+
+      {allows("invitations.manage") && (pendingMembers > 0 || waitingShifts > 0) ? (
+        <Alert
+          tone="warning"
+          title={
+            pendingMembers > 0
+              ? `${pendingMembers} ${pendingMembers === 1 ? "person is" : "people are"} waiting for you to confirm them`
+              : `${waitingShifts} shift${waitingShifts === 1 ? "" : "s"} are waiting for people who have not signed in`
+          }
+        >
+          <p className="mt-1">
+            {pendingMembers > 0
+              ? "Until you do, they can see their own schedule but cannot post a shift or offer on anybody else's."
+              : "They appear on their own the moment those people sign in. Nothing to do unless somebody is not coming."}
+          </p>
+          <Link href="/admin/enrollment" className="mt-1 inline-block font-semibold underline">
+            Getting people in
+          </Link>
+        </Alert>
+      ) : null}
 
       {corrections.length > 0 ? (
         <section>

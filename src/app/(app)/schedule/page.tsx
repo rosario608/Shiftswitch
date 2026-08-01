@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Download } from "lucide-react";
+import { CalendarPlus, Download } from "lucide-react";
 import { Card, CardBody } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ShiftCard } from "@/components/app/shift-card";
@@ -75,11 +75,18 @@ export default async function SchedulePage({
       </header>
 
       <Card>
-        <CardBody>
+        <CardBody className="space-y-2">
           <PostShiftButton
             shifts={postable.map((shift) => toShiftView(shift, timezone))}
             label="Post a shift"
           />
+          <Link
+            href="/schedule/add"
+            className="flex min-h-[2.75rem] items-center justify-center gap-1.5 rounded-xl border border-border-strong px-4 text-sm font-semibold text-ink"
+          >
+            <CalendarPlus className="h-4 w-4" aria-hidden="true" />
+            Add shifts myself
+          </Link>
         </CardBody>
       </Card>
 
@@ -105,20 +112,23 @@ export default async function SchedulePage({
       </div>
 
       {shifts.length === 0 ? (
+        /* Nobody lands empty. If the program has not uploaded a schedule yet,
+           the useful thing is not a tour of somebody else's shifts — it is the
+           ability to put in what they are actually working, today. */
         <EmptyState
           title={showPast ? "No shifts on record" : "Nothing scheduled yet"}
           description={
             showPast
               ? "Shifts you have already worked will be listed here."
-              : "When your program publishes the schedule your shifts appear here. In the meantime you can see what colleagues have posted."
+              : "Your program has not uploaded your block yet. Add what you are working and it is yours straight away — when they do upload it, anything they send lands here too."
           }
           action={
             showPast ? undefined : (
               <Link
-                href="/switches"
+                href="/schedule/add"
                 className="inline-flex min-h-[2.75rem] items-center rounded-xl bg-brand px-4 font-semibold text-white"
               >
-                See shifts you can take
+                Add my shifts
               </Link>
             )
           }

@@ -45,6 +45,23 @@ load" and "the database is down" are the same event to a resident.
 | B5 | **Any of the above, from a resident's point of view** | Every response now carries `x-request-id`, echoed in the error body and shown on screen. A resident can read six characters down the phone and the operator can find the exact log line. |
 | B6 | A query against a **drifted schema** | Detected before it is attempted: the affected routes refuse with `schema_drift` naming the missing migration, rather than surfacing `column … does not exist` as a 500. |
 
+## B′. Getting into a program
+
+The paths a person meets before they have an account, where there is no session
+to attribute anything to and no screen they can be sent back to.
+
+| # | Path | Designed outcome |
+|---|---|---|
+| G1 | An enrollment link that is expired, revoked, used up, or simply wrong | One neutral message on `/join/<token>`: *"This link isn't working… ask your chief for a new one."* The four causes are deliberately **not** distinguished on a public page — telling an unauthenticated visitor which of them applies only helps somebody guessing tokens. The distinction is kept in `enrollment_events` where the administrator can read it. |
+| G2 | Somebody working through addresses against one link | Rate limited per **link**, not per address: the attacker uses a new address each time, so counting per address would count the wrong thing. Thirty attempts in ten minutes and the link stops answering; the refusals are recorded. |
+| G3 | A link opened by somebody already in a different program | Refused, and told to sign out first — rather than silently moving their account and their schedule to somebody else's programme. |
+| G4 | Somebody joining with an address the program has not listed | **Not** refused. They join *pending*: their own schedule, nothing else, until somebody confirms them. Refusing would send a real resident away at the one moment they were willing to sign up. |
+| G5 | Two enrollments racing — the same person on a phone and a laptop | One transaction each, `FOR UPDATE` on the link and on the user row, and held rows claimed with `FOR UPDATE SKIP LOCKED`. One of them creates the account; neither produces a duplicate shift. |
+| G6 | An import naming somebody who never signs in | Their rows stay held, visible under **Admin → Getting people in** with the name the file used, indefinitely. An administrator who recognises them as nobody discards them, and the discard is audited with the name and the count. |
+| G7 | An import naming two residents whose names normalise the same | Neither is matchable by name; both stay held under the names the file used. Matching one of them would put a resident's call on somebody else's phone, which is worse than either row waiting. |
+| G8 | A resident correcting a shift that is posted for a switch | Refused, naming the reason: whoever offered on it did so against what it said at the time. Take the post down, then correct it. |
+| G9 | A guessed default that nobody ever confirms | Nothing is generated from it, ever. The importer reports the blank row and names the hours it would have used; `/admin/setup` lists it until somebody acts. Silence here is safe by construction rather than by anybody remembering. |
+
 ## C. Mutations from the client
 
 `apiFetch` → `useAction` is the single funnel for every write.

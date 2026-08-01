@@ -19,6 +19,8 @@ export async function GET(request: Request) {
   // Started from an invitation link. The token is validated on the way back;
   // carrying it here just keeps it attached across the round trip to Google.
   const inviteToken = url.searchParams.get("invite") ?? undefined;
+  // Started from an enrollment link — the one a chief posts to a whole class.
+  const enrollToken = url.searchParams.get("enroll") ?? undefined;
   const rawReturnTo = url.searchParams.get("returnTo") ?? "/";
   // Only same-origin relative paths may be used as a post-login destination.
   const returnTo = rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//")
@@ -37,6 +39,7 @@ export async function GET(request: Request) {
       returnTo,
       nativeChallenge,
       inviteToken,
+      enrollToken,
     });
     return NextResponse.redirect(
       buildAuthorizationUrl(config, { state, nonce, codeVerifier }),

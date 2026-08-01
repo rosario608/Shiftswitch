@@ -66,6 +66,13 @@ export interface UserRow {
   role: UserRole | null;
   program_id: string | null;
   active: boolean;
+  /**
+   * `confirmed` for every account that was invited or created by leadership.
+   * `pending` only for somebody who joined by an enrollment link without a
+   * recognised email domain: they hold their own schedule and see nothing about
+   * anybody else until admitted.
+   */
+  enrollment_status: "confirmed" | "pending";
   last_login_at: Date | null;
   created_at: Date;
   updated_at: Date;
@@ -114,9 +121,30 @@ export interface ShiftRow {
   approval_required: boolean;
   trade_deadline: Date | null;
   status: ShiftStatus;
+  /**
+   * Where this shift came from. It governs *disclosure*, not function: all four
+   * switch, and both parties see both sides' status before accepting, because a
+   * resident deciding whether to take somebody's Saturday is entitled to know
+   * whether the program confirmed it or the person typed it in themselves.
+   */
+  provenance: ShiftProvenance;
+  position_id: string | null;
+  team_id: string | null;
+  confirmed_by: string | null;
+  confirmed_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
+
+export type ShiftProvenance =
+  /** Generated from a pattern or a template. A placeholder until somebody says otherwise. */
+  | "provisional"
+  /** The resident entered or corrected it. */
+  | "self_reported"
+  /** It came from a file the program supplied. */
+  | "imported"
+  /** Somebody with the authority has vouched for it. */
+  | "confirmed";
 
 export interface ShiftAssignmentRow {
   id: string;

@@ -9,6 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "db:migrate": "tsx scripts/migrate.ts",
+    "db:migrate:ci": "tsx scripts/apply-migrations-ci.ts",
+    "check:migration-pipeline": "tsx scripts/check-migration-pipeline.ts",
     "db:reset": "tsx scripts/migrate.ts --reset",
     "db:seed": "tsx scripts/seed.ts",
     "db:setup": "npm run db:reset && npm run db:seed",

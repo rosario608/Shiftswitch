@@ -104,7 +104,10 @@ test("the administrator imports a block, reviews it, and can back out", async ({
   expect(template.ok()).toBe(true);
   expect(template.headers()["content-type"]).toContain("text/csv");
   const templateText = await template.text();
-  expect(templateText.split("\r\n")[0]).toContain("Email");
+  /* The interchange format's first column. It is `Resident` rather than `Email`
+     because a published residency schedule names people, and a file that names
+     somebody without an account is now held rather than refused. */
+  expect(templateText.split("\r\n")[0]).toContain("Resident");
 
   const csv = [
     "Email,Date,Start time,End time,Ends next day,Service,Shift type,Location",
@@ -220,12 +223,48 @@ test("a malformed file is refused with a reason and writes nothing", async ({ pa
   expect(preview.issues.length).toBeGreaterThan(0);
   expect(preview.rows).toHaveLength(0);
 
-  // A row naming somebody who is not in the program.
-  const unknown = await page.request.post("/api/admin/import", {
+  // A row that does not describe a shift: no service.
+  const noService = await page.request.post("/api/admin/import", {
     data: {
       rows: [
         {
-          residentEmail: "ghost@hospital.org",
+          residentEmail: ACCOUNTS.alice,
+          date: FUTURE.day(3),
+          startTime: "07:00",
+          endTime: "19:00",
+          service: "",
+        },
+      ],
+    },
+  });
+  expect(noService.status()).toBe(422);
+
+  const after = await (
+    await page.request.get(
+      `/api/admin/shifts?from=${FUTURE.day(3)}&to=${FUTURE.day(4)}`,
+    )
+  ).json();
+  expect(after.shifts).toHaveLength(0);
+});
+
+test("a row naming somebody who has not joined is held, not refused", async ({
+  page,
+}) => {
+  /* This used to be the third case in the test above, asserting a 422 and the
+     message "not in your program". It is no longer an error at all: a programme
+     has its block file before its residents have accounts, and refusing the
+     file made the only workable order invite-forty-people-then-import.
+
+     Asserted here as well as in the integration suite because the route is what
+     the import screen actually calls, and "held rather than refused" is a
+     promise made on that screen. */
+  await signIn(page, ACCOUNTS.admin);
+
+  const held = await page.request.post("/api/admin/import", {
+    data: {
+      rows: [
+        {
+          residentName: "Nobody Has Joined",
           date: FUTURE.day(3),
           startTime: "07:00",
           endTime: "19:00",
@@ -234,15 +273,29 @@ test("a malformed file is refused with a reason and writes nothing", async ({ pa
       ],
     },
   });
-  expect(unknown.status()).toBe(422);
-  expect((await unknown.json()).error.message).toMatch(/not in your program/i);
+  expect(held.ok()).toBe(true);
+  const { result } = await held.json();
+  expect(result.createdShifts).toBe(0);
+  expect(result.heldRows).toBe(1);
 
+  // Nothing landed on the live schedule…
   const after = await (
     await page.request.get(
       `/api/admin/shifts?from=${FUTURE.day(3)}&to=${FUTURE.day(4)}`,
     )
   ).json();
   expect(after.shifts).toHaveLength(0);
+
+  // …and the administrator can see whose it is, by the name the file used.
+  const unmatched = await (
+    await page.request.get("/api/admin/import/unmatched")
+  ).json();
+  expect(
+    unmatched.unmatched.some(
+      (person: { resident_name: string }) =>
+        person.resident_name === "Nobody Has Joined",
+    ),
+  ).toBe(true);
 });
 
 test("the administrator edits, reassigns and deletes an imported shift", async ({

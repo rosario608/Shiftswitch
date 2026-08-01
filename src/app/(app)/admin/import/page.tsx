@@ -14,9 +14,15 @@ export const metadata = { title: "Import schedule" };
  */
 const COLUMNS: Array<{ name: string; required: boolean; notes: string }> = [
   {
-    name: "Email",
+    name: "Resident",
     required: true,
-    notes: "The resident's address, exactly as it appears under Users.",
+    notes:
+      "Their name, their email address, or both. A name is enough — “Osei, Nadia” and “Nadia Osei” are read as the same person.",
+  },
+  {
+    name: "PGY",
+    required: false,
+    notes: "Ignored if the resident already has a training level.",
   },
   {
     name: "Date",
@@ -24,14 +30,15 @@ const COLUMNS: Array<{ name: string; required: boolean; notes: string }> = [
     notes: "YYYY-MM-DD or MM/DD/YYYY. The day the shift starts.",
   },
   {
-    name: "Start time",
+    name: "Start",
     required: true,
-    notes: "24-hour (07:00) or 12-hour (7:00 am). Also accepts “Start”.",
+    notes:
+      "24-hour (07:00) or 12-hour (7:00 am). Also accepts “Start time”. Can be left blank only when the position has confirmed hours.",
   },
   {
-    name: "End time",
+    name: "End",
     required: true,
-    notes: "Same formats. Also accepts “End”.",
+    notes: "Same formats. Also accepts “End time”.",
   },
   {
     name: "Ends next day",
@@ -51,9 +58,10 @@ const COLUMNS: Array<{ name: string; required: boolean; notes: string }> = [
   },
   { name: "Location", required: false, notes: "Free text, e.g. ICU Tower 4." },
   {
-    name: "PGY",
+    name: "Status",
     required: false,
-    notes: "Ignored if the resident already has a training level.",
+    notes:
+      "confirmed, draft or cancelled. A cancelled row creates nothing. A word this does not recognise is reported and the row imports normally.",
   },
 ];
 
@@ -65,7 +73,8 @@ export default async function ImportPage() {
         <h1 className="text-2xl font-semibold text-ink">Import schedule</h1>
         <p className="mt-1 text-sm text-ink-muted">
           Times are interpreted in {context.program.timezone}. Nothing is written
-          until the whole file validates.
+          until the whole file validates. People it names who have not joined
+          yet are kept, not dropped.
         </p>
       </header>
 
@@ -113,9 +122,9 @@ export default async function ImportPage() {
           <div>
             <p className="font-semibold text-ink">Example</p>
             <pre className="mt-2 overflow-x-auto rounded-lg bg-surface-muted p-3 text-xs">
-{`Email,Date,Start time,End time,Ends next day,Service,Rotation,Shift type,Location
-resident01@hospital.org,2026-09-01,07:00,19:00,no,MICU,Critical Care,day,ICU Tower 4
-resident02@hospital.org,2026-09-01,19:00,07:00,yes,MICU,Critical Care,night,ICU Tower 4`}
+{`Resident,PGY,Date,Start,End,Service,Rotation,Shift type,Location,Status
+Nadia Osei,2,2026-09-01,07:00,19:00,MICU,Critical Care,day,ICU Tower 4,confirmed
+Tom Reyes,3,2026-09-01,19:00,07:00,MICU,Critical Care,night,ICU Tower 4,confirmed`}
             </pre>
           </div>
 
@@ -125,8 +134,9 @@ resident02@hospital.org,2026-09-01,19:00,07:00,yes,MICU,Critical Care,night,ICU 
               day” set — it is stored as one shift, never two.
             </li>
             <li>
-              Residents are matched by email address, so invite them first. A row
-              for somebody who is not in the program yet stops the whole import.
+              You do not have to invite anybody first. Rows for people who have
+              not joined are <strong>kept</strong>, listed here as waiting, and
+              appear on their schedule the first time they sign in.
             </li>
             <li>
               Services and rotations are created automatically if they do not
@@ -135,6 +145,10 @@ resident02@hospital.org,2026-09-01,19:00,07:00,yes,MICU,Critical Care,night,ICU 
             <li>
               Importing the same file twice does not duplicate anything —
               identical shifts are recognised and skipped.
+            </li>
+            <li>
+              An overnight row still needs its end time; “Ends next day” is
+              inferred when the end is at or before the start.
             </li>
           </ul>
         </CardBody>

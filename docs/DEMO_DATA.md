@@ -16,6 +16,28 @@ real person. No message sent to one can leave the machine.
 
 ---
 
+## Onboarding a beta programme
+
+The demo also carries every state a programme is in during its first fortnight,
+because each of them has a screen that is empty and untestable without it. All
+of it is produced by the same domain functions a coordinator's taps call.
+
+| What | Where to see it |
+| --- | --- |
+| A starting configuration applied, with its guesses still marked as guesses | **Admin → First-time setup** — the list of defaults nobody has confirmed |
+| A live enrollment link | **Admin → Getting people in** |
+| Three imported rows for people with no account, two of them since claimed | The same screen, "shifts waiting for" |
+| Somebody who arrived and found their schedule already there | Ines Okonkwo's schedule |
+| Somebody who joined with a personal address and is waiting to be confirmed | Nnamdi Abara, in the "waiting for you" queue |
+| Two shifts a resident entered themselves | Nnamdi Abara's schedule, labelled "You entered this" |
+| A shift a chief has vouched for | Ines Okonkwo's, labelled "Confirmed by your program" |
+
+Ines Okonkwo's account is the one worth opening first: she was named by the
+import before she had an account, and her shifts appeared the moment she
+enrolled. That is the whole reason held rows exist, and it is the only way to
+see it work without signing in as a stranger.
+
+
 ## Safety
 
 The demo commands refuse to run unless the environment positively says it is not

@@ -1,15 +1,43 @@
 # Onboarding a program
 
-How a residency programme goes from an empty database to residents swapping
-shifts on their phones. Two things have to happen, in this order:
+How a residency programme goes from an empty database to residents switching
+shifts on their phones.
 
-1. **Invite the people.** Each resident gets a link, signs in with Google, and
-   is attached to your program.
-2. **Import the schedule.** The importer matches every row to a person **by
-   email address**, so the accounts have to exist first.
+**There is no required order, and there is no waiting.** The two things below
+can happen in either sequence, weeks apart, and neither blocks the other:
 
-Doing it the other way round is not fatal — rows for unknown addresses are
-reported and nothing is written — but it means importing twice.
+- **Import the schedule.** Rows naming people who have no account are *held* —
+  parsed, validated, and stored — and turned into real shifts the moment that
+  person signs in. A file naming forty residents of whom six have joined loses
+  nothing.
+- **Get the people in.** One enrollment link, posted wherever your residents
+  already talk, or individual invitations by name where you need a specific
+  role.
+
+Anybody who arrives before their block does can enter their own shifts and use
+the product the same day.
+
+This used to read "invite everybody, then import" — because the importer
+refused any file naming an address it did not have. That order is the wrong way
+round for a programme that has the file today and whose residents arrive over
+the following fortnight, and it is no longer the order.
+
+---
+
+## The fastest path
+
+For a coordinator with a spreadsheet and an afternoon:
+
+1. **Admin → First-time setup.** Pick your starting configuration and the
+   academic year. Then check the things it says it guessed — a default nobody
+   has confirmed fills in nothing, on purpose.
+2. **Admin → Import schedule.** Upload the file. Rows for people who have not
+   joined are kept and listed as waiting.
+3. **Admin → Getting people in.** Make one link and post it. Copy it when it
+   appears — it is shown once.
+
+That is the whole thing. Residents open the link, sign in with Google, and land
+on the shifts your file already gave them.
 
 ---
 
@@ -126,6 +154,63 @@ created — no second configuration step.
 
 ---
 
+## 1b. Enrollment links — one URL for a whole class
+
+**Admin → Getting people in.** Requires `invitations.manage`.
+
+An invitation names one address and is used once, which is right for appointing
+a chief resident and wrong for onboarding a class. An enrollment link is handed
+to a group: post it in the group chat, put it on the whiteboard, send it in the
+weekly email. It expires (30 days by default, up to 180), it can be turned off
+at any moment, it can cap its own uses, and **every single use is recorded** —
+including the ones that were refused.
+
+Like an invitation link, it is shown **once**. Only its hash is stored, so a
+link you did not copy is a link you replace rather than look up.
+
+### Who gets in, and how far
+
+Anybody holding the link can open it, so the link by itself never gives anybody
+access to anybody else's schedule. Two things decide what happens next:
+
+- **Your programme's email domains** (Admin → Program settings). An address
+  inside one — subdomains included — is admitted outright, because a hospital
+  address is already proof of belonging.
+- **Everybody else joins pending.** They get an account, their program, and
+  whatever schedule was waiting for them under their name. They can read and
+  correct their own shifts. They see **nothing** about anybody else — no board,
+  no colleagues, no offers — until somebody confirms them, which is one tap on
+  the same screen.
+
+Refusing that second group would look safer and be worse: it turns a real
+resident away at the one moment they were willing to sign up, silently, usually
+because they used a personal address on their phone.
+
+### If you list no domains at all
+
+Everybody joins pending. That is the honest reading of "we have not told the
+product what our addresses look like" — and it means every new account waits for
+a person, which is fine for twenty and tedious for two hundred. Listing your
+domains is the fix.
+
+---
+
+## 1c. Residents who arrive before their schedule does
+
+**Schedule → Add shifts myself.** Every resident, including one still waiting to
+be confirmed.
+
+They set the pattern once — service, start, end — and tap the days on a
+six-week grid. "Every weekday" and "same days next week" cover the two commonest
+blocks. Everything they enter is marked **entered by the resident** and stays
+that way until somebody with `shifts.confirm` says otherwise.
+
+Those shifts switch like any other. Both parties see where each shift came from
+before either accepts, and taking a shift the programme has not confirmed says
+so, and says whose first name to check with.
+
+---
+
 ## 2. Importing the schedule
 
 **Admin → Import.** Chief resident or administrator. CSV or XLSX.
@@ -137,19 +222,33 @@ for a reason that looks like a bug.
 
 ### Columns
 
+The interchange format is **Resident, PGY, Date, Start, End, Service, Rotation,
+Shift type, Location, Status** — every column a published residency schedule
+actually carries, and nothing it does not.
+
 | Column          | Required | Notes                                                    |
 | --------------- | -------- | -------------------------------------------------------- |
-| `Email`         | yes      | Must match a resident in the program — this is what rows are matched on. Alias: `Resident email` |
+| `Resident`      | yes*     | Their name, their email address, or both. Aliases: `Resident name`, `Name`, `Email`, `Resident email` |
+| `PGY`           | no       | Alias: `PGY level`                                        |
 | `Date`          | yes      | `YYYY-MM-DD` or `MM/DD/YYYY`                              |
-| `Start time`    | yes      | `07:00` or `7:00 AM`. Alias: `Start`                      |
-| `End time`      | yes      | Alias: `End`                                              |
+| `Start`         | yes†     | `07:00` or `7:00 AM`. Alias: `Start time`                 |
+| `End`           | yes†     | Alias: `End time`                                         |
 | `Service`       | yes      | Created if it does not exist yet                          |
-| `Ends next day` | no       | `yes`/`no`. Alias: `Overnight`. Inferred when the end time is at or before the start |
 | `Rotation`      | no       | Created if it does not exist yet                          |
 | `Shift type`    | no       | `day`, `night`, `call`, `swing`. Alias: `Type`. Defaults from the overnight flag |
 | `Location`      | no       | Free text                                                 |
-| `Resident`      | no       | The person's name, carried through for readability only. Aliases: `Resident name`, `Name` |
-| `PGY`           | no       | Alias: `PGY level`                                        |
+| `Status`        | no       | `confirmed`, `draft` or `cancelled`. A cancelled row creates nothing. An unrecognised word is reported and the row imports normally |
+| `Ends next day` | no       | `yes`/`no`. Alias: `Overnight`. Inferred when the end time is at or before the start |
+
+\* Either identifies the person. A name is enough: "Osei, Nadia" and
+"Nadia Osei" are read as the same person, a middle initial and a trailing degree
+are ignored, and accents are folded. Two names that do not normalise to the same
+thing stay separate — the importer will not guess, because attaching one
+resident's call to another is far worse than a row that waits.
+
+† Can be left blank **only** when the row's position has hours somebody has
+confirmed. A default the product guessed fills in nothing; the row says so, and
+names the hours it would have used.
 
 Header matching is case-insensitive and ignores surrounding whitespace. Columns
 that are not recognised are ignored, so an export with extra columns from
@@ -163,6 +262,14 @@ another system usually imports without being rewritten.
   you confirm, and you can walk away instead.
 - **All or nothing.** A commit that hits a problem rolls back entirely. There is
   no such thing as a half-imported block.
+- **A person who has not joined is not a problem.** Their rows are *held* and
+  listed under **Admin → Getting people in** as waiting, with the name the file
+  used and how many shifts. They become that person's schedule the moment they
+  sign in — matched by email if the file had one, by name otherwise. Nothing has
+  to be imported twice.
+- **`Status: confirmed` needs the authority to confirm.** Uploaded by somebody
+  without `shifts.confirm`, the row imports as an ordinary imported shift. A
+  file cannot hand out a permission its uploader does not hold.
 - **Times are wall-clock in the program's timezone.** `07:00` on a given date
   means 07:00 where the residents are, including across daylight-saving
   transitions.

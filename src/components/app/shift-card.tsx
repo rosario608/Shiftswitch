@@ -97,6 +97,14 @@ export function ShiftCard({
           {shift.approvalRequired ? (
             <Badge tone="caution">Approval required</Badge>
           ) : null}
+          {/* Only when it is *not* the program's own confirmed schedule.
+              Labelling the ordinary case adds a badge to every row and teaches
+              nobody anything; labelling the other three is the whole point —
+              somebody deciding whether to take this shift can see who is
+              vouching for its hours. */}
+          {shift.provenance !== "confirmed" && shift.provenance !== "imported" ? (
+            <Badge tone="caution">{shift.provenanceLabel}</Badge>
+          ) : null}
         </div>
       </Wrapper>
       {action ? (

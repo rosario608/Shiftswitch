@@ -72,7 +72,51 @@ export async function requireCapability(
   if (!can(context.user.role, capability)) {
     throw forbidden(CAPABILITY_REFUSAL[capability](context.user.role));
   }
+  if (!allowsWhilePending(context.user.enrollmentStatus, capability)) {
+    throw forbidden(PENDING_REFUSAL);
+  }
   return context;
+}
+
+/**
+ * What somebody who joined by an enrollment link can do before being admitted.
+ *
+ * They joined with an address the programme has not told us to recognise, so
+ * nothing they do may involve anybody else: no board, no offers, no directory,
+ * nothing about another resident's schedule. Their own schedule is theirs —
+ * they can read it, correct it, and see the shifts that were waiting for them,
+ * because an account that lands on an empty screen with nothing to do is an
+ * account nobody opens twice.
+ *
+ * The list is short rather than a list of exceptions because everything a
+ * pending account may do is either uncapabilitied (reading their own schedule)
+ * or gated on `shifts.self_report`, which is theirs by role. If a future
+ * capability belongs here it goes in this set and nowhere else — this is the
+ * one place the restriction is decided, which is what stops a new screen from
+ * quietly forgetting it.
+ */
+const PENDING_MAY: ReadonlySet<Capability> = new Set<Capability>(["shifts.self_report"]);
+
+/**
+ * The policy itself, as a function of two facts and nothing else.
+ *
+ * Separated from the guard so it can be asserted directly: the guard needs a
+ * cookie, a session and a database, and a rule that can only be tested through
+ * three of those is a rule that ends up tested through none.
+ */
+export function allowsWhilePending(
+  status: "confirmed" | "pending",
+  capability: Capability,
+): boolean {
+  return status !== "pending" || PENDING_MAY.has(capability);
+}
+
+export const PENDING_REFUSAL =
+  "Your program has not confirmed your account yet, so for now you can see and correct your own schedule but not anybody else's. Whoever sent you the link can confirm you in a couple of taps.";
+
+/** Whether this context is a member waiting to be admitted. */
+export function isPending(context: AuthedContext): boolean {
+  return context.user.enrollmentStatus === "pending";
 }
 
 /**
@@ -95,6 +139,13 @@ export async function requireAnyCapability(
   if (!capabilities.some((capability) => can(context.user.role, capability))) {
     throw forbidden(CAPABILITY_REFUSAL[capabilities[0]](context.user.role));
   }
+  if (
+    !capabilities.some((capability) =>
+      allowsWhilePending(context.user.enrollmentStatus, capability),
+    )
+  ) {
+    throw forbidden(PENDING_REFUSAL);
+  }
   return context;
 }
 
@@ -111,6 +162,10 @@ const CAPABILITY_REFUSAL: Record<Capability, (role: UserRole) => string> = {
     `Managing the schedule is for chief residents and program leadership. You are signed in as ${ROLE_LABEL[role]}.`,
   "schedule.publish": (role) =>
     `Approving and publishing a schedule is for chief residents and program leadership. You are signed in as ${ROLE_LABEL[role]}.`,
+  "shifts.self_report": () =>
+    "Correcting a schedule is for the person who works it.",
+  "shifts.confirm": (role) =>
+    `Marking a shift confirmed says the program has checked it, which is for chief residents and program leadership. You are signed in as ${ROLE_LABEL[role]}. You can still correct your own hours — they will show as entered by you.`,
   "schedule.export_program": () =>
     "Exporting the whole program schedule is for chief residents and program leadership.",
   "analytics.view": () =>

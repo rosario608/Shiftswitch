@@ -1,7 +1,8 @@
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
 import { DateTime } from "luxon";
-import { query, queryOne } from "@/server/db/pool";
+import { query, queryOne, withTransaction } from "@/server/db/pool";
 import { commitImport, parseScheduleFile, validateImport } from "@/server/domain/import";
+import { claimHeldRows, listUnmatched } from "@/server/domain/held-rows";
 import { createShift, deleteShift } from "@/server/domain/admin";
 import { createOffer, postShiftForTrade } from "@/server/domain/trades";
 import { acceptInvitation, createInvitation } from "@/server/domain/invitations";
@@ -134,7 +135,7 @@ describe("a brand-new program with nothing in it", () => {
     expect(after.length).toBe(before.length + 1);
   });
 
-  it("writes nothing at all when one row of many is bad", async () => {
+  it("writes nothing at all when one row of many is malformed", async () => {
     const shiftsBefore = await query<{ id: string }>("SELECT id FROM shifts");
 
     await expect(
@@ -147,17 +148,142 @@ describe("a brand-new program with nothing in it", () => {
           service: "MICU",
         },
         {
-          residentEmail: "ghost@hospital.org", // not in the program
+          residentEmail: "alice@hospital.org",
           date: "2026-09-02",
           startTime: "07:00",
           endTime: "19:00",
-          service: "MICU",
+          service: "", // no service: the row does not describe a shift
         },
       ]),
     ).rejects.toMatchObject({ code: "validation_failed" });
 
     const shiftsAfter = await query<{ id: string }>("SELECT id FROM shifts");
     expect(shiftsAfter).toHaveLength(shiftsBefore.length);
+  });
+
+  it("holds the rows for people who have not joined, and loses nothing", async () => {
+    /* The case that made the old refusal wrong: a file naming three people, one
+       of whom has an account. The other two are not an error in the file — they
+       are two residents who have not signed in yet. */
+    const result = await commitImport(admin.context, [
+      {
+        residentEmail: "alice@hospital.org",
+        date: "2026-09-10",
+        startTime: "07:00",
+        endTime: "19:00",
+        service: "MICU",
+      },
+      {
+        residentName: "Nadia Osei",
+        date: "2026-09-10",
+        startTime: "19:00",
+        endTime: "07:00",
+        endsNextDay: true,
+        service: "MICU",
+      },
+      {
+        residentName: "Nadia Osei",
+        date: "2026-09-11",
+        startTime: "07:00",
+        endTime: "19:00",
+        service: "MICU",
+      },
+      {
+        residentName: "Reyes, Tom",
+        date: "2026-09-11",
+        startTime: "19:00",
+        endTime: "07:00",
+        endsNextDay: true,
+        service: "MICU",
+      },
+    ]);
+
+    expect(result.createdShifts).toBe(1);
+    expect(result.heldRows).toBe(3);
+    expect(result.heldPeople).toBe(2);
+
+    const waiting = await listUnmatched(program.program.id);
+    expect(waiting.map((person) => person.resident_name)).toEqual([
+      "Nadia Osei",
+      "Reyes, Tom",
+    ]);
+    expect(waiting.find((p) => p.resident_name === "Nadia Osei")!.shifts).toBe(2);
+  });
+
+  it("hands a held schedule to the person the moment they exist", async () => {
+    await commitImport(admin.context, [
+      {
+        residentName: "Osei, Nadia K",
+        date: "2026-09-10",
+        startTime: "19:00",
+        endTime: "07:00",
+        endsNextDay: true,
+        service: "MICU",
+        rotation: "Critical Care",
+        location: "ICU Tower 4",
+      },
+      {
+        residentName: "Nadia Osei",
+        date: "2026-09-11",
+        startTime: "07:00",
+        endTime: "19:00",
+        service: "MICU",
+      },
+    ]);
+    /* Two spellings of one name in one file — "Osei, Nadia K" and "Nadia Osei"
+       — which is what a real block file looks like when two people typed it. */
+    expect(await listUnmatched(program.program.id)).toHaveLength(1);
+
+    const nadia = await createResident(program.program, {
+      email: "nadia.osei@hospital.org",
+      name: "Nadia Osei",
+      pgy: 2,
+    });
+
+    const claimed = await withTransaction((client) =>
+      claimHeldRows(
+        program.program.id,
+        { id: nadia.resident.id, name: "Nadia Osei", email: "nadia.osei@hospital.org" },
+        client,
+      ),
+    );
+    expect(claimed.claimedRows).toBe(2);
+    expect(claimed.createdShifts).toBe(2);
+
+    const schedule = await listResidentSchedule(nadia.resident.id, {
+      includePast: true,
+      limit: 50,
+    });
+    expect(schedule).toHaveLength(2);
+    // The overnight one is still one shift of twelve hours, not two of six.
+    const overnight = schedule.find((shift) => shift.shift_type === "night")!;
+    expect(overnight).toBeDefined();
+    expect(
+      (overnight.end_datetime.getTime() - overnight.start_datetime.getTime()) / 3_600_000,
+    ).toBe(12);
+    expect(overnight.location).toBe("ICU Tower 4");
+
+    // Nothing is left waiting, and claiming twice does not duplicate.
+    expect(await listUnmatched(program.program.id)).toHaveLength(0);
+    const again = await withTransaction((client) =>
+      claimHeldRows(
+        program.program.id,
+        { id: nadia.resident.id, name: "Nadia Osei", email: "nadia.osei@hospital.org" },
+        client,
+      ),
+    );
+    expect(again.claimedRows).toBe(0);
+
+    /* They came from the programme's file, and that is what they say. A row the
+       file called confirmed does not become confirmed by being claimed — the
+       person claiming it is the resident, and nobody vouches for themselves. */
+    const provenance = await query<{ provenance: string }>(
+      `SELECT s.provenance FROM shifts s
+         JOIN shift_assignments sa ON sa.shift_id = s.id
+        WHERE sa.resident_id = $1`,
+      [nadia.resident.id],
+    );
+    expect(provenance.map((row) => row.provenance)).toEqual(["imported", "imported"]);
   });
 });
 

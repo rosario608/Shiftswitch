@@ -16,6 +16,12 @@ export interface SessionUser {
   role: UserRow["role"];
   programId: string | null;
   active: boolean;
+  /**
+   * `pending` when somebody joined by an enrollment link and their address was
+   * not inside one of the programme's own domains. Carried on the session so
+   * every guard can see it without a second query.
+   */
+  enrollmentStatus: "confirmed" | "pending";
 }
 
 export interface SessionContext {
@@ -188,6 +194,7 @@ export async function resolveSessionByToken(
       role: row.role,
       programId: row.program_id,
       active: row.active,
+      enrollmentStatus: row.enrollment_status ?? "confirmed",
     },
     program,
     resident,
@@ -209,6 +216,13 @@ export interface OAuthStateCookie {
    * in the redirect URL, so it never reaches Google or a browser history.
    */
   inviteToken?: string;
+  /**
+   * Set when the flow began from an *enrollment* link — one URL handed to a
+   * whole class rather than to one address. It rides in the same httpOnly
+   * cookie and for the same reason: it is a credential, and a credential in a
+   * redirect URL reaches Google's logs and the browser's history.
+   */
+  enrollToken?: string;
 }
 
 export async function setOAuthStateCookie(

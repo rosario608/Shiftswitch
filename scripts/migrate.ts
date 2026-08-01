@@ -20,10 +20,23 @@ import { loadEnv } from "./load-env";
 
 const MIGRATIONS_DIR = path.join(process.cwd(), "db", "migrations");
 
-/** Applies any outstanding migrations. Returns how many ran. */
-export async function runMigrations(
+export interface MigrationRun {
+  /** Filenames applied by this run, in the order they were applied. */
+  applied: string[];
+  /** Filenames already recorded, whose checksums matched. */
+  alreadyApplied: string[];
+}
+
+/**
+ * Applies any outstanding migrations and says which ones.
+ *
+ * The list matters now that nobody is watching this run: the workflow writes it
+ * into the job summary, and "applied 2 migration(s)" tells whoever reads that
+ * summary in three months nothing at all about which two.
+ */
+export async function applyPendingMigrations(
   options: { reset?: boolean } = {},
-): Promise<number> {
+): Promise<MigrationRun> {
   loadEnv();
   const reset = options.reset ?? false;
 
@@ -65,7 +78,7 @@ export async function runMigrations(
       .filter((f) => f.endsWith(".sql"))
       .sort();
 
-    let ran = 0;
+    const run: MigrationRun = { applied: [], alreadyApplied: [] };
     for (const file of files) {
       const sql = readFileSync(path.join(MIGRATIONS_DIR, file), "utf8");
       const checksum = createHash("sha256").update(sql).digest("hex");
@@ -77,6 +90,7 @@ export async function runMigrations(
               `Create a new migration instead of editing an applied one.`,
           );
         }
+        run.alreadyApplied.push(file);
         continue;
       }
       console.log(`[migrate] applying ${file}`);
@@ -88,16 +102,26 @@ export async function runMigrations(
           [file, checksum],
         );
         await client.query("COMMIT");
-        ran += 1;
+        run.applied.push(file);
       } catch (error) {
         await client.query("ROLLBACK");
         throw error;
       }
     }
-    return ran;
+    return run;
   } finally {
     await client.end();
   }
+}
+
+/**
+ * The count, for callers that only need to know whether anything happened.
+ * Kept so `setup-production.ts` and every existing call site read the same.
+ */
+export async function runMigrations(
+  options: { reset?: boolean } = {},
+): Promise<number> {
+  return (await applyPendingMigrations(options)).applied.length;
 }
 
 /**

@@ -618,4 +618,21 @@ export const DEMO_INVITATIONS: DemoInvitation[] = [
 ];
 
 /** The address a duplicate-invitation attempt should be refused for. */
+/**
+ * The one address in the demo that is deliberately *not* at the programme's own
+ * domain.
+ *
+ * Somebody who joins by an enrollment link with an address the programme has not
+ * listed lands pending — able to see and correct their own schedule and nothing
+ * else — and that state is only demonstrable with an address outside
+ * `demo.invalid`. It is still under `.invalid`, so it can never be delivered to
+ * and can never be a real Google account.
+ */
+export const DEMO_OUTSIDE_EMAIL = "n.abara@outside.invalid";
+
+/** The prefix every fabricated sign-in subject in the demo carries. No OIDC
+ *  provider issues a subject in this shape, which is what keeps these accounts
+ *  unreachable through a real sign-in. */
+export const DEMO_SUBJECT_PREFIX = "demo-google-sub-";
+
 export const DEMO_EXISTING_MEMBER_EMAIL = `demo.rivera@${DEMO_EMAIL_DOMAIN}`;

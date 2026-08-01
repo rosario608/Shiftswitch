@@ -55,6 +55,30 @@ incrementally-migrated database has been carrying each migration's result since
 whenever it landed, so it cannot show that the set still applies to an empty
 database in order.
 
+### Run separately: the migration pipeline
+
+```
+npm run check:migration-pipeline
+```
+
+Not part of `verify`, because it needs `CREATE DATABASE` and a test suite should
+not require that permission.
+
+Seventeen checks against a scratch database, proving what
+`.github/workflows/apply-migrations.yml` claims about itself now that applying
+migrations is nobody's job: an empty database gets every migration in order; a
+second run is a no-op that exits 0; a new migration landing on a current
+database applies exactly that one and names it in the job summary; and a
+migration that would destroy data is refused **before anything runs**, including
+the harmless statements above it in the same file. Last run 1 August 2026 —
+17/17.
+
+This is the command any claim about the migration pipeline should cite. The
+guard it exercises is unit-tested separately in
+`tests/unit/migration-safety.test.ts`, which also asserts that all eleven real
+migrations pass it — a rule tuned only against invented snippets can be
+arbitrarily strict.
+
 **Running verify destroys the local demo program.** Every end-to-end spec
 rebuilds `scripts/e2e-fixture.ts` in `beforeAll`, and that truncates every table
 in the development database. `npm run demo:seed` puts it back.
@@ -145,7 +169,16 @@ never grants a role.
 | Import into an empty/new program | `tests/integration/onboarding.test.ts` |
 | Import writes nothing when one row is bad | `tests/integration/onboarding.test.ts` |
 | Deleting a shift with trade history is refused | `tests/integration/onboarding.test.ts` |
-| Whole onboarding path: invite → accept → import → see shifts → trade | `tests/integration/onboarding.test.ts` |
+| Whole onboarding path: invite → accept → import → see shifts → switch | `tests/integration/onboarding.test.ts` |
+| **The whole beta path**: configure a q3 cycle → import a block naming strangers → issue a link → a stranger joins → finds a schedule waiting → corrects its hours → posts it → a second resident accepts | `tests/integration/beta-path.test.ts` |
+| A row naming somebody without an account is held, not refused | `tests/integration/onboarding.test.ts`, `tests/integration/email-and-admin.test.ts` |
+| Held rows attach on enrollment, and only to the right person | `tests/integration/onboarding.test.ts`, `tests/integration/beta-path.test.ts` ("Nadia Okafor" does not receive "Nadia Osei" shifts) |
+| Two spellings of one name match; two people do not | `tests/unit/held-rows.test.ts` |
+| Enrollment refused: revoked, expired, used up, rate limited | `tests/integration/beta-path.test.ts` |
+| Joining with an unrecognised domain lands pending, sees only itself | `tests/integration/beta-path.test.ts`, `tests/unit/roles.test.ts` (`allowsWhilePending`) |
+| A guessed default generates nothing until somebody confirms it | `tests/integration/starting-configuration.test.ts` |
+| A confirmed default survives re-applying the configuration | `tests/integration/starting-configuration.test.ts` |
+| A cycle read back from the database is an array, not its text | `tests/unit/rotation-cycles.test.ts`, and the defect that produced it was found by `tests/integration/beta-path.test.ts` |
 | Residents and chiefs cannot import or invite | `tests/e2e/security.spec.ts` |
 | Invitations are scoped to one program | `tests/integration/onboarding.test.ts` |
 | Whole lifecycle over HTTP: admin invites, imports, edits, reassigns, deletes; resident posts, offers, accepts | `tests/e2e/lifecycle.spec.ts` |

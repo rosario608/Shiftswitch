@@ -79,15 +79,65 @@ never be delivered to. See `docs/DEMO_DATA.md`.
 Not to inspect it, not to migrate it, not to "just check something". No
 exception is worth the one time it goes wrong.
 
+**This rule is about data, and only about data.** It says a session does not
+open a connection to the live database — does not read a row, does not write
+one, does not count them to see whether a migration landed. That is the whole
+of it, and it does not move.
+
+It is **not** a rule against setting up the machinery that reaches production.
+Those are different acts with different failure modes, and conflating them has
+cost this project real time — a session that will not commit a deployment
+workflow because the word "production" appears in it has not been careful, it
+has left the owner to do by hand the exact thing that keeps going wrong when
+done by hand.
+
+So, explicitly:
+
+| Doing this is expected | Doing this is forbidden |
+|---|---|
+| Writing and changing `.github/workflows/apply-migrations.yml` | Running the migration runner against the production `DATABASE_URL` from a session |
+| Writing a script the pipeline executes against production | Executing that script here with a production connection string |
+| Creating a branch ruleset, a repository secret, a preview database branch, an environment variable | Reading a value out of any of them, or putting a live credential in a tracked file |
+| Reading `/api/health` or `/admin/diagnostics` over HTTPS to learn what production reports about itself | Connecting to the database to find that out directly |
+| Saying in a document what production is believed to be, and naming how that is known | Saying it as a verified fact when the evidence is a report |
+
+The distinction is who is holding the connection. **A pipeline reaching
+production is the design. A session reaching production is the accident.** The
+pipeline is reviewed, merged, logged, gated on CI, and repeatable; a session is
+none of those, and its mistakes arrive without a diff.
+
+Provisioning that a session genuinely cannot perform belongs in **User action
+required** in `docs/AI_PROJECT_STATE.md` — but only after it has been
+*attempted* and refused, with what came back written down. An item put on that
+list without an attempt is a guess about somebody else's afternoon.
+
 Migrations are **written**, **applied locally**, and **verified from scratch**:
 
 ```
 npx tsx scripts/migrate.ts --reset     # drops and rebuilds, local only
 ```
 
-Applying a migration to production is a human step. Record it in
-`docs/AI_PROJECT_STATE.md` under **User action required**, naming the file and
-what breaks if it is not applied before the next deploy.
+**A session never reaches production; the pipeline does.** No agent, script or
+command run from a session touches the live database — that is what this rule
+protects, and it has not changed. What *has* changed is that applying a
+migration is no longer a person's job either: `.github/workflows/
+apply-migrations.yml` fires when **CI finishes successfully** on the default
+branch — `workflow_run`, not `push`, so the tests are a gate rather than a
+coincidence — and applies whatever the database is missing. It refuses any
+pending migration that would destroy data unless the file says it means to, and
+names what it applied in the job summary. `npm run check:migration-pipeline`
+proves all of that against a scratch database.
+
+The rule used to say applying was a human step, and that had a consequence
+nobody intended: every schema change waited on somebody noticing. The one time
+it mattered, the person was on a phone and the administration pages were down
+until they got to a computer. A step that must happen after every deploy, always
+the same way, should not need a human — leaving it to one is how it gets
+forgotten exactly when everything else is going wrong.
+
+Still record the migration in `docs/AI_PROJECT_STATE.md`, naming the file and
+what breaks without it. The pipeline applies it; the document is how a reader
+knows what changed and why.
 
 Three scripts issue statements that cannot be undone — the migration reset, the
 end-to-end fixture, and the demo seeder. All three refuse any target that is not
@@ -187,7 +237,7 @@ worse than one that says "copy this link".
 | The draft schedule generator | `docs/GENERATOR.md` |
 | Approving, publishing, correcting; availability and locks | `docs/SCHEDULE_OPERATIONS.md` |
 | The demo program and its scenarios | `docs/DEMO_DATA.md` |
-| Inviting residents, importing a schedule | `docs/ONBOARDING.md` |
+| Onboarding a program: import, enrollment links, self-entry | `docs/ONBOARDING.md` |
 | When something is wrong, and what the verdict means | `docs/RUNBOOK.md` |
 | Every failure path and its designed outcome | `docs/FAILURE_PATHS.md` |
 | What each test suite covers | `docs/TESTING.md` |

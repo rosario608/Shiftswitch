@@ -133,14 +133,29 @@ function prose(source: string): Array<{ line: number; text: string }> {
     /* JSX text on a line of its own, which is how anything inside a multi-line
        element is written — including the back-link at the top of every detail
        screen, which said "Trades" for a whole commit after the rest of the
-       product stopped. Prose only: no punctuation that belongs to code. */
+       product stopped. Prose only: no punctuation that belongs to code.
+
+       HTML entities are folded away first. `&rsquo;` carries both an ampersand
+       and a semicolon, and the semicolon is in the punctuation this rejects as
+       code — so a line containing one was invisible to this check. It hid the
+       largest sentence on the sign-in page, which promised to "Swap residency
+       shifts" for as long as this guard has existed. An allowlist is where a
+       guard's blind spots live; so is its idea of what punctuation means. */
+    /* A bare `{NAME}` interpolation is a word to the reader, so a sentence
+       containing one is still a sentence — the invitation page's "lets you swap
+       them with your co-residents" hid behind a leading `{APP_NAME}`. Only the
+       simple identifier form is folded; anything with a call, a member access
+       or an operator in it is code and stays excluded. */
+    const prosed = trimmed
+      .replace(/&[a-z]+;/gi, "e")
+      .replace(/\{[A-Za-z_$][A-Za-z0-9_$]*\}/g, "word");
     if (
-      /^[A-Za-z][A-Za-z0-9 ,.'\u2019\u2014-]{3,200}$/.test(trimmed) &&
+      /^[A-Za-z][A-Za-z0-9 ,.'\u2019\u2014-]{3,200}$/.test(prosed) &&
       // At least two words, or it is an identifier on its own line, not prose.
-      /\s/.test(trimmed) &&
-      !/[;:={}()<>"'`[\]]/.test(trimmed)
+      /\s/.test(prosed) &&
+      !/[;:={}()<>"'`[\]]/.test(prosed)
     ) {
-      found.push({ line: index + 1, text: trimmed });
+      found.push({ line: index + 1, text: prosed });
     }
   });
 

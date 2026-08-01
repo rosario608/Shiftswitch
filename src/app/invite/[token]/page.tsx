@@ -109,7 +109,7 @@ export default async function InvitePage({
       </p>
 
       <p className="mt-6 text-center text-xs text-ink-subtle">
-        {APP_NAME} shows you your shifts and lets you swap them with your
+        {APP_NAME} shows you your shifts and lets you switch them with your
         co-residents. It never handles patient information.
       </p>
     </main>
