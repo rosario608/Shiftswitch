@@ -148,6 +148,12 @@ const EXPECTED: Record<string, Capability | "session" | "resident"> = {
      management — not whoever happened to hand out the link. */
   "admin/enrollment/members/[id]/admit": "users.manage",
   "admin/import": "schedule.manage",
+  /* Assisted import: the model proposes, a person reviews, and the commit goes
+     through the same `commitImport` as every other row. All three want the
+     same capability as the import they feed. */
+  "admin/import/assisted": "schedule.manage",
+  "admin/import/assisted/[id]": "schedule.manage",
+  "admin/import/assisted/[id]/commit": "schedule.manage",
   "admin/import/unmatched": "schedule.manage",
   "admin/import/unmatched/[key]": "schedule.manage",
   "admin/import/template": "schedule.manage",
@@ -203,6 +209,9 @@ const EXPECTED: Record<string, Capability | "session" | "resident"> = {
   "session": "session",
   "shifts/[shiftId]": "session",
   switches: "resident",
+  /* Naming a shift and posting it in one call. `resident`, like every other
+     way of posting: it publishes to the whole programme. */
+  "switches/ad-hoc": "resident",
   "switches/[switchId]": "session",
   "switches/[switchId]/cancel": "session",
   "switches/[switchId]/candidates": "resident",

@@ -653,7 +653,14 @@ export async function commitImport(
       Date: row.date,
       "Start time": row.startTime,
       "End time": row.endTime,
-      "Ends next day": row.endsNextDay ? "yes" : "no",
+      /* Three states, not two. `undefined` means the caller did not say, and
+         must stay unsaid so `validateImport` can infer it from the hours —
+         19:00 to 07:00 is a night shift. Writing "no" here asserted that it is
+         not, which turned every overnight row into a shift ending twelve hours
+         before it started. It went unseen because the only caller was the API,
+         which passes rows a preview had already filled in. */
+      "Ends next day":
+        row.endsNextDay === undefined ? "" : row.endsNextDay ? "yes" : "no",
       Service: row.service,
       Rotation: row.rotation ?? "",
       "Shift type": row.shiftType ?? "",
@@ -788,7 +795,7 @@ export async function commitImport(
         },
         client,
       );
-      if (outcome === "duplicate") skippedExisting += 1;
+      if (outcome.outcome === "duplicate") skippedExisting += 1;
       else createdShifts += 1;
     }
 

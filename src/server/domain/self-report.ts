@@ -73,7 +73,7 @@ function requireOwnSchedule(context: AuthedContext) {
 }
 
 /** `HH:MM`, or a clear refusal naming what was typed. */
-function readTime(value: string): string {
+export function readTime(value: string): string {
   const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
   if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) {
     throw validationFailed(
@@ -93,10 +93,113 @@ function wallDate(at: Date, zone: string): string {
   return DateTime.fromJSDate(at).setZone(zone).toISODate()!;
 }
 
-function nextDay(date: string): string {
+export function nextDay(date: string): string {
   return new Date(new Date(`${date}T00:00:00Z`).getTime() + 86_400_000)
     .toISOString()
     .slice(0, 10);
+}
+
+export interface OneShiftSpec {
+  date: string;
+  /** `HH:MM`, already through `readTime`. */
+  startTime: string;
+  endTime: string;
+  endsNextDay: boolean;
+  serviceId: string;
+  location?: string;
+  shiftType?: string;
+}
+
+/**
+ * One shift the resident says they are working, written where it goes.
+ *
+ * Shared by the week-pattern form and by a resident naming a single shift in
+ * order to post it (`./ad-hoc.ts`). Both are the same claim — *I work this* —
+ * and the checks that make that claim safe (a time that exists on that date,
+ * an end after its start, nothing else already in the same hours) must not be
+ * two implementations that agree today. The clash message in particular is the
+ * one a resident actually reads, and it earns its keep by naming the shift the
+ * way the rest of the product names it.
+ *
+ * Returns the shift either way: an exact repeat is not an error, it is somebody
+ * pressing the button twice or their programme having uploaded the block in
+ * between, and the caller may well want to act on the shift that is already
+ * there.
+ */
+export async function placeSelfReportedShift(
+  context: AuthedContext,
+  residentId: string,
+  spec: OneShiftSpec,
+  client: Queryable,
+): Promise<{ outcome: "created" | "duplicate"; shiftId: string }> {
+  const zone = context.program.timezone;
+  let start: Date;
+  let end: Date;
+  try {
+    start = zonedWallTimeToInstant(spec.date, spec.startTime, zone);
+    end = zonedWallTimeToInstant(
+      spec.endsNextDay ? nextDay(spec.date) : spec.date,
+      spec.endTime,
+      zone,
+    );
+  } catch (error) {
+    throw validationFailed(
+      error instanceof InvalidZonedTimeError
+        ? error.message
+        : `That time does not exist on ${fmtDate(`${spec.date}T12:00:00Z`, zone)} — the clocks change that night.`,
+    );
+  }
+  if (end <= start) {
+    throw validationFailed(
+      "That shift ends before it starts. If it runs overnight, tick “ends the next morning”.",
+    );
+  }
+
+  /* Anything they already hold that overlaps. Described the way they would
+     describe it, because the useful version of this message is the one that
+     makes them realise they typed the wrong week. */
+  const clash = await queryOne<ShiftDetail>(
+    `${SHIFT_DETAIL_SELECT}
+      WHERE sa.resident_id = $1
+        AND sa.assignment_status = 'active'
+        AND s.status <> 'cancelled'
+        AND s.start_datetime < $3
+        AND s.end_datetime > $2
+      LIMIT 1`,
+    [residentId, start, end],
+    client,
+  );
+  if (clash) {
+    /* Exactly the same shift is not a clash — it is somebody pressing the
+       button twice, or their programme having uploaded it in between. */
+    if (
+      clash.start_datetime.getTime() === start.getTime() &&
+      clash.end_datetime.getTime() === end.getTime() &&
+      clash.service_id === spec.serviceId
+    ) {
+      return { outcome: "duplicate", shiftId: clash.id };
+    }
+    throw validationFailed(
+      `You already have ${clash.service_name} on ${fmtDate(clash.start_datetime, zone)}, ` +
+        `${fmtRange(clash.start_datetime, clash.end_datetime, zone)}. ` +
+        "Two shifts at once is usually the wrong date — check the day, or correct the one you have.",
+    );
+  }
+
+  return placeShift(
+    {
+      programId: context.program.id,
+      serviceId: spec.serviceId,
+      residentId,
+      date: spec.date,
+      start,
+      end,
+      location: spec.location ?? "",
+      shiftType: spec.shiftType || (spec.endsNextDay ? "night" : "day"),
+      provenance: "self_reported",
+    },
+    client,
+  );
 }
 
 /**
@@ -112,7 +215,6 @@ export async function addOwnShifts(
   input: SelfShiftInput,
 ): Promise<SelfReportResult> {
   const resident = requireOwnSchedule(context);
-  const zone = context.program.timezone;
 
   if (input.dates.length === 0) {
     throw validationFailed("Pick at least one day.");
@@ -144,71 +246,21 @@ export async function addOwnShifts(
     const duplicates: string[] = [];
 
     for (const date of dates) {
-      let start: Date;
-      let end: Date;
-      try {
-        start = zonedWallTimeToInstant(date, startTime, zone);
-        end = zonedWallTimeToInstant(endsNextDay ? nextDay(date) : date, endTime, zone);
-      } catch (error) {
-        throw validationFailed(
-          error instanceof InvalidZonedTimeError
-            ? error.message
-            : `That time does not exist on ${fmtDate(`${date}T12:00:00Z`, zone)} — the clocks change that night.`,
-        );
-      }
-      if (end <= start) {
-        throw validationFailed(
-          "That shift ends before it starts. If it runs overnight, tick “ends the next morning”.",
-        );
-      }
-
-      /* Anything they already hold that overlaps. Described the way they would
-         describe it, because the useful version of this message is the one that
-         makes them realise they typed the wrong week. */
-      const clash = await queryOne<ShiftDetail>(
-        `${SHIFT_DETAIL_SELECT}
-          WHERE sa.resident_id = $1
-            AND sa.assignment_status = 'active'
-            AND s.status <> 'cancelled'
-            AND s.start_datetime < $3
-            AND s.end_datetime > $2
-          LIMIT 1`,
-        [resident.id, start, end],
-        client,
-      );
-      if (clash) {
-        /* Exactly the same shift is not a clash — it is somebody pressing the
-           button twice, or their programme having uploaded it in between. */
-        if (
-          clash.start_datetime.getTime() === start.getTime() &&
-          clash.end_datetime.getTime() === end.getTime() &&
-          clash.service_id === resolved.id
-        ) {
-          duplicates.push(date);
-          continue;
-        }
-        throw validationFailed(
-          `You already have ${clash.service_name} on ${fmtDate(clash.start_datetime, zone)}, ` +
-            `${fmtRange(clash.start_datetime, clash.end_datetime, zone)}. ` +
-            "Two shifts at once is usually the wrong date — check the day, or correct the one you have.",
-        );
-      }
-
-      const outcome = await placeShift(
+      const placed = await placeSelfReportedShift(
+        context,
+        resident.id,
         {
-          programId: context.program.id,
-          serviceId: resolved.id,
-          residentId: resident.id,
           date,
-          start,
-          end,
-          location: input.location ?? "",
-          shiftType: input.shiftType || (endsNextDay ? "night" : "day"),
-          provenance: "self_reported",
+          startTime,
+          endTime,
+          endsNextDay,
+          serviceId: resolved.id,
+          location: input.location,
+          shiftType: input.shiftType,
         },
         client,
       );
-      if (outcome === "duplicate") duplicates.push(date);
+      if (placed.outcome === "duplicate") duplicates.push(date);
       else created.push(date);
     }
 

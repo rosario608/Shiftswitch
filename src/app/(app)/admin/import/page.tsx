@@ -1,7 +1,10 @@
 import { Download } from "lucide-react";
 import { Card, CardBody } from "@/components/ui/card";
+import { AssistedImport } from "@/components/app/assisted-import";
 import { ImportWizard } from "@/components/app/import-wizard";
 import { requirePageCapability } from "@/server/auth/page-guards";
+import { assistedImportLimits } from "@/server/domain/assisted-import/limits";
+import { modelTransport } from "@/server/domain/assisted-import/transport";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Import schedule" };
@@ -67,6 +70,9 @@ const COLUMNS: Array<{ name: string; required: boolean; notes: string }> = [
 
 export default async function ImportPage() {
   const context = await requirePageCapability("schedule.manage");
+  const transport = modelTransport();
+  const limits = assistedImportLimits();
+
   return (
     <div className="space-y-5">
       <header>
@@ -77,6 +83,15 @@ export default async function ImportPage() {
           yet are kept, not dropped.
         </p>
       </header>
+
+      {/* First, because it is the one that takes the file a programme
+          actually has. The template below is the path that needs nothing
+          configured and is unchanged. */}
+      <AssistedImport
+        configured={transport.configured}
+        unavailableReason={transport.unavailableReason ?? null}
+        maxBytes={limits.maxBytes}
+      />
 
       <ImportWizard />
 
