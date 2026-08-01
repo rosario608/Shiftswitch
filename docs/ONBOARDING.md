@@ -31,8 +31,9 @@ For a coordinator with a spreadsheet and an afternoon:
 1. **Admin → First-time setup.** Pick your starting configuration and the
    academic year. Then check the things it says it guessed — a default nobody
    has confirmed fills in nothing, on purpose.
-2. **Admin → Import schedule.** Upload the file. Rows for people who have not
-   joined are kept and listed as waiting.
+2. **Admin → Import schedule.** Upload the file you have — it does not have to
+   be tidy, and a PDF or a photo is fine. Check the rows it flags, then import.
+   Rows for people who have not joined are kept and listed as waiting.
 3. **Admin → Getting people in.** Make one link and post it. Copy it when it
    appears — it is shown once.
 
@@ -211,9 +212,64 @@ so, and says whose first name to check with.
 
 ---
 
+## 1d. Nobody has to onboard anything at all
+
+A programme that has done none of the above still works. A resident who signs
+in with no services configured, no block year, no uploaded file and nothing on
+their schedule sees one thing on the home screen: **Post a shift I'm working**.
+They name the day, the hours and what to call it, and it is on the board.
+
+That is deliberate and it is the order this product is meant to be adopted in.
+Two residents who agree to switch a shift get value from this today; a
+coordinator finishing a rotation configuration is a week away. The shift they
+name is `self_reported`, says so to whoever offers on it, and switches exactly
+like any other. The service is created from what they typed, by the same
+function the importer uses — so when the block file arrives naming `MICU`, it
+finds the `MICU` a resident typed rather than making a second one.
+
+An account that joined by an enrollment link and is still *pending* cannot post,
+because posting publishes to the whole programme. They can still enter their own
+shifts and post the moment somebody admits them, and the welcome screen offers
+them the block form rather than a button that would refuse.
+
 ## 2. Importing the schedule
 
-**Admin → Import.** Chief resident or administrator. CSV or XLSX.
+**Admin → Import.** Chief resident or administrator.
+
+### The file you actually have
+
+Real schedules are not clean CSVs. Above the template on that screen is
+**Upload the file you already have**, which takes a spreadsheet with merged
+cells, a PDF calendar, a per-rotation grid whose columns are days, or a
+photograph of the printed sheet, and reads it into the same rows the template
+produces.
+
+What it does *not* do is write anything. The reading is a **proposal**:
+
+- Every proposed row says where in the file it came from — sheet and cell, or
+  page and region — and how sure the reading was.
+- Rows it was unsure about, and rows missing something a shift cannot exist
+  without, are marked **Check this**, sorted to the top, and shown as a form
+  with the origin beside them. You can fix one in place or say it is right.
+- **The import button will not move until every flagged row has been opened.**
+  It says how many are left rather than being mysteriously disabled.
+- When you do import, the rows go through exactly the same validation and the
+  same all-or-nothing transaction as the template — including holding rows for
+  people who have not joined yet.
+- If the file cannot be read, it says what it could not read and imports
+  nothing. There is no partial import.
+
+The file is sent to Anthropic's API to be read, and is not stored; the screen
+says so before you choose one. What is kept is the rows, their origins and their
+confidences — which is also the record of where the reading was wrong, and it
+stays after the import.
+
+If this deployment has no Anthropic API key, that card says so plainly and
+everything below is unaffected.
+
+### The template
+
+CSV or XLSX.
 
 Start with **Download template** (`/api/admin/import/template`). It is generated
 rather than checked in, so its example dates are always in the near future — a

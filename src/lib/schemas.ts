@@ -19,6 +19,22 @@ export const postShiftSchema = z.object({
   expiresAt: z.string().datetime().optional(),
 });
 
+/**
+ * Naming a shift in order to post it, in a programme that may have nothing
+ * configured. No shift id, because the shift does not exist yet; free-text
+ * service, because there may be no services to choose from.
+ */
+export const adHocPostSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick the day you are working."),
+  startTime: z.string().regex(/^\d{1,2}:\d{2}$/, "Use 24-hour, like 07:00."),
+  endTime: z.string().regex(/^\d{1,2}:\d{2}$/, "Use 24-hour, like 19:00."),
+  endsNextDay: z.boolean().optional(),
+  service: z.string().min(1, "Say which service this is.").max(120),
+  location: z.string().max(120).optional(),
+  notes: z.string().max(500, "Keep the note under 500 characters.").optional(),
+  preferences: tradePreferencesSchema.optional(),
+});
+
 export const createOfferSchema = z.object({
   offeredShiftId: uuid,
 });
@@ -166,6 +182,33 @@ export const selfShiftSchema = z.object({
   service: z.string().min(1, "Say which service this is.").max(120),
   location: z.string().max(120).optional(),
   shiftType: z.string().max(40).optional(),
+});
+
+/**
+ * A reviewer working one proposed row.
+ *
+ * `correction` absent means "I checked this against the file and it is right",
+ * which is a real answer and clears the flag. Every field is optional because
+ * a reviewer fixes the one cell that is wrong, not the whole row. Confidence
+ * and origin are deliberately not here: they are the model's account of itself
+ * and the reviewer does not get to edit it.
+ */
+export const assistedRowReviewSchema = z.object({
+  rowId: uuid,
+  correction: z
+    .object({
+      residentName: z.string().max(200).optional(),
+      residentEmail: z.string().max(200).optional(),
+      date: z.string().max(20).optional(),
+      startTime: z.string().max(10).optional(),
+      endTime: z.string().max(10).optional(),
+      service: z.string().max(120).optional(),
+      rotation: z.string().max(120).optional(),
+      shiftType: z.string().max(40).optional(),
+      location: z.string().max(120).optional(),
+      status: z.string().max(40).optional(),
+    })
+    .optional(),
 });
 
 export const shiftCorrectionSchema = z.object({

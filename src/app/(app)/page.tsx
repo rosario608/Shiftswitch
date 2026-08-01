@@ -4,11 +4,13 @@ import { Badge } from "@/components/ui/badge";
 import { Card, SectionHeading } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ShiftCard } from "@/components/app/shift-card";
+import { AdHocPostButton } from "@/components/app/ad-hoc-post-sheet";
 import { PostShiftButton } from "@/components/app/post-shift-sheet";
 import { OfferDecisionList, type OfferView } from "@/components/app/offer-decision";
 import { requirePageUser } from "@/server/auth/page-guards";
 import { getResidentDashboard } from "@/server/domain/dashboard";
 import { listOfferableForPosting } from "@/server/domain/schedule-actions";
+import { listServices } from "@/server/domain/services";
 import { toShiftView } from "@/lib/views";
 import { fmtRelative } from "@/lib/format";
 
@@ -45,6 +47,12 @@ export default async function HomePage() {
   const postable = context.resident
     ? await listOfferableForPosting(context.resident.id)
     : [];
+  /* Only read when there is nothing to show, which is the only branch that
+     offers naming a shift. A programme with a schedule does not pay for this. */
+  const serviceNames =
+    context.resident && !dashboard.nextShift
+      ? (await listServices(context.program.id)).map((service) => service.name)
+      : [];
 
   const needsYou = dashboard.pendingActions.length > 0;
   const heading = needsYou
@@ -157,9 +165,22 @@ export default async function HomePage() {
             }
           />
         ) : (
+          /* The teaching empty state, and the one place the marketplace has to
+             stand on its own. A resident whose programme has uploaded nothing
+             used to be told to wait for it — which is a dead end wearing the
+             clothes of an explanation, and it arrives at the exact moment they
+             are deciding whether this product is worth keeping. They can name
+             the shift instead. */
           <EmptyState
-            title="Nothing scheduled yet"
-            description="When your program publishes the schedule your shifts appear here, and you can post one for a switch straight from the card."
+            title="Nothing on your schedule yet"
+            description="You don't have to wait for your program to upload anything. Name the shift you need covered and it goes up for switch now."
+            action={
+              context.resident ? (
+                <div className="w-full max-w-xs">
+                  <AdHocPostButton services={serviceNames} />
+                </div>
+              ) : null
+            }
           />
         )}
       </section>

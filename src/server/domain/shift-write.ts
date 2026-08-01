@@ -91,6 +91,18 @@ export interface PlaceShiftInput {
   confirmedBy?: string | null;
 }
 
+export interface PlacedShift {
+  outcome: "created" | "duplicate";
+  /**
+   * The shift the resident now holds — the new one, or the one that was
+   * already there. A caller that wants to act on the shift immediately (a
+   * resident naming a shift in order to post it in the same breath) needs the
+   * id in both cases, and "you already had that one" is a reason to post the
+   * shift they meant rather than to refuse them.
+   */
+  shiftId: string;
+}
+
 /**
  * One shift, assigned to one resident, unless they already have it.
  *
@@ -103,7 +115,7 @@ export interface PlaceShiftInput {
 export async function placeShift(
   input: PlaceShiftInput,
   client: Queryable,
-): Promise<"created" | "duplicate"> {
+): Promise<PlacedShift> {
   const duplicate = await queryOne<{ id: string }>(
     `SELECT s.id FROM shifts s
        JOIN shift_assignments sa ON sa.shift_id = s.id AND sa.assignment_status = 'active'
@@ -112,7 +124,7 @@ export async function placeShift(
     [input.programId, input.serviceId, input.start, input.residentId],
     client,
   );
-  if (duplicate) return "duplicate";
+  if (duplicate) return { outcome: "duplicate", shiftId: duplicate.id };
 
   const shift = await queryOne<{ id: string }>(
     `INSERT INTO shifts
@@ -141,5 +153,5 @@ export async function placeShift(
     [shift!.id, input.residentId],
     client,
   );
-  return "created";
+  return { outcome: "created", shiftId: shift!.id };
 }

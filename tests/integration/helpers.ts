@@ -53,6 +53,13 @@ export async function createProgram(
     timezone: string;
     approvedEmailDomains: string[];
     defaultTradeApprovalRequired: boolean;
+    /**
+     * The services to create. Pass `[]` for a programme where genuinely
+     * nothing has been set up — which is what the first resident to open this
+     * product actually has, and what `marketplace-first.test.ts` needs in
+     * order to be testing anything.
+     */
+    services: string[];
   }> = {},
 ): Promise<TestProgram> {
   const program = (await queryOne<ProgramRow>(
@@ -68,7 +75,7 @@ export async function createProgram(
   ))!;
 
   const services: Record<string, ServiceRow> = {};
-  for (const name of ["MICU", "Floor", "Clinic"]) {
+  for (const name of overrides.services ?? ["MICU", "Floor", "Clinic"]) {
     services[name] = (await queryOne<ServiceRow>(
       "INSERT INTO services (program_id, name) VALUES ($1, $2) RETURNING *",
       [program.id, name],

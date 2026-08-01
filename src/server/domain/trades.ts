@@ -99,81 +99,96 @@ export async function postShiftForTrade(
   context: AuthedContext & { resident: { id: string } },
   input: PostShiftInput,
 ): Promise<TradeRequestRow> {
-  return withTransaction(async (client) => {
-    const shift = await getShiftDetailForUpdate(input.shiftId, client);
-    if (!shift) throw notFound("That shift no longer exists.");
-    if (shift.program_id !== context.program.id) {
-      throw forbidden("That shift belongs to a different program.");
-    }
-    if (shift.resident_id !== context.resident.id) {
-      throw forbidden("You can only post shifts that are assigned to you.");
-    }
-    if (shift.status === "cancelled" || shift.status === "completed") {
-      throw conflict("That shift is no longer active.");
-    }
-    if (!shift.tradeable) {
-      throw validationFailed(
-        "Your program does not allow this shift to be switched, so it cannot be posted.",
-      );
-    }
-    if (shift.start_datetime.getTime() <= Date.now()) {
-      throw validationFailed("This shift has already started, so it cannot be switched.");
-    }
-    if (shift.trade_deadline && shift.trade_deadline.getTime() <= Date.now()) {
-      throw validationFailed("The deadline for switching this shift has passed.");
-    }
-    if (shift.status !== "scheduled") {
-      throw conflict("This shift is already part of a switch.");
-    }
+  return withTransaction((client) => postShiftWithin(context, input, client));
+}
 
-    const expiresAt =
-      input.expiresAt ??
-      new Date(
-        Math.min(
-          Date.now() + DEFAULT_REQUEST_TTL_DAYS * 86_400_000,
-          shift.start_datetime.getTime(),
-        ),
-      );
+/**
+ * Posting, inside a transaction somebody else opened.
+ *
+ * Split out for exactly one caller: a resident naming a shift they work *in
+ * order to* post it (`./ad-hoc.ts`). Creating the shift and posting it are one
+ * act from where they are standing, and half of it succeeding is the worst
+ * outcome available — a shift on their schedule that they believe they have
+ * given away. One transaction, or neither.
+ */
+export async function postShiftWithin(
+  context: AuthedContext & { resident: { id: string } },
+  input: PostShiftInput,
+  client: PoolClient,
+): Promise<TradeRequestRow> {
+  const shift = await getShiftDetailForUpdate(input.shiftId, client);
+  if (!shift) throw notFound("That shift no longer exists.");
+  if (shift.program_id !== context.program.id) {
+    throw forbidden("That shift belongs to a different program.");
+  }
+  if (shift.resident_id !== context.resident.id) {
+    throw forbidden("You can only post shifts that are assigned to you.");
+  }
+  if (shift.status === "cancelled" || shift.status === "completed") {
+    throw conflict("That shift is no longer active.");
+  }
+  if (!shift.tradeable) {
+    throw validationFailed(
+      "Your program does not allow this shift to be switched, so it cannot be posted.",
+    );
+  }
+  if (shift.start_datetime.getTime() <= Date.now()) {
+    throw validationFailed("This shift has already started, so it cannot be switched.");
+  }
+  if (shift.trade_deadline && shift.trade_deadline.getTime() <= Date.now()) {
+    throw validationFailed("The deadline for switching this shift has passed.");
+  }
+  if (shift.status !== "scheduled") {
+    throw conflict("This shift is already part of a switch.");
+  }
 
-    const request = await queryOne<TradeRequestRow>(
-      `INSERT INTO trade_requests
-         (program_id, source_shift_id, initiating_resident_id, preferences, notes, expires_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6)
-       RETURNING *`,
-      [
-        context.program.id,
-        shift.id,
-        context.resident.id,
-        JSON.stringify(input.preferences ?? {}),
-        input.notes ?? "",
+  const expiresAt =
+    input.expiresAt ??
+    new Date(
+      Math.min(
+        Date.now() + DEFAULT_REQUEST_TTL_DAYS * 86_400_000,
+        shift.start_datetime.getTime(),
+      ),
+    );
+
+  const request = await queryOne<TradeRequestRow>(
+    `INSERT INTO trade_requests
+       (program_id, source_shift_id, initiating_resident_id, preferences, notes, expires_at)
+     VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+     RETURNING *`,
+    [
+      context.program.id,
+      shift.id,
+      context.resident.id,
+      JSON.stringify(input.preferences ?? {}),
+      input.notes ?? "",
+      expiresAt,
+    ],
+    client,
+  );
+
+  await query("UPDATE shifts SET status = 'posted' WHERE id = $1", [shift.id], client);
+
+  await recordAudit(
+    {
+      programId: context.program.id,
+      actorUserId: context.user.id,
+      actorLabel: context.user.email,
+      action: "trade.posted",
+      entityType: "trade_request",
+      entityId: request!.id,
+      previousState: { shiftStatus: shift.status },
+      newState: {
+        shiftId: shift.id,
+        shiftStatus: "posted",
+        preferences: input.preferences ?? {},
         expiresAt,
-      ],
-      client,
-    );
-
-    await query("UPDATE shifts SET status = 'posted' WHERE id = $1", [shift.id], client);
-
-    await recordAudit(
-      {
-        programId: context.program.id,
-        actorUserId: context.user.id,
-        actorLabel: context.user.email,
-        action: "trade.posted",
-        entityType: "trade_request",
-        entityId: request!.id,
-        previousState: { shiftStatus: shift.status },
-        newState: {
-          shiftId: shift.id,
-          shiftStatus: "posted",
-          preferences: input.preferences ?? {},
-          expiresAt,
-        },
       },
-      client,
-    );
+    },
+    client,
+  );
 
-    return request as TradeRequestRow;
-  });
+  return request as TradeRequestRow;
 }
 
 export async function cancelTradeRequest(

@@ -146,6 +146,7 @@ async function main() {
   Pending member  ${result.pendingMembers}  joined with an outside address, sees only their own schedule
   Self-reported   ${result.selfReported}  shifts a resident entered themselves
   Unconfirmed     ${result.unconfirmedDefaults}  defaults shipped as a guess, generating nothing until checked
+  To check        ${result.extractionRowsToCheck}  rows a model proposed from a PDF, which cannot be imported unread
 
   Administrator   ${admin.email}
   Chief resident  ${chief.email}

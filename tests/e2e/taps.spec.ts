@@ -121,3 +121,32 @@ test("accepting an offer, from cold open", async ({ page }) => {
   expect(count, "cold open → offer accepted").toBeLessThanOrEqual(2);
   console.log(`[taps] accept an offer: ${count}`);
 });
+
+test("naming a shift and posting it, from cold open", async ({ page }) => {
+  /* The resident whose programme has uploaded nothing. Posting a shift that
+     already exists was always two taps; naming one and posting it had been
+     three screens — the week-entry grid, then the schedule, then the post
+     sheet — which is the version nobody does at the end of a call shift. */
+  await signIn(page, ACCOUNTS.newcomer);
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+  await startCounting(page);
+
+  await page.getByRole("button", { name: /post a shift i'm working/i }).click();
+
+  /* Typing is not a tap, and the sheet opens with a working answer in every
+     field, so a resident who agrees with all of it types nothing at all. Here
+     the date is set explicitly to keep the test independent of today. */
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel(/which day/i).fill(
+    new Date(Date.now() + 9 * 86_400_000).toISOString().slice(0, 10),
+  );
+  await dialog.getByLabel(/what is it/i).fill("MICU");
+
+  await dialog.getByRole("button", { name: /^post it$/i }).click();
+  await page.waitForURL(/\/switches\/[0-9a-f-]{36}$/);
+
+  const count = await taps(page);
+  expect(count, "cold open → shift named and posted").toBeLessThanOrEqual(2);
+  console.log(`[taps] name a shift and post it: ${count}`);
+});

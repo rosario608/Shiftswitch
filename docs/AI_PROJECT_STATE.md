@@ -3,7 +3,24 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 1 August 2026, after **the last goal before a beta**: a program can
+Last updated: 1 August 2026, after **putting the marketplace first**: a resident
+whose programme has configured nothing — no services, no block year, no uploaded
+schedule — can name the one shift they cannot work and have it up for switch in
+two taps, and a coordinator can upload the file they actually have rather than
+the file the importer wanted. A model reads merged-cell spreadsheets, PDF
+calendars, per-rotation grids and photographs into the canonical rows; it
+proposes and never writes, every row carries where in the file it came from and
+how sure the reading was, and a row it was unsure about cannot become a shift
+until a person has opened it. Driven end to end by
+`tests/integration/marketplace-first.test.ts`, whose last case runs both paths
+in sequence — the residents' own shifts first, the block file a fortnight later
+— because composition is where the last two silent defects were.
+
+It also carries the first evidence that the deployment pipeline works:
+migrations `0010` and `0011` reached production with **no person applying
+them**, and the workflow's own log is cited in the migration table below.
+
+Before that, **the last goal before a beta**: a program can
 now be onboarded without waiting for anybody. The importer holds rows naming
 people who have no account and hands them their schedule the moment they sign
 in; one enrollment link replaces forty typed addresses; a resident who arrives
@@ -125,19 +142,32 @@ test.
 
 | | | How that is known |
 |---|---|---|
-| In the repository | `0001` – `0011` | `ls db/migrations` |
-| Applied locally, and proven to apply to an **empty** database in order | `0001` – `0011` | step 9 of `npm run verify`, every run |
-| **Applied to production** | **`0001` – `0009`** | `0001`–`0006` reported by the session of 31 July; `0007` applied by hand the same day; **`0008` and `0009` verified by query in Neon on 1 August 2026** — all ten tables from `0008` and all three from `0009` present, `shifts.published_version_id` present, and a checksummed `schema_migrations` row for each |
-| **Not applied to production** | **`0010_beta_onboarding.sql`**, **`0011_pending_enrollment.sql`** | They are on this branch and have not merged |
+| In the repository | `0001` – `0012` | `ls db/migrations` |
+| Applied locally, and proven to apply to an **empty** database in order | `0001` – `0012` | step 9 of `npm run verify`, every run |
+| **Applied to production** | **`0001` – `0011`** | `0001`–`0006` reported by the session of 31 July; `0007` applied by hand the same day; `0008` and `0009` verified by query in Neon on 1 August 2026; **`0010` and `0011` applied by the pipeline** at 21:30:29Z on 1 August 2026 — [run #4 of `apply-migrations.yml`](https://github.com/rosario608/Shiftswitch/actions/runs/30719252564), whose log reads `2 pending: 0010_beta_onboarding.sql, 0011_pending_enrollment.sql` then `applied 2` |
+| **Not applied to production** | **`0012_assisted_import.sql`** | It is on this branch and has not merged |
+
+**The pipeline works, and this is the first record of it working rather than a
+claim that it should.** `0010` and `0011` were the first migrations in this
+project's history that no person applied. The run was triggered by CI finishing
+green on `main` after pull request #12 merged, it found exactly the two
+outstanding files, and it named them. Nothing in this session touched the
+production database; what is cited above is a pipeline log, which is the
+difference `/CLAUDE.md` draws between the design and the accident.
+
+It also settles what the previous version of this document could not: the
+`PRODUCTION_DATABASE_URL` secret **is** set. The workflow's log records
+`HAS_SECRET: true`, and the "Apply" step ran rather than being skipped. That
+item is gone from **User action required** below.
 
 `0008` and `0009` are settled. This document claimed twice that they were
 outstanding, on two different days, and both claims were wrong — which is the
 whole reason applying migrations has stopped being something a person does and
 then writes down.
 
-`0010` and `0011` will be applied by the pipeline when this branch merges. Until
-then the deployed build is behind them and says so at `/admin/diagnostics`,
-naming the files.
+`0012` will be applied by the pipeline when this branch merges. Until then the
+deployed build is behind it and says so at `/admin/diagnostics`, naming the
+file.
 
 - **`0010_beta_onboarding.sql`** — `positions`, `teams`, `rotation_patterns`
   and their members, `pattern_exceptions`, `block_structure_exceptions`,
@@ -148,6 +178,11 @@ naming the files.
 - **`0011_pending_enrollment.sql`** — `users.enrollment_status`. Without it
   every account that joins by a link is a full member of the program from the
   moment it is created, which is the one thing an enrollment link must not do.
+- **`0012_assisted_import.sql`** — `assisted_import_extractions` and
+  `assisted_import_rows`. Without it a file read by a model cannot be reviewed
+  before it is committed: the confidences would have nowhere to live but the
+  browser, and "this row was checked" would be a claim the client makes about
+  itself. Assisted import refuses to run rather than degrading.
 
 **Applying a migration is no longer a person's job.**
 `.github/workflows/apply-migrations.yml` fires when the **CI workflow finishes
@@ -209,10 +244,14 @@ are genuine prerequisites for a pilot.
 
 ## User action required
 
-**Rows 1–5 were attempted from this machine and refused**, and each says what
-came back verbatim, the exact step that finishes it, and what stays broken until
-it does. Anything a session did is deleted from here rather than left as a
-claim, and nothing speculative is here at all.
+**Rows 1, 3, 4 and 5 were attempted from this machine and refused**, and each
+says what came back verbatim, the exact step that finishes it, and what stays
+broken until it does. There is no row 2 any more — it named the
+`PRODUCTION_DATABASE_URL` secret, the owner set it, and the pipeline has since
+used it; the numbering is left alone so a reader comparing against an earlier
+version can see what went rather than wondering what moved. Anything a session
+did is deleted from here rather than left as a claim, and nothing speculative is
+here at all.
 
 **Rows 6–10 were not attempted, and could not be.** They are not credentials
 this machine failed to obtain; they are things a machine cannot be — an Apple
@@ -220,7 +259,7 @@ developer identity, a hospital's roster, a decision about a domain name. They
 are listed because the product does not work without them, not because somebody
 guessed they might be needed.
 
-The audit behind the first five — what this machine actually holds — is under
+The audit behind those four — what this machine actually holds — is under
 **What this machine can do**, below.
 
 ### Blocked by the agent proxy
@@ -228,13 +267,22 @@ The audit behind the first five — what this machine actually holds — is unde
 | # | What I tried | What came back | The exact step | Until then |
 | --- | --- | --- | --- | --- |
 | 1 | `POST /repos/rosario608/shiftswitch/rulesets` with the branch ruleset requiring a pull request and the four CI checks | **HTTP 403 — "Write access to this GitHub API path is not permitted through this proxy."** Nothing was created. | **Settings → Rules → Rulesets → New ruleset → Import a ruleset**, and choose `.github/rulesets/main-pull-request-and-green-ci.json`. The file is committed and needs no editing. | A direct push to `main` reaches production having passed nothing. This matters more now that `apply-migrations.yml` applies migrations when CI passes on `main`: the gate is only as strong as the guarantee that code arrives through CI at all. |
-| 2 | `GET /repos/…/actions/secrets/public-key`, the first call needed to write a repository secret | **HTTP 403**, same proxy refusal. And there is no production connection string in this environment to put in one — see row 3. | **Settings → Secrets and variables → Actions → New repository secret**, named exactly `PRODUCTION_DATABASE_URL`, holding the Neon connection string. | `apply-migrations.yml` stops with a warning and applies nothing. It is written to warn rather than fail, so the default branch does not go red for a deployment that has not been configured yet. |
+
+**Row 2 is gone: the secret exists.** It used to say that no
+`PRODUCTION_DATABASE_URL` was set and that `apply-migrations.yml` would warn and
+apply nothing. The owner set it, and the workflow's own log now records
+`HAS_SECRET: true` and two migrations applied. Nothing in this list is kept
+after it stops being true.
+
+Row 3 stays for a different reason, and is worth reading carefully: the
+connection string is not *in this environment*, and should not be. The pipeline
+holds it; a session does not.
 
 ### Blocked by a credential that is not here
 
 | # | What I tried | What came back | The exact step | Until then |
 | --- | --- | --- | --- | --- |
-| 3 | Searched the environment and every `.env` file for a production connection string | Only `DATABASE_URL` and `TEST_DATABASE_URL`, both pointing at `127.0.0.1`. Nothing remote anywhere. | Copy it from **Neon → your project → Connection string** into the secret in row 2. It is the one value in this list that must never be pasted into a file in this repository. | As row 2. |
+| 3 | Searched the environment and every `.env` file for a production connection string | Only `DATABASE_URL` and `TEST_DATABASE_URL`, both pointing at `127.0.0.1`. Nothing remote anywhere. | Nothing. This is the intended state — the repository secret holds it and the pipeline uses it. | Nothing is broken by this. It is listed so a later session does not go looking for a connection string, find none, and conclude the deployment is unconfigured. |
 | 4 | Looked for a Neon API key or `neonctl` session, to create a `preview` branch | No `NEON_*` variable, no `neonctl`, no config on disk. `console.neon.tech` is reachable and answers **401** — the network is not the blocker, the credential is. | **Neon → Branches → New branch**, named `preview`, from `main`. | Every pull-request preview reads and writes the **live programme**. Previews are SSO-protected so nobody outside the team can reach one, which stops it being an exposure and does not stop it being a corruption. |
 | 5 | Looked for a Vercel token or CLI session, to point the Preview environment at that branch | No `VERCEL_*` variable and no CLI session on disk. A Vercel MCP connection was authenticated to the team `rosario608-2488's projects`, but its tool surface has no environment-variable management at all — and it disconnected mid-session. | **Vercel → Settings → Environment Variables**, add `DATABASE_URL` for **Preview only**, holding the `preview` branch's connection string. | As row 4. Rows 4 and 5 are one job in two places and neither half helps alone. |
 
@@ -583,6 +631,81 @@ Choices made without asking, as `/CLAUDE.md` requires. Each says what was
 chosen, why, and what was rejected, so any of them can be revisited by someone
 who disagrees rather than rediscovered.
 
+### A model proposes rows; it never writes a schedule
+
+**Chosen:** an extraction is stored as a **proposal** in its own two tables, and
+reaches the schedule only through `commitImport` — the same single writer a
+hand-typed CSV goes through.
+
+The alternative that keeps suggesting itself is a `ScheduleSource` that returns
+rows straight into the existing preview, with the confidences travelling to the
+browser and back. It is less code and it is wrong, because the property this
+feature rests on is *a row the model was unsure about cannot be committed until
+a person has opened it* — and a rule like that is only worth having if it cannot
+be talked out of. With the confidence in the request, "reviewed" is a claim the
+client makes about itself, and a commit that skipped every flagged row is
+indistinguishable from one that read them all. So `rowsForCommit` reads the
+confidence and the review marks out of the database; the request says which
+rows the reviewer opened and does not get to say which needed opening.
+
+Keeping the proposal also keeps `proposed` beside `corrected`. That is the only
+record of where the model was wrong, and it is what anybody asking "should we
+keep using this" will need.
+
+Rejected: signing the proposal with an HMAC and keeping it stateless. It would
+have been tamper-evident and needed no migration, and it would have thrown away
+the record of what was proposed — which is the thing worth having in three
+months, when a schedule turns out to have been wrong and the question is whether
+the file or the reading of it was at fault.
+
+### A model may be flagged as unsure, and may also be confidently incomplete
+
+**Chosen:** a row is flagged for review if the confidence is below the floor
+**or** it is missing something a shift cannot be built without — a date, hours,
+a service, a person.
+
+A confidence threshold alone misses the case that actually happens: the model
+correctly reads a cell that does not contain a date, and says so with complete
+justification at 0.97. It is right, and the row is unusable. Both conditions
+are cheap, and the second is the one that catches a per-rotation grid whose
+month is written only in the sheet's title.
+
+### The extraction fixtures are authored, not captured
+
+**Chosen:** the recorded model responses in `tests/fixtures/assisted-import/`
+are written by hand against the contract in `prompt.ts`, and say so in the file.
+
+No `ANTHROPIC_API_KEY` exists in the environment this repository is developed
+in, so there was no live call to capture. Stating that in the fixture file
+matters more than it might look: these fixtures prove that **our** handling is
+right — the flagging, the sorting, the gate, the commit path, the honest
+failure — and they do not prove that a model reads a merged cell correctly.
+Nothing offline can prove the second thing, and a comment claiming these were
+recorded would make a reader believe it had been.
+
+The transport is a seam precisely so that when a key exists, `send` can be
+swapped for a recorder and these constants replaced with real captures without
+a line changing anywhere else.
+
+Rejected: skipping the fixtures and testing only the pure functions. The
+request-building differs per file shape — a spreadsheet is flattened to text
+with cell references, a PDF goes up as a document, an image as an image — and
+that is exactly the part a unit test of `parseExtraction` would not touch.
+
+### A pending account still cannot post, and that is not a setup problem
+
+**Chosen:** `postAdHocShift` requires `trade.participate`, so an account that
+joined by an enrollment link without a recognised email domain cannot use it
+until somebody admits them.
+
+"A shift needs nothing behind it" is about *setup* — services, block years,
+schedules — and every one of those is now genuinely out of the way. Being
+vouched for is a different thing: posting publishes a shift to everybody in the
+programme, which is the one act the pending state exists to withhold. A pending
+resident can still enter their shifts on `/schedule/add` and post the moment
+they are confirmed, and the welcome screen makes the block form their primary
+action rather than dangling a button that would refuse them.
+
 ### The two supplied schedules disagree about the academic year
 
 **Chosen:** the year is a **parameter**, asked for once when a programme sets up
@@ -742,6 +865,26 @@ fails the suite and names the flow.
 | Post a shift | **2** | **2** |
 | Offer one of yours on a posted shift | **3** | **2** |
 | Accept an offer | **3** | **2** |
+| Name a shift you work and post it | **5** | **2** |
+
+**Naming a shift and posting it now costs the same as posting one that already
+exists**, which is the number that decides whether this product is usable on
+day one. It was five: the home screen's empty state sent a resident to
+`/schedule/add`, which asks for a *pattern* — service, hours, then tick the days
+in a six-week grid — and then to `/schedule` to find what they had just entered,
+and then into the post sheet. Three screens for one sentence, at the end of a
+call shift, which is the version nobody does.
+
+It is now the sheet on the empty state and the button in it. The fields open
+with a working answer — tomorrow, seven to seven, the service they are most
+likely to mean — so a resident who agrees with all of it presses one button, and
+typing over any of it costs no taps. The week-entry form is untouched and still
+one line below: a whole block is a bigger job and a rarer one, and it should not
+be the price of using the product on the first day.
+
+Rejected: making the post sheet able to create a shift, so there would be one
+sheet. The two are different questions — *which of your shifts* versus *what
+shift* — and the merged version has half its fields disabled in either mode.
 
 **Posting was already at its floor and stays there.** Two taps: the button on
 the next-shift card, and the confirmation. The sheet is not ceremony — it is

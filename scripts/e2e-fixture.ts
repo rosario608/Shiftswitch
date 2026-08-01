@@ -6,6 +6,7 @@
  *   e2e.alice@hospital.org   PGY-2, three upcoming tradeable shifts
  *   e2e.bob@hospital.org     PGY-2, three upcoming tradeable shifts
  *   e2e.carol@hospital.org   PGY-2, one shift that requires chief approval
+ *   e2e.newcomer@hospital.org PGY-1, no shifts at all — nothing has been uploaded for them
  *   e2e.chief@hospital.org   chief resident
  *   e2e.pd@hospital.org      program director
  *   e2e.apd@hospital.org     associate program director
@@ -112,6 +113,10 @@ async function main() {
   const alice = await createResident("e2e.alice@hospital.org", "Alice Adeyemi", 2);
   const bob = await createResident("e2e.bob@hospital.org", "Bob Brennan", 2);
   const carol = await createResident("e2e.carol@hospital.org", "Carol Costa", 2);
+  /* No shifts at all, ever. The resident this product actually opens on: their
+     programme has uploaded nothing for them, and the marketplace has to work
+     anyway. Deliberately given none below rather than "none yet". */
+  await createResident("e2e.newcomer@hospital.org", "Nour Newcomer", 1);
 
   const chiefUser = await createUser("e2e.chief@hospital.org", "Casey Chief", "chief");
   await query(

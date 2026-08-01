@@ -62,6 +62,29 @@ to attribute anything to and no screen they can be sent back to.
 | G8 | A resident correcting a shift that is posted for a switch | Refused, naming the reason: whoever offered on it did so against what it said at the time. Take the post down, then correct it. |
 | G9 | A guessed default that nobody ever confirms | Nothing is generated from it, ever. The importer reports the blank row and names the hours it would have used; `/admin/setup` lists it until somebody acts. Silence here is safe by construction rather than by anybody remembering. |
 
+## B″. Reading a file a model had to interpret
+
+The feature with the most room to do quiet damage, so every path here is
+written down. The rule underneath all of them: **the model proposes, and
+`commitImport` is still the only thing that writes.**
+
+| # | Path | Designed outcome |
+|---|---|---|
+| H1 | No `ANTHROPIC_API_KEY` on the deployment | The card says so in a sentence naming the CSV template, which is untouched and needs nothing. Nothing fails at the point of use. |
+| H2 | A file type nothing here can open | Refused by name before a byte is read — *"cannot read a .docx file"* — and, for a file with no extension at all, a different sentence saying so rather than inventing a type from the filename. |
+| H3 | A file larger than the limit, or a PDF with more pages than the limit | Refused before the request is made, naming the actual size or page count and the limit. Bounds are configuration (`ASSISTED_IMPORT_MAX_BYTES`, `_MAX_PAGES`, `_TIMEOUT_MS`, `_MAX_COST_MICROS`). |
+| H4 | A file whose reading would cost more than the ceiling | Refused **before calling**, from an estimate that assumes the maximum output — a ceiling that assumes the cheap case is not a ceiling. Asserted by a test that also checks nothing was sent. |
+| H5 | The model says it cannot read the file | Recorded as an `unreadable` extraction with its reason, and the reason is shown. Nothing is imported, and the attempt is not invisible. |
+| H6 | The model answers in prose, or with malformed JSON | One message saying the extraction did not come back usable and that nothing was imported. The object is *located* in the text rather than assumed to be all of it, so a stray markdown fence is survived. |
+| H7 | The model returns a confidence outside 0–1, or a row that names nobody and no day | Clamped, and dropped respectively. A row of empty strings for somebody to puzzle over is worse than a row that is not there, and `notes` is where the file-level observation goes. |
+| H8 | A row the model was unsure about | Flagged, sorted to the top with the least confident first, shown as a form with its origin beside it. **It cannot be committed until somebody opens it** — the gate reads `needs_review` and `reviewed_at` from the database, never from the request. |
+| H9 | A row the model was *confident* about but which is missing a date, hours, a service or a person | Flagged just the same. High confidence in an incomplete row is still an incomplete row, and a threshold alone would let it through. |
+| H10 | A client that tries to commit anyway | There is no field to set. The commit request carries no rows at all; the server reads what it stored and refuses while anything flagged is unread, naming how many. |
+| H11 | A reviewer's correction | Written to `corrected`; `proposed` is never overwritten. Both survive the import, so where the model was wrong stays answerable. Accepting a row unchanged is also recorded, and is a different fact from fixing one. |
+| H12 | The same upload committed twice | Refused: the extraction is marked `committed`. Re-importing the same *file* is still safe — `placeShift` deduplicates on (program, service, start, resident) — so a coordinator who re-uploads after a half-finished attempt loses nothing. |
+| H13 | An extraction id from another programme | Not found. Every read is scoped by `program_id`; a test attacks this with a second programme. |
+| H14 | An overnight shift read as 19:00–07:00 | Carried through as `endsNextDay`, and inferred from the hours when the extraction did not say. This is where a real defect lived: `commitImport` used to assert "not overnight" for a row that simply had not said, turning every night shift into one ending twelve hours before it began. |
+
 ## C. Mutations from the client
 
 `apiFetch` → `useAction` is the single funnel for every write.

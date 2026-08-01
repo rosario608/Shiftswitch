@@ -33,6 +33,11 @@ export type AuditAction =
   | "shift.self_reported"
   | "shift.confirmed"
   | "schedule.imported"
+  /* A model read a file and proposed rows. Separate from `schedule.imported`
+     on purpose: a proposal is not a schedule, and the two questions — what did
+     it suggest, and what did somebody actually commit — must be answerable
+     independently when an extraction turns out to have been wrong. */
+  | "schedule.extraction_proposed"
   | "schedule.held_rows_discarded"
   | "schedule.held_rows_claimed"
   | "schedule.exported"

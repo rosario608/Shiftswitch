@@ -2,8 +2,10 @@ import Link from "next/link";
 import { CalendarCheck, Pencil, Clock3 } from "lucide-react";
 import { Card, CardBody } from "@/components/ui/card";
 import { Alert } from "@/components/ui/alert";
+import { AdHocPostButton } from "@/components/app/ad-hoc-post-sheet";
 import { requirePageUser } from "@/server/auth/page-guards";
 import { listResidentSchedule } from "@/server/domain/schedule";
+import { listServices } from "@/server/domain/services";
 import { fmtDate, fmtRange } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +33,10 @@ export default async function WelcomePage() {
   const schedule = context.resident
     ? await listResidentSchedule(context.resident.id, { limit: 5 })
     : [];
+  const serviceNames =
+    context.resident && schedule.length === 0 && !pending
+      ? (await listServices(context.program.id)).map((service) => service.name)
+      : [];
 
   return (
     <div className="space-y-5">
@@ -103,16 +109,27 @@ export default async function WelcomePage() {
               Your program hasn&rsquo;t uploaded your block yet
             </p>
             <p className="text-sm text-ink-muted">
-              That is normal in the first week. Two things can happen next: they
-              upload the schedule and it appears here on its own, or you add your
-              shifts yourself and they stay yours.
+              That is normal in the first week, and you do not have to wait for
+              it. If there is a shift you need covered, name it and it goes up
+              for switch now.
             </p>
+            {/* The one thing this screen asks for. A whole block is a bigger
+                job and a rarer one — it stays available, one line below, rather
+                than being the price of using the product on the first day.
+                Somebody still waiting to be confirmed cannot post to the
+                program yet, so for them the block form is the primary action
+                and the only one offered. */}
+            {pending ? null : <AdHocPostButton services={serviceNames} />}
             <Link
               href="/schedule/add"
-              className="flex min-h-[3rem] w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 text-base font-semibold text-white"
+              className={
+                pending
+                  ? "flex min-h-[3rem] w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 text-base font-semibold text-white"
+                  : "flex min-h-[3rem] w-full items-center justify-center gap-2 rounded-xl border border-border-strong px-4 text-base font-semibold text-ink"
+              }
             >
               <Pencil className="h-5 w-5" aria-hidden="true" />
-              Add my shifts
+              {pending ? "Add my shifts" : "Add my whole block instead"}
             </Link>
           </CardBody>
         </Card>

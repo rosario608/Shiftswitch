@@ -28,4 +28,5 @@ export const EXPECTED_MIGRATIONS: readonly ExpectedMigration[] = [
   { version: "0009_schedule_operations.sql", checksum: "c36e7c7bb0eac856a662cb63f00bff35de6e6b5067aa9951392990eb065f9484" },
   { version: "0010_beta_onboarding.sql", checksum: "f768d83a868af86e3efa7ce7896c351c88d8ad94ce9971b1d31169cf53495640" },
   { version: "0011_pending_enrollment.sql", checksum: "b7f837fcab9fa68058ff104b3bdf025fb160d3c9c7b6fdd931d3b33e10f4095a" },
+  { version: "0012_assisted_import.sql", checksum: "60e4a638f675bd3526aff50879c81e093ae7bb92e6e6028a78ccb6aaef7214b7" },
 ];

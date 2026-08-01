@@ -68,6 +68,8 @@ export interface SeedResult {
   selfReported: number;
   /** Accounts that joined by a link and are waiting to be confirmed. */
   pendingMembers: number;
+  /** Rows a model proposed that nobody has checked against the file yet. */
+  extractionRowsToCheck: number;
   /** Rows held by the demo's import, before anybody claimed them. */
   heldRowsImported: number;
   /**
@@ -415,6 +417,7 @@ export async function seedDemoProgram(
   const { addOwnShifts, confirmShift } = await import("@/server/domain/self-report");
   const { commitImport } = await import("@/server/domain/import");
   const { listUnmatched } = await import("@/server/domain/held-rows");
+  const { saveExtraction } = await import("@/server/domain/assisted-import/store");
 
   /* 1. The starting configuration, with its guesses still marked as guesses —
         so `/admin/setup` has something in its queue to confirm. */
@@ -536,6 +539,54 @@ export async function seedDemoProgram(
   }
 
   const stillUnmatched = (await listUnmatched(program.id)).length;
+
+  /* 6. A file somebody uploaded that a model had to interpret, still waiting to
+        be checked.
+
+        Without this the reviewer screen is a screen nobody can look at: it only
+        exists once an extraction does, and an extraction only exists once a
+        file has been read. The proposal below is written directly rather than
+        by calling the API — this machine has no Anthropic key, and a demo that
+        needed one would be a demo nobody could seed — but it goes in through
+        `saveExtraction`, the same function the route calls, so the flagging,
+        the ordering and the commit gate all behave exactly as they will.
+
+        Two of the five rows are deliberately poor: one is a shift code that had
+        to be read as hours, and one lost its date to a calendar with no year on
+        it. Those are the rows the whole feature is built around, and a demo
+        where everything came back at 0.99 would show none of it. */
+  const extractionId = await saveExtraction(
+    adminContext,
+    { filename: "Block 4 — call calendar.pdf", byteSize: 184_320 },
+    {
+      mediaKind: "pdf",
+      pageCount: 2,
+      model: "claude-sonnet-4-5",
+      inputTokens: 2_480,
+      outputTokens: 910,
+      costMicros: 21_090,
+      notes: [
+        "Page 2 carries a legend: NF = night float, 19:00-07:00. Applied to every NF cell.",
+        "The header says 'Block 4' with no year; dates on page 1 were resolved from the printed month, page 2 was not.",
+      ],
+      rows: [
+        proposedRow("Ines Okonkwo", addLocalDays(anchor, 21), "07:00", "19:00", "MICU", 0.96, 1, "week 1, Monday"),
+        proposedRow("Ines Okonkwo", addLocalDays(anchor, 22), "07:00", "19:00", "MICU", 0.96, 1, "week 1, Tuesday"),
+        proposedRow("Priya Raman", addLocalDays(anchor, 23), "07:00", "19:00", "Wards", 0.93, 1, "week 1, Wednesday"),
+        {
+          ...proposedRow("Tomas Whitfield", addLocalDays(anchor, 24), "19:00", "07:00", "NF", 0.54, 2, "week 2, Thursday"),
+          shiftType: "night",
+          endsNextDay: true,
+          uncertainty:
+            "'NF' is a shift code rather than stated hours; read as 19:00-07:00 from the legend on page 2.",
+        },
+        {
+          ...proposedRow("Nadia Osei", "", "07:00", "19:00", "MICU", 0.41, 2, "week 2, Friday"),
+          uncertainty: "Page 2 states no month or year, so this date cannot be resolved from the file.",
+        },
+      ],
+    },
+  );
 
 
   /* The scheduling foundation: sites, service configuration, coverage, cohorts,
@@ -934,6 +985,18 @@ export async function seedDemoProgram(
     claimedOnArrival,
     selfReported: selfEntered.created,
     pendingMembers: 1,
+    /* Counted from what was stored rather than from what was written above, so
+       the number reports the flagging rule's verdict and not the seeder's
+       opinion of it. */
+    extractionRowsToCheck: Number(
+      (
+        await queryOne<{ count: string }>(
+          `SELECT count(*)::text AS count FROM assisted_import_rows
+            WHERE extraction_id = $1 AND needs_review AND reviewed_at IS NULL`,
+          [extractionId],
+        )
+      )?.count ?? 0,
+    ),
     heldRowsImported: heldImport.heldRows,
     liveShifts: Number(
       (
@@ -964,6 +1027,34 @@ export async function seedDemoProgram(
       )?.count ?? 0,
     ),
     shiftRefs: Object.fromEntries(shiftIdByRef),
+  };
+}
+
+/** One row of a proposal, in the shape `saveExtraction` stores. */
+function proposedRow(
+  residentName: string,
+  date: string,
+  startTime: string,
+  endTime: string,
+  service: string,
+  confidence: number,
+  page: number,
+  region: string,
+) {
+  return {
+    residentName,
+    residentEmail: "",
+    date,
+    startTime,
+    endTime,
+    service,
+    rotation: "",
+    shiftType: "",
+    location: "",
+    status: "",
+    origin: { sheet: null, cell: null, page, region },
+    confidence,
+    uncertainty: "",
   };
 }
 

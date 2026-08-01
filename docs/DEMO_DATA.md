@@ -31,6 +31,17 @@ of it is produced by the same domain functions a coordinator's taps call.
 | Somebody who joined with a personal address and is waiting to be confirmed | Nnamdi Abara, in the "waiting for you" queue |
 | Two shifts a resident entered themselves | Nnamdi Abara's schedule, labelled "You entered this" |
 | A shift a chief has vouched for | Ines Okonkwo's, labelled "Confirmed by your program" |
+| A PDF a model read, with two rows nobody has checked yet | **Admin → Import schedule** — the proposal, flagged rows at the top |
+
+The extraction is the one an administrator should open. Two of its five rows are
+deliberately poor — one is a shift code the reading had to turn into hours, one
+lost its date to a page with no year on it — and the import button will not move
+until both have been looked at. Everything about how it behaves is real: it went
+in through `saveExtraction`, the same function the upload route calls, so the
+flagging, the ordering and the commit gate are the product's own. What is not
+real is the reading itself, which was written into the seed rather than produced
+by a call — this machine has no Anthropic API key, and a demo that needed one
+would be a demo nobody could seed.
 
 Ines Okonkwo's account is the one worth opening first: she was named by the
 import before she had an account, and her shifts appeared the moment she

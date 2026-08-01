@@ -291,7 +291,7 @@ export async function claimHeldRows(
       },
       client,
     );
-    if (outcome === "duplicate") skippedExisting += 1;
+    if (outcome.outcome === "duplicate") skippedExisting += 1;
     else createdShifts += 1;
 
     await query(
