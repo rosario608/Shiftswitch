@@ -85,7 +85,20 @@ function bandLabel(requirement: {
 /** Every (date, requirement) pair in the window, with what is actually on it. */
 function* coverageCells(snapshot: ScheduleSnapshot) {
   const services = new Map(snapshot.services.map((s) => [s.id, s]));
-  const staffed = staffedAssignments(snapshot);
+  const active = snapshot.coverage.filter((r) => r.active);
+
+  /* Bucketed by service and day once, rather than filtering every assignment
+     for every (date, requirement) pair. A month barely notices the
+     difference; a year of a large programme is 365 days × twenty requirements
+     × several thousand assignments, and the naive scan turns a validation
+     into a visible wait on a screen with a spinner. */
+  const byServiceDay = new Map<string, ScheduleAssignment[]>();
+  for (const assignment of staffedAssignments(snapshot)) {
+    const key = `${assignment.serviceId}|${assignmentDate(assignment, snapshot.program.timezone)}`;
+    const list = byServiceDay.get(key);
+    if (list) list.push(assignment);
+    else byServiceDay.set(key, [assignment]);
+  }
 
   for (const iso of datesInPeriod(snapshot.period)) {
     /* `requirementsFor` takes an instant so it can resolve the programme's
@@ -99,17 +112,17 @@ function* coverageCells(snapshot: ScheduleSnapshot) {
     }
 
     for (const requirement of requirementsFor(
-      snapshot.coverage.filter((r) => r.active),
+      active,
       instant,
       snapshot.program.timezone,
     )) {
       const service = services.get(requirement.service_id);
       if (!service || !service.active) continue;
-      const present = staffed.filter(
-        (a) =>
-          a.serviceId === requirement.service_id &&
-          countsToward(a, requirement, iso, snapshot.program.timezone),
-      );
+      /* Only the requirement's own time band still needs testing per cell —
+         the day and the service came from the bucket key. */
+      const present = (
+        byServiceDay.get(`${requirement.service_id}|${iso}`) ?? []
+      ).filter((a) => countsToward(a, requirement, iso, snapshot.program.timezone));
       yield { iso, requirement, service, present };
     }
   }

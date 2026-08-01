@@ -3,9 +3,15 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 31 July 2026, after building the scheduler foundation: sites,
-service configuration, coverage requirements, cohorts, configurable block
-years, resident scheduling data, a scheduler dashboard and draft schedules.
+Last updated: 1 August 2026, after building the constraint model and the
+schedule validator: every scheduling constraint the configuration can express,
+declared hard or soft, evaluated purely, with a deterministic score whose
+breakdown is per objective. See `docs/CONSTRAINTS.md`.
+
+Before that, the scheduler foundation: sites, service configuration, coverage
+requirements, cohorts, configurable block years, resident scheduling data, a
+scheduler dashboard, and draft schedules that can be started, edited, diffed
+and published.
 
 Before that, making the repository runnable unattended:
 `/CLAUDE.md`, a single `npm run verify`, guards on every irreversible script,
@@ -819,22 +825,22 @@ Three of the defects above were found this way and by nothing else.
 
 **`npm run verify` exits 0.** That is the whole answer, and the only one worth
 quoting — it runs every row below in one command with one exit code. Last full
-run: 10 steps, 563 seconds.
+run: 10 steps, 664 seconds.
 
 | Step | Result |
 |---|---|
 | Typecheck (`tsc --noEmit`) | clean |
 | Lint, server + web | clean |
 | Lint, native client | clean |
-| Server unit + integration (`vitest run`) | **461 passed**, 23 files |
+| Server unit + integration (`vitest run`) | **544 passed**, 28 files |
 | Native client unit (`npm --prefix mobile run test`) | **37 passed**, 6 files |
 | Production build (`next build`) | succeeds |
-| Web end-to-end (`playwright test`) | **130 passed**, mobile + desktop projects |
+| Web end-to-end (`playwright test`) | **134 passed**, mobile + desktop projects |
 | Native end-to-end (`--config playwright.mobile.config.ts`) | **16 passed**, including the 9 screenshot specs |
 | Migrations from scratch (`migrate.ts --reset`) | **0001–0008 apply to an empty database** |
-| Integration suite against the rebuilt schema | **308 passed**, 14 files |
+| Integration suite against the rebuilt schema | **328 passed**, 15 files |
 
-644 distinct tests. The final 270 is the integration subset re-run against the
+715 distinct tests. The final 328 is the integration subset re-run against the
 freshly rebuilt schema, which is why it is not added again.
 
 Also verified by execution, not inspection:
