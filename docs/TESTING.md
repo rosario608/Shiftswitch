@@ -171,6 +171,13 @@ never grants a role.
 | Simultaneous service creation produces one service and a readable conflict | `tests/integration/idempotency.test.ts` |
 | Audit entries and shift assignments survive deactivating the people in them | `tests/integration/idempotency.test.ts` |
 | The native client's role vocabulary matches the server's | `mobile/src/api/roles.test.ts` |
+| A draft schedule is invisible to residents and cannot be traded | `tests/integration/scheduler.test.ts`, and the trigger in `0008` |
+| A draft shift can be reassigned, cleared and removed without touching the live schedule | `tests/integration/scheduler.test.ts` |
+| The draft editor refuses a published shift, another program's draft, and a resident who is not schedulable | `tests/integration/scheduler.test.ts` |
+| A chief starts a draft, edits it and sees the diff, all from the interface | `tests/e2e/scheduler.spec.ts` |
+| A service's screen lists the program-wide and service-scoped rules that govern it | `tests/integration/scheduler.test.ts`, `tests/e2e/scheduler.spec.ts` |
+| A resident block exception is recorded with a reason and can be taken back | `tests/integration/scheduler.test.ts`, `tests/e2e/scheduler.spec.ts` |
+| A whole multi-PGY programme configured from the UI alone — services, coverage, blocks, cohorts, assignments | `tests/e2e/scheduler.spec.ts` |
 
 ---
 

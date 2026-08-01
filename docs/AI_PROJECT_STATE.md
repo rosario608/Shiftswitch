@@ -109,11 +109,19 @@ single definition of done, and the three scripts that issue irreversible
 statements refuse any target that is not demonstrably local.
 
 **For a new development session.** Pick up whatever the goal names. The product
-work that most recently landed was the resident experience and the trade
-lifecycle audit — dead ends, rule wording, notification routing, the five-role
-leftovers, and concurrency. What has *not* been done is a deliberate design
-pass: every session so far has fixed defects rather than shaping the product,
-and the difference shows.
+work that most recently landed is the scheduler: service configuration and
+coverage, the Duke IM service library, cohorts and configurable blocks,
+resident scheduling data and the roster screen, the scheduler dashboard, and
+schedule versions — drafts that can be started, edited, diffed and published.
+Its shape was decided before it was built, and the reasoning is under
+**Decisions → The shape of the scheduler**; a session changing those screens
+should argue with that reasoning rather than work around it.
+
+What the scheduler still does not do: generate a schedule. It records what a
+programme *is* — people, cohorts, blocks, services, coverage — and lets a
+scheduler build and publish a month by hand. Filling a block year from cohort
+assignments and coverage requirements automatically is the obvious next thing
+and has not been started.
 
 **For onboarding the first real program** (a human sequence, not a session's):
 **Admin → Program settings** → **Admin → Services** → **Admin → Users & roles →
@@ -656,6 +664,23 @@ confirmation and is audited.
 
 A **database trigger** refuses a trade request against a versioned shift. A
 query filter is something a future query can forget; a trigger is not.
+
+**A draft can be started, edited and thrown away entirely from the interface.**
+"Start a draft" is on the scheduler and defaults to copying the published
+schedule for the period; the draft's own page lists its shifts with an inline
+picker for who is on each one, above the diff and the publish button.
+`listDraftShifts` / `assignDraftShift` / `removeDraftShift` are separate from
+the live editor in `admin.ts` and deliberately cheaper — see **Decisions**.
+The page loads the first 300 shifts and says so when there are more.
+
+**A service's screen lists the rules that govern a trade on it**, read-only,
+program-scoped rules included, with a link to Trade rules for a role that may
+change them.
+
+**One resident off their cohort's block is a row, not a note.**
+`resident_block_overrides` is created and removed from the cohorts screen; the
+reason is required, and `clearResidentOverride` exists so the first one entered
+by mistake is not permanent.
 
 ### The default service library
 

@@ -245,7 +245,8 @@ the same domain functions the scheduler screens call:
 | Phone numbers | All 20, validated and normalised. Visible to a chief, absent from a resident's payload entirely |
 | Not schedulable | Varga, on parental leave — active on the roster but off the schedule |
 | Site eligibility | Abiodun and Sorensen not credentialed for the VA |
-| Draft schedule | A fortnight copied from the published one, so the diff has something to show |
+| Exception | One PGY-2 on Demo Clinic for block 1 instead of their cohort's service, with a reason — the row that would otherwise be a spreadsheet column called NOTES |
+| Draft schedule | A fortnight copied from the published one, so the diff has something to show, and every shift in it editable |
 
 One thing is deliberately left wrong: **Demo Emergency is marked as needing
 coverage and has none**. The scheduler dashboard flags it under "Needs a
