@@ -1,37 +1,48 @@
 name: Apply migrations to production
 
-# Runs itself whenever a migration reaches main, and can also be pressed by
-# hand.
+# Runs after CI passes on the default branch, and applies whatever the database
+# is missing.
 #
-# ## Why this is now automatic
+# ## Why this exists
 #
-# It was manual, on the reasoning in /CLAUDE.md that applying a migration to
-# production is a human step. That rule was written to stop a *session* from
-# reaching into the live database on a whim, and it still does — nothing an
-# agent runs can touch production.
+# Every migration this project has ever applied went in by a person pasting SQL
+# into a database console. That is how `docs/AI_PROJECT_STATE.md` came to be
+# wrong about production twice — once claiming migrations were applied that were
+# not, and once the reverse. A step that must happen after every deploy, always
+# the same way, should not depend on somebody remembering it, and a record kept
+# by hand of a thing done by hand is a record that drifts.
 #
-# But it had a second effect nobody intended: every schema change waited on a
-# person noticing, and the one time that mattered, the person was on a phone and
-# the administration pages were down for hours. A step that must happen after
-# every deploy, always the same way, is a step that should not need a human at
-# all — and leaving it to one is how it gets forgotten precisely when everything
-# else is going wrong.
+# ## Why `workflow_run` rather than `push`
 #
-# What makes this safe to automate is the runner, not the trigger: forward only,
-# each file in its own transaction, already-applied files skipped, a refusal if
-# an applied file's bytes have changed, and every migration in this repository
-# additive — so the currently-deployed code keeps working while it runs.
+# So that CI is a gate rather than a coincidence. On a plain `push` trigger this
+# job starts the moment the commit lands and races the test suite: a migration
+# whose own tests are about to fail would already be in production by the time
+# anybody knew. `workflow_run` fires only when the CI workflow *finishes*, and
+# the job below refuses unless it finished green.
 #
-# It only fires on `main`, so a migration is applied after review, never from a
-# branch.
+# `workflow_run` also always uses the workflow file from the default branch, so
+# a pull request cannot alter what this job does by editing it. That is a
+# property worth having and not one to give up for a simpler trigger.
+#
+# ## Why it is safe to run unattended
+#
+# The runner is the one a developer runs: forward only, each file in its own
+# transaction, already-applied files skipped, and a refusal if an applied file's
+# bytes have changed. On top of that `scripts/apply-migrations-ci.ts` reads every
+# pending file first and refuses the whole run if any of them would destroy
+# data — a `DROP TABLE` is applied just as atomically as an `ADD COLUMN`, and
+# the transaction around it is no comfort at all. A migration that means it says
+# so in the file.
+#
+# It never resets, never drops, and never reads a row of programme data.
+# Re-running it against an up-to-date database is a no-op that exits 0, which is
+# what makes it safe to press again after a failed deploy.
 on:
-  push:
-    branches: [main]
-    paths:
-      # Only when the schema actually changes. A documentation commit does not
-      # need to open a connection to the production database.
-      - 'db/migrations/**'
-      - '.github/workflows/apply-migrations.yml'
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  # For pressing by hand: a re-run after fixing a connection string, or the
+  # first run on a database that was behind before this workflow existed.
   workflow_dispatch:
     inputs:
       confirm:
@@ -39,10 +50,14 @@ on:
         required: true
         default: ''
 
-# One at a time, and never cancelled halfway.
+# One at a time, and never cancelled halfway. Two pushes in quick succession
+# must not have their migrations interleaved.
 concurrency:
   group: production-migrations
   cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   migrate:
@@ -50,15 +65,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    # The gate. For an automatic run: CI must have finished green, on the
+    # default branch. Anything else — a failed suite, a feature branch, a
+    # cancelled run — and this job does not start at all.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.head_branch == github.event.repository.default_branch) }}
+
     steps:
       # Only for a hand-pressed run. An automatic one has already been through
-      # review and a merge, which is a stronger confirmation than a typed word.
+      # review, a merge, and a green suite, which is a stronger confirmation
+      # than a typed word.
       - name: Check the confirmation word
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm != 'APPLY' }}
         run: |
           echo "::error::Type APPLY in the confirmation box to run this. Nothing was done."
           exit 1
 
+      # `workflow_run` checks out the default branch, which is what should be
+      # applied: the commit that just passed CI is on it.
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -68,46 +94,53 @@ jobs:
 
       - run: npm ci
 
-      # Checked before anything connects, and reported in words. The first real
-      # run of this workflow failed with `getaddrinfo EAI_AGAIN base` — the DNS
-      # resolver saying "there is no computer called base", which is what half
-      # a connection string looks like from the inside. Fine for an engineer
-      # reading a log; useless to the person whose phone did the copying.
+      - name: Say which run triggered this
+        run: |
+          {
+            echo "### Triggered by"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "A hand-pressed run by @${{ github.actor }}."
+            else
+              echo "CI run [#${{ github.event.workflow_run.run_number }}](${{ github.event.workflow_run.html_url }}) on \`${{ github.event.workflow_run.head_branch }}\`, which finished **${{ github.event.workflow_run.conclusion }}**."
+              echo ""
+              echo "Commit \`${{ github.event.workflow_run.head_sha }}\`."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Nothing configured yet is not a failure. A repository whose production
+      # secret has never been set is a repository with no production to migrate,
+      # and turning the default branch red for that is noise — the app already
+      # says which migrations it is missing at /admin/diagnostics.
       #
-      # Nothing it prints contains the secret, or any part of it.
-      # An automatic run on a repository that has never been configured warns and
-      # stops rather than failing: main going red for a deployment that does not
-      # exist yet is noise, and the app already says so on its own diagnostics
-      # page. A hand-pressed run fails, because somebody asked for it.
-      - name: Check the connection string looks like one
-        id: connection
-        continue-on-error: ${{ github.event_name == 'push' }}
+      # A hand-pressed run fails instead, because somebody asked for it.
+      - name: Stop if there is no connection string
+        id: configured
         env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
-        run: npx tsx scripts/check-connection-string.ts
-
-      - name: Say nothing was applied
-        if: ${{ steps.connection.outcome == 'failure' }}
+          HAS_SECRET: ${{ secrets.PRODUCTION_DATABASE_URL != '' }}
         run: |
-          echo "::warning::No usable PRODUCTION_DATABASE_URL, so no migration was applied. The app will say which files are missing at /admin/diagnostics."
+          if [ "$HAS_SECRET" != "true" ]; then
+            {
+              echo "### Nothing was applied"
+              echo ""
+              echo "No \`PRODUCTION_DATABASE_URL\` secret is set on this repository, so there is no database to migrate."
+              echo "Set it under **Settings → Secrets and variables → Actions**, then re-run this workflow."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::No PRODUCTION_DATABASE_URL secret. Nothing was applied."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then exit 1; fi
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Show what is about to be applied
-        run: |
-          echo "Migrations in this build:"
-          ls -1 db/migrations/*.sql | xargs -n1 basename
-
-      # The same command a developer would run, with the same runner: forward
-      # only, each file in its own transaction, already-applied files skipped,
-      # and a refusal if an applied file's contents have changed.
+      # Reads the pending files, refuses anything destructive, applies the rest,
+      # and writes what it did into the job summary. Every refusal it can
+      # produce is written for whoever is reading a red pipeline rather than for
+      # whoever wrote the migration.
+      #
+      # Nothing it prints contains the secret or any part of it.
       - name: Apply
-        if: ${{ steps.connection.outcome == 'success' }}
+        if: ${{ steps.configured.outputs.ready == 'true' }}
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           NODE_ENV: production
-        run: npm run db:migrate
-
-      - name: What to check now
-        if: success()
-        run: |
-          echo "Done. Open the app and reload the administration page."
-          echo "If /admin/diagnostics exists in this build, it will now say every migration is applied."
+        run: npm run db:migrate:ci
