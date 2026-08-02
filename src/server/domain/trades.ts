@@ -892,7 +892,20 @@ interface FinaliseInput {
   request: TradeRequestRow;
   offer: TradeOfferRow;
   sourceShift: ShiftDetail;
-  offeredShift: ShiftDetail;
+  /**
+   * The shift coming back the other way, or null for a giveaway.
+   *
+   * Null is what makes this one writer instead of two. The atomic move is the
+   * most consequential code in the product — `SELECT … FOR UPDATE`, a guarded
+   * row count, offer invalidation, the completion record and the audit trail,
+   * all in one transaction — and a second copy of it for one-way transfers
+   * would be the place the two shapes quietly drift apart. A partial or
+   * inconsistent switch is the worst thing this software can do; two
+   * implementations of it is how that happens.
+   */
+  offeredShift: ShiftDetail | null;
+  /** Who is taking the shift, when there is no offered shift to name them by. */
+  takingResidentId?: string;
   validation: TradeValidationResult;
   actorUserId: string;
   actorLabel: string;
@@ -930,44 +943,70 @@ async function finaliseTrade(
   } = input;
 
   const residentA = request.initiating_resident_id;
-  const residentB = offer.offering_resident_id;
+  const residentB = offeredShift
+    ? offer.offering_resident_id
+    : (input.takingResidentId ?? offer.offering_resident_id);
+  const oneWay = offeredShift === null;
 
-  const previousAssignments = {
-    [sourceShift.id]: residentA,
-    [offeredShift.id]: residentB,
-  };
-  const resultingAssignments = {
-    [sourceShift.id]: residentB,
-    [offeredShift.id]: residentA,
-  };
+  /* Every shift this finalisation touches. One for a giveaway, two for a
+     switch — written once so the status update, the lock set and the
+     invalidation sweep below cannot disagree about which is which. */
+  const shiftIds = oneWay ? [sourceShift.id] : [sourceShift.id, offeredShift.id];
 
-  // End the current assignments. The row count guards against a concurrent
-  // change that slipped between validation and this write.
+  const previousAssignments = oneWay
+    ? { [sourceShift.id]: residentA }
+    : { [sourceShift.id]: residentA, [offeredShift.id]: residentB };
+  const resultingAssignments = oneWay
+    ? { [sourceShift.id]: residentB }
+    : { [sourceShift.id]: residentB, [offeredShift.id]: residentA };
+
+  /* End the current assignments. The row count guards against a concurrent
+     change that slipped between validation and this write.
+   *
+   * A giveaway ends exactly one: the poster's hold on their own shift. They
+   * keep it right up to this statement — there is no window in which the shift
+   * is live and unheld, because the end and the reassignment are the same
+   * transaction. */
   const endedRows = await query<{ id: string }>(
-    `UPDATE shift_assignments
-        SET assignment_status = 'ended', ended_at = now()
-      WHERE assignment_status = 'active'
-        AND ((shift_id = $1 AND resident_id = $3) OR (shift_id = $2 AND resident_id = $4))
-      RETURNING id`,
-    [sourceShift.id, offeredShift.id, residentA, residentB],
+    oneWay
+      ? `UPDATE shift_assignments
+            SET assignment_status = 'ended', ended_at = now()
+          WHERE assignment_status = 'active'
+            AND shift_id = $1 AND resident_id = $3
+          RETURNING id`
+      : `UPDATE shift_assignments
+            SET assignment_status = 'ended', ended_at = now()
+          WHERE assignment_status = 'active'
+            AND ((shift_id = $1 AND resident_id = $3) OR (shift_id = $2 AND resident_id = $4))
+          RETURNING id`,
+    oneWay
+      ? [sourceShift.id, null, residentA]
+      : [sourceShift.id, offeredShift.id, residentA, residentB],
     client,
   );
-  if (endedRows.length !== 2) {
+  if (endedRows.length !== shiftIds.length) {
     throw conflict(
-      "These shifts changed while the switch was being completed. Nothing was changed — please try again.",
+      oneWay
+        ? "This shift changed while it was being taken. Nothing was changed — please try again."
+        : "These shifts changed while the switch was being completed. Nothing was changed — please try again.",
     );
   }
 
   await query(
-    `INSERT INTO shift_assignments (shift_id, resident_id, assignment_status)
-     VALUES ($1, $2, 'active'), ($3, $4, 'active')`,
-    [sourceShift.id, residentB, offeredShift.id, residentA],
+    oneWay
+      ? `INSERT INTO shift_assignments (shift_id, resident_id, assignment_status)
+         VALUES ($1, $2, 'active')`
+      : `INSERT INTO shift_assignments (shift_id, resident_id, assignment_status)
+         VALUES ($1, $2, 'active'), ($3, $4, 'active')`,
+    oneWay
+      ? [sourceShift.id, residentB]
+      : [sourceShift.id, residentB, offeredShift.id, residentA],
     client,
   );
 
   await query(
     `UPDATE shifts SET status = 'scheduled' WHERE id = ANY($1::uuid[])`,
-    [[sourceShift.id, offeredShift.id]],
+    [shiftIds],
     client,
   );
 
@@ -979,7 +1018,7 @@ async function finaliseTrade(
         AND (offered_shift_id = ANY($2::uuid[]) OR trade_request_id IN (
               SELECT id FROM trade_requests WHERE source_shift_id = ANY($2::uuid[])
             ))`,
-    [offer.id, [sourceShift.id, offeredShift.id]],
+    [offer.id, shiftIds],
     client,
   );
   for (const orphan of orphanedOffers) {
@@ -1000,7 +1039,7 @@ async function finaliseTrade(
         AND source_shift_id = ANY($2::uuid[])
         AND status IN ('open', 'offer_pending', 'accepted', 'pending_approval', 'approved')
       RETURNING *`,
-    [request.id, [sourceShift.id, offeredShift.id]],
+    [request.id, shiftIds],
     client,
   );
 
@@ -1020,17 +1059,21 @@ async function finaliseTrade(
        (program_id, trade_request_id, trade_offer_id, source_shift_id, destination_shift_id,
         resident_a, resident_b, previous_assignments, resulting_assignments,
         approval_required, approved_by, approved_at, approval_notes, override_applied,
-        validation_snapshot, completed_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $13, $14, $15::jsonb, $16)
+        validation_snapshot, completed_by, kind)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $13, $14, $15::jsonb, $16, $17)
      RETURNING *`,
     [
       program.id,
       request.id,
       offer.id,
       sourceShift.id,
-      offeredShift.id,
+      /* Null for both, and pinned by a CHECK constraint: a giveaway that named
+         a destination shift or a second resident would be a switch wearing the
+         wrong label, and the invariant reads `kind` to decide how many legs to
+         expect. */
+      offeredShift?.id ?? null,
       residentA,
-      residentB,
+      oneWay ? null : residentB,
       JSON.stringify(previousAssignments),
       JSON.stringify(resultingAssignments),
       input.approvalRequired,
@@ -1040,38 +1083,70 @@ async function finaliseTrade(
       input.overrideApplied ?? false,
       JSON.stringify(validation),
       actorUserId,
+      oneWay ? "giveaway" : "switch",
     ],
     client,
   );
 
+  /* One leg for a giveaway, two for a switch. This is the fact the invariant
+     checks, and the reason it can tell the shapes apart rather than being
+     loosened to "one or two legs is fine" — which would have stopped catching
+     the half-applied switch it was written for. */
   await query(
-    `INSERT INTO trade_legs (completed_trade_id, leg_index, shift_id, from_resident_id, to_resident_id)
-     VALUES ($1, 0, $2, $3, $4), ($1, 1, $5, $4, $3)`,
-    [completed!.id, sourceShift.id, residentA, residentB, offeredShift.id],
+    oneWay
+      ? `INSERT INTO trade_legs (completed_trade_id, leg_index, shift_id, from_resident_id, to_resident_id)
+         VALUES ($1, 0, $2, $3, $4)`
+      : `INSERT INTO trade_legs (completed_trade_id, leg_index, shift_id, from_resident_id, to_resident_id)
+         VALUES ($1, 0, $2, $3, $4), ($1, 1, $5, $4, $3)`,
+    oneWay
+      ? [completed!.id, sourceShift.id, residentA, residentB]
+      : [completed!.id, sourceShift.id, residentA, residentB, offeredShift.id],
     client,
   );
 
   const userA = await userIdForResident(residentA, client);
   const userB = await userIdForResident(residentB, client);
   await notify(
-    [
-      {
-        recipientUserId: userA,
-        type: "switch.completed",
-        title: "Shift switch completed",
-        body: `You now work ${shiftLabel(offeredShift, program.timezone)}. ${sourceShift.service_name} on ${formatShiftDate(sourceShift.start_datetime, program.timezone)} is covered.`,
-        relatedEntityType: "completed_trade",
-        relatedEntityId: completed!.id,
-      },
-      {
-        recipientUserId: userB,
-        type: "switch.completed",
-        title: "Shift switch completed",
-        body: `You now work ${shiftLabel(sourceShift, program.timezone)}. ${offeredShift.service_name} on ${formatShiftDate(offeredShift.start_datetime, program.timezone)} is covered.`,
-        relatedEntityType: "completed_trade",
-        relatedEntityId: completed!.id,
-      },
-    ],
+    oneWay
+      ? [
+          {
+            recipientUserId: userA,
+            type: "giveaway.taken" as const,
+            title: "Somebody took your shift",
+            /* Names the shift the way the rest of the product names it, and
+               says the thing the poster actually wants to know: they are off
+               it. */
+            body: `${shiftLabel(sourceShift, program.timezone)} is covered. You are no longer on it.`,
+            relatedEntityType: "completed_trade",
+            relatedEntityId: completed!.id,
+          },
+          {
+            recipientUserId: userB,
+            type: "giveaway.taken" as const,
+            title: "You picked up a shift",
+            body: `You now work ${shiftLabel(sourceShift, program.timezone)}.`,
+            relatedEntityType: "completed_trade",
+            relatedEntityId: completed!.id,
+          },
+        ]
+      : [
+          {
+            recipientUserId: userA,
+            type: "switch.completed" as const,
+            title: "Shift switch completed",
+            body: `You now work ${shiftLabel(offeredShift!, program.timezone)}. ${sourceShift.service_name} on ${formatShiftDate(sourceShift.start_datetime, program.timezone)} is covered.`,
+            relatedEntityType: "completed_trade",
+            relatedEntityId: completed!.id,
+          },
+          {
+            recipientUserId: userB,
+            type: "switch.completed" as const,
+            title: "Shift switch completed",
+            body: `You now work ${shiftLabel(sourceShift, program.timezone)}. ${offeredShift!.service_name} on ${formatShiftDate(offeredShift!.start_datetime, program.timezone)} is covered.`,
+            relatedEntityType: "completed_trade",
+            relatedEntityId: completed!.id,
+          },
+        ],
     client,
   );
 
@@ -1102,19 +1177,24 @@ async function finaliseTrade(
     },
     client,
   );
-  await recordAudit(
-    {
-      programId: program.id,
-      actorUserId,
-      actorLabel,
-      action: "shift.reassigned",
-      entityType: "shift",
-      entityId: offeredShift.id,
-      previousState: { residentId: residentB },
-      newState: { residentId: residentA },
-    },
-    client,
-  );
+  /* Only a switch moves a second shift. A giveaway's single reassignment is
+     recorded above; adding a second entry naming a shift that did not move
+     would put a fiction in the audit trail. */
+  if (!oneWay) {
+    await recordAudit(
+      {
+        programId: program.id,
+        actorUserId,
+        actorLabel,
+        action: "shift.reassigned",
+        entityType: "shift",
+        entityId: offeredShift.id,
+        previousState: { residentId: residentB },
+        newState: { residentId: residentA },
+      },
+      client,
+    );
+  }
 
   logger.info("trade.completed", {
     completedTradeId: completed!.id,

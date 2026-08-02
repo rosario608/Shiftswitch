@@ -226,3 +226,18 @@ export function toInterval(start: Date, end: Date): Interval {
     DateTime.fromJSDate(end),
   );
 }
+
+/**
+ * The wall-clock hour and minute at an instant, in a given zone.
+ *
+ * Quiet hours are the caller: "is it 03:00 where this resident is" cannot be
+ * answered from a formatted string without parsing it back, and cannot be
+ * answered from the UTC instant at all.
+ */
+export function instantToZonedParts(
+  instant: Date,
+  zone: string,
+): { hour: number; minute: number } {
+  const local = DateTime.fromJSDate(instant, { zone });
+  return { hour: local.hour, minute: local.minute };
+}

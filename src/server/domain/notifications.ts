@@ -2,6 +2,7 @@ import { afterCommit, getPool, query, type Queryable } from "@/server/db/pool";
 import type { NotificationRow } from "@/server/db/types";
 import { rolesWith } from "@/server/auth/roles";
 import { sendPush } from "./push";
+import { resolveDelivery } from "./notification-preferences";
 
 export type NotificationType =
   | "offer.created"
@@ -17,7 +18,15 @@ export type NotificationType =
   | "switch.completed"
   | "schedule.published"
   | "schedule.corrected"
-  | "email.generated";
+  | "email.generated"
+  /** A shift somebody is giving away, which this resident could pick up. */
+  | "giveaway.posted"
+  /** Your shift was taken, or you took one. */
+  | "giveaway.taken"
+  /** To whoever oversees coverage: taken over a rules warning. */
+  | "giveaway.warned"
+  /** The one notification with no triggering action. */
+  | "shift.reminder";
 
 export interface NotificationInput {
   recipientUserId: string;
@@ -65,12 +74,37 @@ export function routeFor(input: NotificationInput): string {
   }
 }
 
+/**
+ * Writes notifications, to the channels the recipient actually allows.
+ *
+ * ## The decision happens before the write
+ *
+ * A resident who turns something off should have nothing written, nothing
+ * pushed, and no unread count. Previously the in-app row went in regardless —
+ * the `in_app` column existed, was settable, was shown back to them as if it
+ * had taken effect, and was read by no code path. Only push honoured a
+ * preference, and it did so in `sendPush`, which is after the row exists.
+ *
+ * So the channels are resolved first, per recipient, and an item with nothing
+ * left to send is dropped entirely rather than half-written.
+ */
 export async function notify(
   input: NotificationInput | NotificationInput[],
   executor: Queryable = getPool(),
 ): Promise<void> {
-  const items = Array.isArray(input) ? input : [input];
+  const requested = Array.isArray(input) ? input : [input];
+  if (requested.length === 0) return;
+
+  const deliveries = await Promise.all(
+    requested.map((item) => resolveDelivery(item.recipientUserId, item.type, executor)),
+  );
+  const allowed = requested
+    .map((item, index) => ({ item, delivery: deliveries[index] }))
+    .filter(({ delivery }) => delivery.inApp || delivery.push);
+
+  const items = allowed.map(({ item }) => item);
   if (items.length === 0) return;
+
   const values: unknown[] = [];
   const tuples = items.map((item, index) => {
     const base = index * 7;
@@ -100,7 +134,12 @@ export async function notify(
   // Push only once the surrounding transaction has committed: a rolled-back
   // trade must never produce "your switch is complete" on someone's phone.
   inserted.forEach((row, index) => {
-    const item = items[index];
+    const { item, delivery } = allowed[index];
+    /* Nothing is queued for a resident who has push off for this event, or
+       whose quiet hours are running and this is not urgent. The in-app row
+       above still exists in both cases, so nothing is lost — it is waiting on
+       the notifications screen when they next look. */
+    if (!delivery.push) return;
     afterCommit(async () => {
       await sendPush({
         userId: item.recipientUserId,

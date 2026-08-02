@@ -331,47 +331,25 @@ export const PUSH_CATEGORIES: Record<NotificationType, string> = {
   "trade.cancelled": "offers",
   "switch.completed": "switches",
   "email.generated": "switches",
+  "giveaway.posted": "offers",
+  "giveaway.taken": "switches",
+  "giveaway.warned": "approvals",
+  "shift.reminder": "schedule",
 };
 
+/**
+ * Grouping carried in the push payload, so a phone can collapse related
+ * notifications. **Not** the unit of preference any more — that is the event,
+ * and it lives in `notification-events.ts`. These four buckets were the unit
+ * of preference once, which is why a resident could not ask for "somebody took
+ * my shift" without also getting "somebody posted one you could take".
+ */
 export const CATEGORY_LABELS: Record<string, string> = {
-  offers: "Trade offers and responses",
-  approvals: "Approval requests and decisions",
+  offers: "Offers and postings",
+  approvals: "Approvals",
   schedule: "Schedule changes",
   switches: "Completed switches",
 };
-
-export async function getNotificationPreferences(
-  userId: string,
-): Promise<Record<string, { push: boolean; inApp: boolean }>> {
-  const rows = await query<{ category: string; push: boolean; in_app: boolean }>(
-    "SELECT category, push, in_app FROM notification_preferences WHERE user_id = $1",
-    [userId],
-  );
-  const preferences: Record<string, { push: boolean; inApp: boolean }> = {};
-  for (const category of Object.keys(CATEGORY_LABELS)) {
-    preferences[category] = { push: true, inApp: true };
-  }
-  for (const row of rows) {
-    preferences[row.category] = { push: row.push, inApp: row.in_app };
-  }
-  return preferences;
-}
-
-export async function setNotificationPreference(
-  userId: string,
-  category: string,
-  values: { push?: boolean; inApp?: boolean },
-): Promise<void> {
-  await query(
-    `INSERT INTO notification_preferences (user_id, category, push, in_app)
-     VALUES ($1, $2, COALESCE($3, true), COALESCE($4, true))
-     ON CONFLICT (user_id, category) DO UPDATE
-        SET push = COALESCE($3, notification_preferences.push),
-            in_app = COALESCE($4, notification_preferences.in_app),
-            updated_at = now()`,
-    [userId, category, values.push ?? null, values.inApp ?? null],
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Dispatch
@@ -395,12 +373,15 @@ export interface PushDispatch {
 export async function sendPush(dispatch: PushDispatch): Promise<PushResult[]> {
   const category = PUSH_CATEGORIES[dispatch.type] ?? "offers";
   try {
-    const preference = await queryOne<{ push: boolean }>(
-      "SELECT push FROM notification_preferences WHERE user_id = $1 AND category = $2",
-      [dispatch.userId, category],
-    );
-    if (preference && !preference.push) return [];
-
+    /* No preference lookup here any more.
+     *
+     * `notify()` resolves the channels before it writes anything, because the
+     * decision has to cover the in-app row too and that is written first. A
+     * second, narrower check in this function was how push and in-app came to
+     * disagree: push honoured the resident's setting and the in-app row
+     * ignored it entirely. One decision, made once, in one place. Callers that
+     * reach `sendPush` directly — the on-device self-test — are asking to send
+     * a specific notification to a specific device on purpose. */
     const targets = await listTargets(dispatch.userId);
     if (targets.length === 0) return [];
 
