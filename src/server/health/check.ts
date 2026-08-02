@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { query } from "@/server/db/pool";
 import { EXPECTED_MIGRATIONS } from "@/server/db/migration-manifest";
 import { describeEnvironment } from "@/server/config/environment";
@@ -56,6 +57,12 @@ export interface HealthReport {
   checkedAt: string;
   release: string;
   environment: string;
+  /**
+   * Six characters identifying *which* database this deployment uses, so
+   * production and a preview can be compared without either revealing a
+   * connection string. See `databaseFingerprint`.
+   */
+  database: string | null;
   components: HealthComponent[];
 }
 
@@ -340,10 +347,115 @@ export function checkDelivery(env: EnvLike = process.env): HealthComponent {
   };
 }
 
+/**
+ * Whether a resident's phone will ever buzz.
+ *
+ * Reported here, beside email, because the two together answer one question a
+ * resident cares about far more than any other: *if somebody offers on my
+ * shift, will I find out?* Before this existed, the answer lived in three
+ * environment variables that only somebody with the Vercel dashboard open could
+ * read — so the honest answer to "does push work in production" was "nobody can
+ * tell", which is a poor thing to discover after handing a link to forty
+ * people.
+ *
+ * `degraded`, not `failed`, and for the same reason as email: nothing breaks.
+ * The transport reports "skipped" rather than pretending, every notification is
+ * still on the notifications screen, and a resident who opens the app sees
+ * everything. What they do not get is a reason to open it.
+ */
+export function checkPush(env: EnvLike = process.env): HealthComponent {
+  const missing = (
+    [
+      ["FCM_PROJECT_ID", env.FCM_PROJECT_ID],
+      ["FCM_CLIENT_EMAIL", env.FCM_CLIENT_EMAIL],
+      ["FCM_PRIVATE_KEY", env.FCM_PRIVATE_KEY],
+    ] as const
+  )
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
+
+  if (missing.length === 0) {
+    return {
+      name: "push",
+      status: "ok",
+      summary: "Push notifications are configured.",
+      detail: { projectId: env.FCM_PROJECT_ID },
+    };
+  }
+
+  return {
+    name: "push",
+    status: "degraded",
+    summary:
+      missing.length === 3
+        ? "No push service is configured, so nobody gets a notification when somebody offers on their shift. They will only see it by opening the app."
+        : `Push is half-configured: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not set, so no notification can be sent.`,
+    detail: { missing },
+  };
+}
+
+/**
+ * Whether a failure reaches anybody.
+ *
+ * The counterpart to the two above, and the one nobody thinks about until the
+ * morning after. With no destination configured, `reportError` writes to the
+ * log and says so — which is honest, and is also invisible unless somebody
+ * happens to be reading Vercel's logs at the moment it happens.
+ */
+export function checkErrorReporting(env: EnvLike = process.env): HealthComponent {
+  if (env.ERROR_REPORTING_DSN) {
+    return {
+      name: "error reporting",
+      status: "ok",
+      summary: "Errors are reported to an external service.",
+    };
+  }
+  return {
+    name: "error reporting",
+    status: "degraded",
+    summary:
+      "No ERROR_REPORTING_DSN is set, so errors are written to the deployment log and nothing is sent anywhere. Nobody is told when a resident hits a failure.",
+  };
+}
+
+/**
+ * Which database this deployment is talking to, as a fingerprint.
+ *
+ * Six characters of a hash of the host and database name — never the
+ * connection string, never a credential, and not reversible into either. It
+ * exists to answer one question that is otherwise unanswerable without handling
+ * secrets: **is the preview environment pointed at the live database?**
+ *
+ * Open `/api/health` on production and again on a preview deployment. Same
+ * fingerprint means one database, and a pull request can write to the real
+ * programme's schedule. Different means they are properly separated. That is a
+ * comparison anybody can make in ten seconds, with nothing sensitive on screen.
+ */
+export function databaseFingerprint(env: EnvLike = process.env): string | null {
+  const url = env.DATABASE_URL;
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return createHash("sha256")
+      .update(`${parsed.host}${parsed.pathname}`)
+      .digest("hex")
+      .slice(0, 6);
+  } catch {
+    return null;
+  }
+}
+
 /** The whole picture. Safe to call on every request; it is one small query. */
 export async function checkHealth(): Promise<HealthReport> {
   const [database, migrations] = await databaseAndMigrations();
-  const components = [database, migrations, checkAuth(), checkDelivery()];
+  const components = [
+    database,
+    migrations,
+    checkAuth(),
+    checkDelivery(),
+    checkPush(),
+    checkErrorReporting(),
+  ];
   const status = worst(components.map((component) => component.status));
 
   if (status === "failed") {
@@ -359,6 +471,7 @@ export async function checkHealth(): Promise<HealthReport> {
     checkedAt: new Date().toISOString(),
     release: releaseId(),
     environment: describeEnvironment().environment,
+    database: databaseFingerprint(),
     components,
   };
 }

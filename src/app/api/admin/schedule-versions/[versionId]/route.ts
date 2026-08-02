@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { requireCapability } from "@/server/auth/guards";
+import { requireCapability, requireUser } from "@/server/auth/guards";
 import { apiHandler, ok, parseJson } from "@/server/http/api";
 import { notFound } from "@/server/http/errors";
 import { loadScheduleSnapshot } from "@/server/domain/constraints/snapshot";
@@ -38,6 +38,13 @@ export const GET = apiHandler(async (_request: Request, { params }: Params) => {
 
 export const POST = apiHandler(async (request: Request, { params }: Params) => {
   const { versionId } = await params;
+  /* Which capability this needs depends on the action, so the body has to be
+     read before the real guard runs. That is fine for anybody signed in and
+     wrong for anybody who is not: it answered an unauthenticated caller with
+     422 and the request schema rather than 401. Establishing *a* session first
+     costs one lookup and changes no authorisation — the per-action checks below
+     are untouched. */
+  await requireUser();
   const input = await parseJson(request, actionSchema);
 
   if (input.action === "diff") {

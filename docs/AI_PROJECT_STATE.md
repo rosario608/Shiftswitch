@@ -298,13 +298,42 @@ reopen the app. That is the product failing at the exact moment it is working.
 | 6 | The empty state a new account lands on, and posting one shift | **human-required** | Both are behind Google sign-in. |
 | 7 | A previous deployment can be promoted | **human-required** | The steps are in `docs/RUNBOOK.md` and were written from the dashboard. Confirming a previous deployment is listed and promotable needs a Vercel login. |
 
+### What changed after the check, to shrink this list
+
+The check found that three of its own questions were **unanswerable from any
+screen** — whether push works, whether errors reach anybody, and which database
+a deployment is on. That is not a fact about configuration; it is a gap in the
+product, and it is what made the list below feel like detective work. It is
+fixed:
+
+- **`/api/health` now reports `push` and `error reporting`** beside `database`,
+  `migrations`, `auth` and `email`. Both are `degraded` rather than `failed`,
+  for the same reason email is: nothing breaks for a resident, but somebody
+  should know. Push names *which* of its three credentials is missing, so
+  "half-configured" cannot look like "configured".
+- **The report carries a six-character `database` fingerprint** — a hash of host
+  and database name, never the connection string, and unchanged by rotating a
+  password. Open production's `/api/health` and a preview's, and compare one
+  short string: same means previews write to the live programme, different means
+  they are separated. That is the launch blocker below, turned from an
+  unanswerable question into a ten-second comparison.
+- **Two routes now establish a session before validating the request body**, so
+  an unauthenticated caller gets `401` rather than `422` and the request schema.
+  Recorded below as a non-blocker; fixed because it was two lines.
+
+Everything remaining needs a credential that does not exist yet. Signing up to
+Resend, Firebase, Sentry or Neon means proving you are a person who controls a
+mailbox and a DNS zone, and no automation can bring a secret into existence that
+a third party has not issued. **`docs/LAUNCH_CHECKLIST.md`** is the click-by-click
+version of the table below.
+
 ### What has to happen before the link goes out
 
 | | What | Who | How long |
 |---|---|---|---|
 | 1 | **Configure email.** Set the email transport's credentials in **Vercel → Settings → Environment Variables** for Production, then redeploy and confirm `/api/health` reports `email: ok`. Until then invitations are not sent and the UI correctly tells you to copy the link by hand — which does not scale to a class of forty. | owner | ~15 min |
-| 2 | **Decide about push, then look.** In **Vercel → Settings → Environment Variables**, check whether `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL` and `FCM_PRIVATE_KEY` are set for Production. If they are not, either set them or accept that residents get no notifications — but accept it knowingly. | owner | ~2 min to look |
-| 3 | **Check the Preview database.** In **Vercel → Settings → Environment Variables**, look for `DATABASE_URL` scoped to **Preview**. If there is none, every pull-request preview reads and writes the live programme. Fix: **Neon → Branches → New branch** named `preview` from `main`, then add its connection string as `DATABASE_URL` for Preview only. | owner | ~10 min |
+| 2 | **Decide about push.** `/api/health` now says whether it is configured and names any missing credential, so this no longer needs the Vercel dashboard to answer. Either set `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL` and `FCM_PRIVATE_KEY`, or accept knowingly that residents get no notifications. | owner | ~20 min, or 0 to skip |
+| 3 | **Check the Preview database**, now by comparing the `database` fingerprint on production's `/api/health` with a preview's. Same means every pull-request preview reads and writes the live programme. Fix: **Neon → Branches → New branch** named `preview` from `main`, then add its connection string as `DATABASE_URL` for **Preview only**. | owner | ~10 min |
 | 4 | **Set `ERROR_REPORTING_DSN`**, or accept that errors reach only Vercel's logs and nobody is paged. | owner | ~5 min |
 | 5 | **Sign in once, as a real resident**, and walk the three screens this check could not reach: the empty state, posting one shift, and a second account offering on it. This is the one thing no automated check can stand in for. | owner | ~10 min |
 | 6 | **Confirm rollback**: open **Vercel → Deployments** and check that at least one earlier production deployment is listed as Ready. | owner | ~1 min |
@@ -329,12 +358,15 @@ link in that window meets a product where nothing works.
 
 ### Two findings that are not blockers
 
-**Two routes validate the request body before checking the session.**
-`POST /api/account/delete` and `POST /api/admin/schedule-versions/<id>` answer
+**Two routes validated the request body before checking the session — fixed.**
+`POST /api/account/delete` and `POST /api/admin/schedule-versions/<id>` answered
 `422` rather than `401` to an unauthenticated caller with an empty body. Nothing
-is disclosed but the request schema and nothing is performed — both return `401`
-the moment the body is well-formed, which was checked directly. Worth reordering
-when something else touches those files; not worth a commit of its own.
+was disclosed but the request schema and nothing was ever performed — both
+returned `401` the moment the body was well-formed, which was checked directly
+against production. The account route now takes its session first; the schedule
+route establishes *a* session before parsing and leaves its per-action
+capability checks untouched, because which capability applies depends on the
+action in the body.
 
 **`schema_drift` names the missing migration file to an unauthenticated
 caller.** That is operational information rather than anybody's data, and the

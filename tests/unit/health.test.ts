@@ -5,6 +5,9 @@ import { join } from "node:path";
 import {
   checkAuth,
   checkDelivery,
+  checkPush,
+  checkErrorReporting,
+  databaseFingerprint,
   compareMigrations,
   releaseId,
 } from "@/server/health/check";
@@ -204,6 +207,101 @@ describe("email delivery", () => {
     const component = checkDelivery({ NODE_ENV: "production" });
     expect(component.status).toBe("degraded");
     expect(component.summary).toMatch(/copy the link/i);
+  });
+});
+
+describe("whether a resident's phone will ever buzz", () => {
+  const configured = {
+    FCM_PROJECT_ID: "p",
+    FCM_CLIENT_EMAIL: "a@b.invalid",
+    FCM_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----zzsecretzz",
+  };
+
+  it("is ok when all three credentials are set", () => {
+    expect(checkPush(configured).status).toBe("ok");
+  });
+
+  /* Degraded, never failed: nothing breaks for a resident who opens the app.
+     What they lose is the reason to open it. */
+  it("is degraded, not failed, when nothing is configured", () => {
+    const component = checkPush({});
+    expect(component.status).toBe("degraded");
+    expect(component.summary).toMatch(/only see it by opening the app/i);
+  });
+
+  /* The case that would otherwise look configured from a distance: somebody
+     pasted two of the three. */
+  it("names exactly which of the three is missing", () => {
+    const component = checkPush({ ...configured, FCM_PRIVATE_KEY: undefined });
+    expect(component.status).toBe("degraded");
+    expect(component.summary).toMatch(/half-configured/i);
+    expect(component.detail).toMatchObject({ missing: ["FCM_PRIVATE_KEY"] });
+  });
+
+  it("never puts the private key in the report", () => {
+    const serialised = JSON.stringify(checkPush(configured));
+    expect(serialised).not.toContain("zzsecretzz");
+    expect(serialised).not.toContain("BEGIN PRIVATE KEY");
+  });
+});
+
+describe("whether a failure reaches anybody", () => {
+  it("is ok with a destination configured", () => {
+    expect(checkErrorReporting({ ERROR_REPORTING_DSN: "https://x@y.invalid/1" }).status).toBe(
+      "ok",
+    );
+  });
+
+  it("says plainly that nobody is told, when there is no destination", () => {
+    const component = checkErrorReporting({});
+    expect(component.status).toBe("degraded");
+    expect(component.summary).toMatch(/Nobody is told/i);
+  });
+
+  it("never echoes the destination back", () => {
+    const dsn = "https://secret-token@errors.invalid/42";
+    expect(JSON.stringify(checkErrorReporting({ ERROR_REPORTING_DSN: dsn }))).not.toContain(
+      "secret-token",
+    );
+  });
+});
+
+describe("which database a deployment is using", () => {
+  const production = "postgres://user:pw@db.example.invalid:5432/shiftswitch";
+
+  /* The whole point: two deployments can be compared without either of them
+     showing a connection string. */
+  it("is the same for the same database and different for another", () => {
+    expect(databaseFingerprint({ DATABASE_URL: production })).toBe(
+      databaseFingerprint({ DATABASE_URL: production }),
+    );
+    expect(databaseFingerprint({ DATABASE_URL: production })).not.toBe(
+      databaseFingerprint({
+        DATABASE_URL: "postgres://user:pw@preview.example.invalid:5432/shiftswitch",
+      }),
+    );
+  });
+
+  /* A different password against the same database is still the same database:
+     the fingerprint must not change when a credential is rotated, or comparing
+     production with preview would give a false "they differ". */
+  it("ignores the credential", () => {
+    expect(databaseFingerprint({ DATABASE_URL: production })).toBe(
+      databaseFingerprint({
+        DATABASE_URL: "postgres://other:rotated@db.example.invalid:5432/shiftswitch",
+      }),
+    );
+  });
+
+  it("reveals neither host nor password", () => {
+    const print = databaseFingerprint({ DATABASE_URL: production })!;
+    expect(print).toHaveLength(6);
+    expect(production).not.toContain(print);
+  });
+
+  it("is null rather than a guess when there is no database configured", () => {
+    expect(databaseFingerprint({})).toBeNull();
+    expect(databaseFingerprint({ DATABASE_URL: "not a url" })).toBeNull();
   });
 });
 
