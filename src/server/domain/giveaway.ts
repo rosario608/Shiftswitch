@@ -94,7 +94,7 @@ async function loadOpenGiveaway(
     [requestId],
     client,
   );
-  if (!request) throw notFound("That shift is no longer being given away.");
+  if (!request) throw notFound("That shift is no longer being given away. Ask whoever posted it to put it up again.");
   if (request.program_id !== programId) throw forbidden();
   if (request.kind !== "giveaway") {
     throw conflict(
@@ -102,18 +102,18 @@ async function loadOpenGiveaway(
     );
   }
   if (request.status !== "open" && request.status !== "offer_pending") {
-    throw conflict("Somebody else has already taken this shift.");
+    throw conflict("Somebody else got there first. There may be other shifts going — have a look at what is available.");
   }
   if (request.expires_at.getTime() <= Date.now()) {
-    throw conflict("This shift is no longer available to pick up.");
+    throw conflict("This shift is past its deadline, so nobody can pick it up now. Ask whoever posted it to put it up again.");
   }
 
   const shift = await getShiftDetailForUpdate(request.source_shift_id, client);
-  if (!shift) throw notFound("That shift no longer exists.");
+  if (!shift) throw notFound("That shift no longer exists. It may have been cancelled — check with your chief.");
   /* The poster holds it until this transaction moves it. If they do not, the
      posting is stale — an administrator reassigned the shift underneath it. */
   if (shift.resident_id !== request.initiating_resident_id) {
-    throw conflict("This shift was reassigned, so it can no longer be picked up.");
+    throw conflict("This shift has been given to somebody else already, so it is no longer going spare.");
   }
   return { request, shift };
 }
@@ -161,7 +161,7 @@ export async function previewTake(
       context.program.id,
     );
     if (request.initiating_resident_id === context.resident.id) {
-      throw validationFailed("This is your own shift.");
+      throw validationFailed("This is your own shift — you are already on it.");
     }
     const program = await getProgram(context.program.id, client);
     const { validation, warnings, blockers } = await assess(
@@ -219,7 +219,7 @@ export async function takeShift(
       context.program.id,
     );
     if (request.initiating_resident_id === context.resident.id) {
-      throw validationFailed("You cannot pick up your own shift.");
+      throw validationFailed("You are already on this shift, so there is nothing to pick up. Withdraw it instead if you no longer want to give it away.");
     }
 
     const program = await getProgram(context.program.id, client);

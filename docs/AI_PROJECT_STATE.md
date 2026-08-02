@@ -152,10 +152,10 @@ test.
 
 | | | How that is known |
 |---|---|---|
-| In the repository | `0001` – `0013` | `ls db/migrations` |
-| Applied locally, and proven to apply to an **empty** database in order | `0001` – `0013` | step 9 of `npm run verify`, every run |
+| In the repository | `0001` – `0014` | `ls db/migrations` |
+| Applied locally, and proven to apply to an **empty** database in order | `0001` – `0014` | step 9 of `npm run verify`, every run |
 | **Applied to production** | **`0001` – `0013`** | `0001`–`0006` reported by the session of 31 July; `0007` applied by hand the same day; `0008` and `0009` verified by query in Neon on 1 August 2026; **`0010` and `0011` applied by the pipeline** at 21:30:29Z on 1 August 2026 — [run #4 of `apply-migrations.yml`](https://github.com/rosario608/Shiftswitch/actions/runs/30719252564), whose log reads `2 pending: 0010_beta_onboarding.sql, 0011_pending_enrollment.sql` then `applied 2`; **`0012` applied by the pipeline** at 02:15Z on 2 August — [run #12](https://github.com/rosario608/Shiftswitch/actions/runs/30728546373); **`0013` applied by the pipeline** at 03:18:26Z on 2 August — [run #16](https://github.com/rosario608/Shiftswitch/actions/runs/30730378288), whose log reads `1 pending: 0013_web_push.sql` then `applied 1` |
-| **Not applied to production** | *(none)* | Run #16's `1 pending` is itself the evidence that `0012` was already in: had it not been, the same run would have named two files. |
+| **Not applied to production** | **`0014_giveaways_and_notification_choice.sql`** | On this branch and not merged. The pipeline applies it when CI passes on `main`. |
 
 `0013_web_push.sql` adds one nullable column, `devices.push_keys`, holding the
 two encryption keys a browser subscription needs. It is additive and breaks
@@ -164,6 +164,15 @@ subscription with no keys cannot be encrypted to, and is refused as
 `missing_subscription_keys` rather than logged as sent. The endpoint deliberately
 reuses the existing `push_token` column so that re-subscribing **moves** a
 device through the unique index instead of leaving a second, dead row behind.
+
+`0014_giveaways_and_notification_choice.sql` adds the `trade_kind` enum, `kind`
+on postings and completions, and drops three NOT NULLs that assumed a second
+shift and a second resident always exist — replacing them with CHECK
+constraints so neither shape can be written wrong. It also adds
+`trade_warning_acknowledgements`, an `email` channel and per-event keys on
+`notification_preferences`, quiet hours on `users`, and `shift_reminders`.
+Without it, a giveaway cannot be recorded at all and the notification
+preferences screen writes rows nothing reads.
 
 **The window between merge and migration was about eighteen minutes**, and it is
 worth writing down because the earlier measurement of ~12 minutes was taken from
@@ -814,6 +823,92 @@ in the end-to-end suite.
 Choices made without asking, as `/CLAUDE.md` requires. Each says what was
 chosen, why, and what was rejected, so any of them can be revisited by someone
 who disagrees rather than rediscovered.
+
+### A shift going one way is a **giveaway**, and never a handoff
+
+**Chosen:** *switch* stays the word for a two-legged exchange. A one-way
+transfer is a **giveaway**: a resident *gives away* a shift, a colleague
+*takes* or *picks up* one. Enforced by `tests/unit/vocabulary.test.ts`, which
+already fails on rejected words.
+
+Rejected: **handoff** and **handover**. Both already mean something in a
+hospital — transferring responsibility for a *patient*, sign-out, I-PASS, the
+thing residents are formally assessed on. A resident reading "handoff" would
+reach for the clinical meaning first, and the whole point of naming this
+separately is that a resident must never confuse it with a switch: one leaves
+you working the same amount, the other leaves you working more.
+
+Rejected: **cover**, which is what residents actually say — "can anyone cover
+my Saturday". It loses to a collision inside this product: *coverage* is
+already the word for staffing levels, in `trade-coverage.ts`, the coverage
+requirements a chief configures, and the coverage report. One word per concept
+cuts both ways, and a chief's word must not quietly become a resident's
+different word.
+
+Rejected: **pickup** as the noun. It names only the taker's half, and the
+poster needs a verb too.
+
+### Warn about workload, refuse about physics
+
+**Chosen:** for a giveaway, a rule failure the programme has marked
+**overridable** becomes a warning the taker may accept. `asOneWayTransfer`
+does the reclassification; nothing is recomputed, so the sentence a resident
+reads is the one the engine wrote, numbers included.
+
+Taking a shift without giving one away is exactly the case rest and workload
+limits exist for — and it is also a decision about somebody's own life that
+this product has no standing to overrule. So it warns, deliberately, and
+records what was accepted.
+
+Reusing `overridable` rather than adding a second flag is the whole design.
+That flag already means "a chief may approve this anyway" everywhere else, so
+a programme that has marked a rule absolute keeps it absolute here with no new
+configuration and nothing to disagree with.
+
+What never softens: system checks, which are all `overridable: false` —
+overlap, a shift already started, a cancelled shift, an ineligible resident,
+the wrong programme. "Never refuse it" is about workload. Being in two places
+at once is not a trade-off a resident gets to weigh.
+
+Rejected: a per-rule `softenForGiveaway` column. It would have let a
+programme configure the two axes into contradiction — absolute but soft — and
+the first support question would be which one won.
+
+### Nobody in two places at once is a system check, not a configured rule
+
+**Chosen:** overlap is evaluated on every switch and every giveaway, whether
+or not a programme has configured `no_overlapping_shifts`, and no override can
+lift it.
+
+It was only ever a configured rule, which meant a programme that had not set
+it up had no overlap protection at all. That is every programme on its first
+day, and every programme onboarded through the marketplace-first path, which
+starts with no services and no rules deliberately. The integration suite
+caught it as an intermittent inconsistency — one resident holding two
+different services from 11:00 to 23:00 — and it was intermittent only because
+most pairs of shifts do not overlap.
+
+The configured rule stays: it can be scoped to a service or rotation and carry
+a programme's own wording. This is the floor beneath it.
+
+### Notification defaults come from what an event *is*
+
+**Chosen:** every event declares whether it is **actionable** (somebody is
+waiting on the recipient) or ambient, and whether it is **urgent** (cannot
+wait for quiet hours to end). Actionable defaults to push; ambient defaults to
+the in-app list only.
+
+Rejected: everything on by default, which is what the four-bucket system did.
+A new resident notified about every shift every colleague gives away turns
+notifications off within a week and then misses the ones that needed them.
+Defaulting the ambient events off is what protects the actionable ones.
+
+Rejected: quiet hours per programme. A night-float resident sleeps at ten in
+the morning, and a blanket rule set by a chief would be wrong for exactly the
+people it most affects.
+
+Quiet hours hold push and never the in-app row: waking up and finding it on
+the notifications screen is the point.
 
 ### Web push before the app stores
 

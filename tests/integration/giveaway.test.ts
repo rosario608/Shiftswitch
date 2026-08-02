@@ -172,7 +172,11 @@ describe("giving a shift away", () => {
     await takeShift(taker.context, request.id, { acknowledgedWarnings: [] });
     await expect(
       takeShift(tired.context, request.id, { acknowledgedWarnings: [] }),
-    ).rejects.toMatchObject({ message: expect.stringContaining("already taken") });
+      /* Says what happened and where to go next, rather than only refusing —
+         a resident who wanted a shift is still looking for one. */
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("Somebody else got there first"),
+    });
   });
 
   it("will not let a switch posting be taken as a giveaway", async () => {

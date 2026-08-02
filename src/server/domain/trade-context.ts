@@ -189,10 +189,10 @@ export async function buildGiveawayContext({
   executor?: Queryable;
 }): Promise<TradeContext> {
   if (!shift.resident_id) {
-    throw notFound("That shift no longer has anybody on it.");
+    throw notFound("Nobody is on that shift, so there is nothing to pick up. Tell your chief — a live shift with no one on it is a gap.");
   }
   const taker = await getResidentInfo(takerResidentId, executor);
-  if (!taker) throw notFound("That resident is no longer available.");
+  if (!taker) throw notFound("Your account is not set up as a resident yet, so you cannot pick up shifts. Ask your chief to confirm you.");
 
   const shiftInfo = toShiftInfo(shift);
   const schedule = await listScheduleWindow(taker.id, shiftInfo.start, executor);
