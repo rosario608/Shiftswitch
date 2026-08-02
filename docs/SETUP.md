@@ -129,13 +129,21 @@ Two independent controls:
 - `GOOGLE_HOSTED_DOMAIN=hospital.org` — asks Google to show only accounts from
   that Workspace domain, and rejects an `id_token` whose `hd` claim differs.
 - **Program → Approved email domains** (in the admin UI) — the server refuses
-  sign-in for a configured user whose email domain is not on the program's list.
-  Leave it empty to allow any account an administrator has explicitly
-  configured.
+  sign-in for any address whose domain is not on the program's list, whether or
+  not they already belong.
 
-Neither control grants access on its own: a brand-new Google account always
-lands on "your account is not yet configured" until an administrator assigns a
-role and a program.
+**This second control is the one that matters, because a brand-new Google
+account joins the program as a resident on first sign-in and can use the
+product immediately.** That is deliberate — see **Decisions** in
+`docs/AI_PROJECT_STATE.md` — and it means that with the domain list left empty,
+any Google account that reaches your sign-in page becomes a resident who can
+read the whole program's schedule, the switch board, and the contact directory
+including phone numbers.
+
+Set **Approved email domains** to your institution's domain before sending the
+link to anybody. It is one field, it takes a minute, and it is the difference
+between "every resident is in without waiting" and "everyone on the internet is
+in without waiting".
 
 ### 4.3 Bootstrapping the first administrator
 
@@ -205,10 +213,11 @@ npm run dev
 
 1. Open <http://localhost:3000> — you are redirected to the sign-in screen.
 2. Click **Continue with Google** (or use the development sign-in panel).
-3. A brand-new Google account lands on "your account is not yet configured".
-4. Sign in as `admin@hospital.org` (seeded) and open **Admin → Users** to give
-   the new account a role, program and PGY level.
-5. Sign back in as that account — the schedule is now visible.
+3. A brand-new Google account joins the program as a resident and lands on the
+   welcome screen. Nothing has to be assigned to it first.
+4. Open **Admin → Users** as `admin@hospital.org` (seeded) if you want to give
+   that account a different role, or correct its PGY level — both are edits to
+   an account that already works, not a step it is waiting on.
 
 For a real program you would invite residents rather than configure them one by
 one, then import the schedule: see `docs/ONBOARDING.md`.

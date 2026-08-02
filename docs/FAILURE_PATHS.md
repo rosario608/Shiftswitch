@@ -25,7 +25,7 @@ load" and "the database is down" are the same event to a resident.
 |---|---|---|
 | A1 | Database unreachable — `getSessionContext` cannot query `sessions` | The segment's `error.tsx`: *the schedule service is not reachable*, a retry, and the request id. The shell survives. |
 | A2 | Database reachable, **schema behind the code** — a query names a column the deployed schema lacks | Named for what it is — a missing migration — not "something went wrong". `/admin/diagnostics` says which file. |
-| A3 | Signed in, no role or program yet (`not_configured`) | Redirect to `/pending`. Already designed. |
+| A3 | Signed in, but there was no program to join (`not_configured`) | Redirect to `/pending`, which names the missing program rather than sending them to an administrator who cannot help. Rare: first sign-in normally joins the program as a resident. |
 | A4 | Signed in, capability refused (`forbidden`) | Redirect to `/?denied=1` with the refusal naming the area and the role. Already designed. |
 | A5 | Resource absent or another programme's (`notFound()`) | `not-found.tsx`. Already designed, now per-segment so the shell survives. |
 | A6 | Unexpected throw inside one page (bad data, a null nobody expected) | The **segment** boundary, so navigation and the rest of the app keep working. Previously the root boundary replaced the entire shell. |

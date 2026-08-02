@@ -287,16 +287,20 @@ test("malformed and unknown identifiers fail safely", async ({ page }) => {
   expect([400, 422]).toContain(notJson.status());
 });
 
-test("an unconfigured account is told to contact its administrator", async ({ page }) => {
+test("an account with no program to join is told what is actually missing", async ({
+  page,
+}) => {
+  /* Rare now that signing in joins the programme as a resident: this state
+     means there is no programme to join, not that somebody is waiting on an
+     administrator to assign them a role. The page says so, because the old
+     wording sent people to chase a person who could not help. */
   await signIn(page, ACCOUNTS.pending);
   await page.goto("/");
   await expect(page).toHaveURL(/\/pending/);
   await expect(
-    page.getByText(/your account is not yet configured/i),
+    page.getByText(/no program to put you in yet/i),
   ).toBeVisible();
-  await expect(
-    page.getByText(/please contact your program administrator/i),
-  ).toBeVisible();
+  await expect(page.getByText(/needs to create the program/i)).toBeVisible();
 
   // The API is closed to it as well.
   const response = await page.request.get("/api/schedule");

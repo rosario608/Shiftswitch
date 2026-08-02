@@ -824,6 +824,62 @@ Choices made without asking, as `/CLAUDE.md` requires. Each says what was
 chosen, why, and what was rejected, so any of them can be revisited by someone
 who disagrees rather than rediscovered.
 
+### A new account joins as a resident, with nobody's permission
+
+**Chosen by the product owner**, over two narrower alternatives that were put
+to them explicitly with this cost stated. Recorded here because it is the one
+decision in this repository that trades access control for reach, and a future
+session must not "tighten" it back without asking.
+
+A verified Google identity signing in for the first time becomes a **confirmed
+resident** of the programme, with a `residents` row and any held roster rows
+claimed, in the same transaction. No administrator step.
+
+**What it costs, plainly:** a confirmed resident can read the whole
+programme's schedule and the switch board. With no approved email domains
+configured, any Google account that reaches the sign-in page gets that.
+
+**What it does not cost: phone numbers.** The product owner asked directly
+whether a self-enrolled account could read them. It cannot, and no change was
+needed — `residents.contact_info` is held by chief, APD, PD and administrator
+and *not* by resident, so the directory page refuses them and both roster
+queries select `NULL::text` in place of the column. The guard is in the SQL
+rather than in a template that could forget to hide a field. What changed is
+that this is now *asserted* — `tests/integration/auth.test.ts`, "what a
+self-enrolled account can reach", drives a real self-enrolment against a
+colleague who has a number stored, checks the resident gets rows with names and
+null phones, and checks a chief on the same data does get the number, so the
+first half cannot pass by returning nothing.
+
+Getting a phone number therefore still requires somebody to decide: an
+administrator changes the role. That is exactly the boundary asked for, and it
+was already where it needed to be.
+
+Rejected: **domain-matched only** — a matching address becomes a full resident,
+everybody else lands `pending` (own schedule only) until confirmed. Safer, and
+it was the recommendation, but it makes the good path depend on a field being
+set and leaves everyone else in exactly the wait the change exists to remove.
+
+Rejected: **domain-matched, others refused at the door.** Tightest, and it
+locks out a resident whose account is a personal address — which, for a
+product somebody opens at 3am on their own phone, is a real population.
+
+**The one control that still binds:** `programs.approved_email_domains`. When
+an administrator has set it, an address outside it is refused at sign-in —
+now checked *before* any account is written, where it previously only bound
+somebody who already belonged to the programme. Setting that field is the
+single action that turns the paragraph above off, and it is how this decision
+gets revisited without a code change.
+
+Bootstrap still outranks self-enrolment: the first administrator of a fresh
+instance arrives as an administrator, or nobody can configure the programme
+they just joined. And a *missing* role is the only thing filled in — signing
+in never demotes somebody who was deliberately made a chief.
+
+An account left unconfigured under the old behaviour is adopted on its next
+sign-in. A fix that only reached people who had not tried yet would be the
+wrong half: everybody who already met the old screen is still sitting on it.
+
 ### A released shift is published as cancelled, not dropped from the feed
 
 **Chosen:** the iCalendar feed emits a `VEVENT` with `STATUS:CANCELLED`,
@@ -2173,6 +2229,22 @@ The most recent are under **Audit, 1 August 2026**, near the top. The sections
 below are earlier sessions, newest first. They are kept rather than summarised
 because several of them explain *why* a piece of code looks the way it does, and
 a later session that does not know will simplify the defect back in.
+
+### Defects found and fixed (self-enrolment session)
+
+1. **The board was refused to an unconfirmed account by the page and served by
+   the API.** `/switches` checks `isPending` and shows an explanation; `GET
+   /api/switches` called `requireUser()` and returned every posting in the
+   programme, with names. So the restriction held only for somebody using the
+   web interface — the native client, or anything else holding a session, got
+   the lot. Found while tracing what a self-enrolled account could reach. The
+   rule now sits on the data rather than on one screen.
+2. **A domain restriction only bound people who already belonged.** The
+   `approved_email_domains` check ran against `existing.program_id`, so it
+   refused a member whose address had fallen outside the list and did nothing
+   at all about a stranger signing in for the first time — which is the case
+   it reads as if it exists for. It is now checked before any account is
+   written, so a refused address also leaves no user row behind.
 
 ### Defects found and fixed (calendar feed session)
 

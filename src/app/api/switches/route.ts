@@ -1,4 +1,4 @@
-import { requireResident, requireUser } from "@/server/auth/guards";
+import { isPending, requireResident, requireUser } from "@/server/auth/guards";
 import { apiHandler, ok, parseJson } from "@/server/http/api";
 import { postShiftSchema } from "@/lib/schemas";
 import { listAvailableTrades, postShiftForTrade } from "@/server/domain/trades";
@@ -8,6 +8,11 @@ export const dynamic = "force-dynamic";
 /** Shifts you can take in the caller's program (excluding their own posts). */
 export const GET = apiHandler(async (request: Request) => {
   const context = await requireUser();
+  /* The board page refuses an unconfirmed account and this did not, so the
+     restriction held only for somebody using the web interface — the native
+     client and anything else calling the API got the whole programme's
+     postings, with names. The rule belongs on the data, not on one screen. */
+  if (isPending(context)) return ok({ trades: [] });
   const url = new URL(request.url);
   const limit = Number(url.searchParams.get("limit") ?? 50);
   const offset = Number(url.searchParams.get("offset") ?? 0);
