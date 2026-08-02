@@ -18,10 +18,8 @@ import {
 } from "@/server/domain/account";
 import { buildCalendar } from "@/server/domain/calendar";
 import {
-  getNotificationPreferences,
   registerDevice,
   sendPush,
-  setNotificationPreference,
   setPushTransport,
   sendSelfTestPush,
   NoopPushTransport,
@@ -31,7 +29,11 @@ import {
   type PushTarget,
   type PushTransport,
 } from "@/server/domain/push";
-import { notify, routeFor } from "@/server/domain/notifications";
+import { countUnread, notify, routeFor } from "@/server/domain/notifications";
+import {
+  setPreference,
+  setQuietHours,
+} from "@/server/domain/notification-preferences";
 import { acceptOffer, createOffer, postShiftForTrade } from "@/server/domain/trades";
 import { listResidentSchedule } from "@/server/domain/schedule";
 import { withTransaction } from "@/server/db/pool";
@@ -57,6 +59,19 @@ class RecordingTransport implements PushTransport {
     this.sent.push({ target, message });
     return { deviceId: target.deviceId, status: "sent", ...this.nextResult };
   }
+}
+
+/**
+ * `notify` inside a transaction, so the push it queues is awaited.
+ *
+ * Outside a transaction `afterCommit` is fire-and-forget by design — a push
+ * must never make a caller wait — which means a test asserting on the
+ * transport straight afterwards is racing it. Committing is what flushes the
+ * queue, and it is also what production does: every notification the product
+ * sends is written inside the transaction that caused it.
+ */
+async function notifyAndFlush(input: Parameters<typeof notify>[0]) {
+  await withTransaction((client) => notify(input, client));
 }
 
 let fixture: TestProgram;
@@ -432,24 +447,163 @@ describe("device registry and push", () => {
     expect(transport.sent).toHaveLength(0);
   });
 
-  it("honours a category the user switched off", async () => {
+  /* Preferences are per event now, not per bucket. This case used to switch off
+     `offers`, which meant "an offer on your shift" and "somebody posted a shift
+     you could take" went off together — a resident could not keep the one that
+     needs them and drop the one that does not. */
+  it("sends nothing at all for an event the resident switched off", async () => {
     await registerDevice(alice.user.id, {
       installId: "install-1",
       platform: "ios",
       pushToken: "token-abc-1234567890",
     });
-    await setNotificationPreference(alice.user.id, "offers", { push: false });
+    await setPreference(alice.user.id, "offer.created", { push: false, inApp: false });
 
-    await sendPush({ userId: alice.user.id, type: "offer.created", title: "x", body: "y" });
+    await notifyAndFlush({
+      recipientUserId: alice.user.id,
+      type: "offer.created",
+      title: "x",
+      body: "y",
+    });
     expect(transport.sent).toHaveLength(0);
+    /* Not written, not merely hidden. A row here would still show on the
+       notifications screen and still count as unread, which is the difference
+       between a preference and a filter. */
+    expect(await countUnread(alice.user.id)).toBe(0);
 
-    // A different category still gets through.
-    await sendPush({ userId: alice.user.id, type: "approval.required", title: "x", body: "y" });
+    // A neighbouring event in the same old bucket is untouched.
+    await notifyAndFlush({
+      recipientUserId: alice.user.id,
+      type: "offer.accepted",
+      title: "x",
+      body: "y",
+    });
     expect(transport.sent).toHaveLength(1);
+    expect(await countUnread(alice.user.id)).toBe(1);
+  });
 
-    const preferences = await getNotificationPreferences(alice.user.id);
-    expect(preferences.offers.push).toBe(false);
-    expect(preferences.approvals.push).toBe(true);
+  /* The in-app half was the one that never worked: the column was settable,
+     was shown back to the resident as if it had taken effect, and was read by
+     no code path at all. */
+  it("keeps the in-app row when only push is off, and drops push", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+    });
+    await setPreference(alice.user.id, "offer.created", { push: false, inApp: true });
+
+    await notifyAndFlush({
+      recipientUserId: alice.user.id,
+      type: "offer.created",
+      title: "x",
+      body: "y",
+    });
+    expect(transport.sent).toHaveLength(0);
+    expect(await countUnread(alice.user.id)).toBe(1);
+  });
+
+  it("defaults an ambient event to no push and an actionable one to push", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+    });
+    /* Nobody has set anything. A new resident is neither spammed nor silent:
+       a schedule being published is worth a line in the list, a shift of
+       theirs being taken is worth their phone buzzing.
+     *
+     * This used to use `giveaway.posted` as the ambient example, and that
+     * event has since stopped being ambient — see the invitation case below.
+     * A published schedule is the honest example of the category: it is a fact
+     * about the reader's own working life that nothing waits on. */
+    await notifyAndFlush({
+      recipientUserId: alice.user.id,
+      type: "schedule.published",
+      title: "x",
+      body: "y",
+    });
+    expect(transport.sent).toHaveLength(0);
+    expect(await countUnread(alice.user.id)).toBe(1);
+
+    await notifyAndFlush({
+      recipientUserId: alice.user.id,
+      type: "giveaway.taken",
+      title: "x",
+      body: "y",
+    });
+    expect(transport.sent).toHaveLength(1);
+  });
+
+  /* An invitation is the third default, and the only event that has it.
+     "Somebody is giving a shift away" is not a fact about the reader — it is
+     an opportunity, and there are as many of them as the programme posts.
+     Writing an in-app row for each would turn the notification list, which
+     exists to say what happened to *you*, into a feed of other people's
+     Saturdays. Off everywhere until asked for. */
+  it("writes nothing at all for an invitation nobody asked for", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+    });
+    await notifyAndFlush({
+      recipientUserId: alice.user.id,
+      type: "giveaway.posted",
+      title: "x",
+      body: "y",
+    });
+    expect(transport.sent).toHaveLength(0);
+    /* Not merely unpushed — not written. A disabled notification is never
+       sent rather than sent and hidden. */
+    expect(await countUnread(alice.user.id)).toBe(0);
+  });
+
+  it("delivers the same invitation to somebody who did ask", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+    });
+    await setPreference(alice.user.id, "giveaway.posted", { push: true, inApp: true });
+    await notifyAndFlush({
+      recipientUserId: alice.user.id,
+      type: "giveaway.posted",
+      title: "x",
+      body: "y",
+    });
+    expect(transport.sent).toHaveLength(1);
+    expect(await countUnread(alice.user.id)).toBe(1);
+  });
+
+  it("holds a quiet-hours push but still delivers what cannot wait", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+    });
+    /* A window covering the whole day, so the test does not depend on when it
+       runs. `schedule.published` is ambient; `giveaway.taken` is urgent. */
+    await setQuietHours(alice.user.id, { start: "00:00", end: "23:59" });
+    await setPreference(alice.user.id, "schedule.published", { push: true });
+
+    await notifyAndFlush({
+      recipientUserId: alice.user.id,
+      type: "schedule.published",
+      title: "x",
+      body: "y",
+    });
+    expect(transport.sent).toHaveLength(0);
+    /* Held, not lost: it is on the notifications screen in the morning. */
+    expect(await countUnread(alice.user.id)).toBe(1);
+
+    await notifyAndFlush({
+      recipientUserId: alice.user.id,
+      type: "giveaway.taken",
+      title: "x",
+      body: "y",
+    });
+    expect(transport.sent).toHaveLength(1);
   });
 
   it("never lets a push failure break the caller", async () => {

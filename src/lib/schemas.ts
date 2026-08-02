@@ -12,11 +12,20 @@ export const tradePreferencesSchema = z.object({
   preferredShiftTypes: z.array(z.string().max(40)).max(10).optional(),
 });
 
+/**
+ * `switch` asks for a shift back; `giveaway` does not.
+ *
+ * Defaulted rather than required, so every existing caller keeps posting
+ * switches and the meaning of an old request body does not change under it.
+ */
+export const tradeKindSchema = z.enum(["switch", "giveaway"]).default("switch");
+
 export const postShiftSchema = z.object({
   shiftId: uuid,
   notes: z.string().max(500, "Keep the note under 500 characters.").optional(),
   preferences: tradePreferencesSchema.optional(),
   expiresAt: z.string().datetime().optional(),
+  kind: tradeKindSchema.optional(),
 });
 
 /**
@@ -25,6 +34,7 @@ export const postShiftSchema = z.object({
  * service, because there may be no services to choose from.
  */
 export const adHocPostSchema = z.object({
+  kind: tradeKindSchema.optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick the day you are working."),
   startTime: z.string().regex(/^\d{1,2}:\d{2}$/, "Use 24-hour, like 07:00."),
   endTime: z.string().regex(/^\d{1,2}:\d{2}$/, "Use 24-hour, like 19:00."),

@@ -56,6 +56,8 @@ import { postShiftWithin } from "./trades";
  */
 
 export interface AdHocShiftInput {
+  /** `giveaway` posts it one-way; omitted means a switch, as before. */
+  kind?: "switch" | "giveaway";
   date: string;
   startTime: string;
   endTime: string;
@@ -137,6 +139,7 @@ export async function postAdHocShift(
         shiftId: placed.shiftId,
         notes: input.notes,
         preferences: input.preferences,
+        kind: input.kind,
       },
       client,
     );

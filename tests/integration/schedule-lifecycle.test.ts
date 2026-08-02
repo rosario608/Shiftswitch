@@ -80,15 +80,23 @@ beforeEach(async () => {
 });
 
 /** A live shift, held by somebody, on a given day. */
-async function makeLiveShift(day: number, serviceId: string, holder: TestResident) {
+async function makeLiveShift(
+  day: number,
+  serviceId: string,
+  holder: TestResident,
+  times: { startTime: string; endTime: string } = { startTime: "07:00", endTime: "19:00" },
+) {
   return createShift(fixture.program, {
     inDays: day,
     serviceId,
     residentId: holder.resident.id,
-    startTime: "07:00",
-    endTime: "19:00",
+    ...times,
   });
 }
+
+/** An evening shift, for scenarios that need two people on one service on one
+ *  day without putting either of them in two places at once. */
+const EVENING = { startTime: "20:00", endTime: "23:00" };
 
 describe("a programme's schedule, from nothing to corrected", () => {
   it("survives the whole path with the database still consistent", async () => {
@@ -177,12 +185,38 @@ describe("a programme's schedule, from nothing to corrected", () => {
 
     // -------------------------------------------------------------------- trade
     /* Two shifts on different days held by different people, so the swap is a
-       real one and the coverage check has something to think about. */
-    const first = live[0];
-    const partner = live.find(
-      (shift) => shift.resident_id !== first.resident_id && shift.date !== first.date,
-    )!;
-    expect(partner).toBeDefined();
+       real one and the coverage check has something to think about — and
+       neither resident already works the other's day.
+     *
+     * That last condition used to be missing, and the pair was whatever the
+     * generator happened to produce. Most runs it was fine; some runs the
+     * poster already held a shift at the same hours as the one they were about
+     * to receive, and the switch double-booked them. The suite reported it as
+     * an intermittent inconsistency rather than as what it was, because
+     * nothing refused the swap: overlap was a rule this programme had never
+     * configured. It is a system check now, so an unpickable pair is refused
+     * outright — which would turn the old selection into an intermittent
+     * *failure* instead. Picking a pair the residents can actually take is the
+     * honest fix; asserting "completed or refused" would have been the test
+     * quietly agreeing to learn nothing. */
+    const daysWorkedBy = (residentId: string) =>
+      new Set(live.filter((shift) => shift.resident_id === residentId).map((s) => s.date));
+
+    const pair = live
+      .flatMap((first) =>
+        live
+          .filter(
+            (other) =>
+              other.resident_id !== first.resident_id &&
+              other.date !== first.date &&
+              !daysWorkedBy(first.resident_id).has(other.date) &&
+              !daysWorkedBy(other.resident_id).has(first.date),
+          )
+          .map((other) => [first, other] as const),
+      )
+      .at(0);
+    expect(pair).toBeDefined();
+    const [first, partner] = pair!;
 
     const poster = residents.find((r) => r.resident.id === first.resident_id)!;
     const offerer = residents.find((r) => r.resident.id === partner.resident_id)!;
@@ -272,11 +306,21 @@ describe("a programme's schedule, from nothing to corrected", () => {
   });
 
   it("refuses a switch that would leave a service short", async () => {
-    /* MICU needs two people on the day. Alice and Bob are both on it, and Bob
-       also holds a Floor shift the next day. Swapping Alice's MICU shift for
-       Bob's Floor shift leaves MICU with two shifts and **one person** — a
-       clinical gap that every rule in the engine passes, because every rule is
-       about one of the two residents and this is about the ward. */
+    /* MICU needs two people on the day. Alice works the day shift, Bob the
+       evening, and Bob also holds a Floor shift the next day. Swapping Alice's
+       MICU day shift for Bob's Floor shift leaves MICU with two shifts and
+       **one person** — a clinical gap that every rule in the engine passes,
+       because every rule is about one of the two residents and this is about
+       the ward.
+
+       Bob's MICU shift is deliberately in the evening. When both were 07:00 to
+       19:00 this scenario was not a coverage gap at all, it was Bob in two
+       places at once — and it only reached the coverage check because nothing
+       enforced overlap unless a programme had configured the rule. Now that
+       overlap is a system check, an accidental double-booking is refused as
+       one, and this test would have been asserting the wrong sentence. The
+       evening shift keeps the case it was written for: two distinct slots, two
+       distinct people, and a swap that collapses them to one person. */
     const alice = residents[0];
     const bob = residents[1];
 
@@ -289,7 +333,7 @@ describe("a programme's schedule, from nothing to corrected", () => {
     });
 
     const aliceShift = await makeLiveShift(10, fixture.services.MICU.id, alice);
-    await makeLiveShift(10, fixture.services.MICU.id, bob);
+    await makeLiveShift(10, fixture.services.MICU.id, bob, EVENING);
     const bobShift = await makeLiveShift(11, fixture.services.Floor.id, bob);
 
     const request = await postShiftForTrade(alice.context, { shiftId: aliceShift.id });

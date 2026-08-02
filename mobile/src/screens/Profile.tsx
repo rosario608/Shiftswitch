@@ -199,9 +199,19 @@ export function ProfileScreen() {
  * The server returns preferences keyed by category, with every category always
  * present, so the screen never has to invent a default.
  */
+interface PreferenceEvent {
+  key: string;
+  label: string;
+  description: string;
+  actionable: boolean;
+  /** Shown when this is switched off, on the events where off has a cost. */
+  costsShifts?: string;
+  current: { push: boolean; inApp: boolean; email: boolean };
+}
+
 interface PreferencesResponse {
-  preferences: Record<string, { push: boolean; inApp: boolean }>;
-  labels: Record<string, string>;
+  events: PreferenceEvent[];
+  quietHours: { start: string; end: string } | null;
 }
 
 function NotificationSettings() {
@@ -219,18 +229,21 @@ function NotificationSettings() {
     void permissionState().then(setPermission);
   }, []);
 
-  async function toggle(category: string, push: boolean) {
-    setSaving(category);
+  async function toggle(event: string, push: boolean) {
+    setSaving(event);
     setFailure(null);
     try {
       const updated = await api.patch<PreferencesResponse>(
         "/api/notifications/preferences",
-        { category, push },
+        { event, push },
       );
-      resource.setData({ ...resource.data!, preferences: updated.preferences });
+      /* The whole list comes back, and it is what the screen shows — the
+         switch reflects what the server confirmed rather than the tap, so a
+         refused change does not leave a switch lying about its state. */
+      resource.setData(updated);
     } catch (caught) {
       setFailure(
-        caught instanceof ApiError ? caught.message : "Could not save that.",
+        caught instanceof ApiError ? caught.message : "That did not save. Try again in a moment — your other settings are unchanged.",
       );
     } finally {
       setSaving(null);
@@ -276,27 +289,38 @@ function NotificationSettings() {
         )}
 
         <ul className="divide-y divide-border-base">
-          {Object.entries(resource.data?.preferences ?? {}).map(
-            ([category, preference]) => (
-              <li
-                key={category}
-                className="flex items-center justify-between gap-4 py-3"
-              >
-                <label htmlFor={`push-${category}`} className="text-sm text-ink">
-                  {resource.data?.labels[category] ?? category}
+          {(resource.data?.events ?? []).map((event) => (
+            <li key={event.key} className="py-3">
+              <div className="flex items-center justify-between gap-4">
+                <label htmlFor={`push-${event.key}`} className="text-sm text-ink">
+                  {event.label}
                 </label>
                 <input
-                  id={`push-${category}`}
+                  id={`push-${event.key}`}
                   type="checkbox"
                   role="switch"
-                  checked={preference.push}
-                  disabled={saving === category}
-                  onChange={(event) => void toggle(category, event.target.checked)}
+                  checked={event.current.push}
+                  disabled={saving === event.key}
+                  onChange={(changed) =>
+                    void toggle(event.key, changed.target.checked)
+                  }
                   className="h-6 w-6 accent-[var(--brand)]"
                 />
-              </li>
-            ),
-          )}
+              </div>
+              <p className="mt-0.5 pr-10 text-xs text-ink-muted">
+                {event.description}
+              </p>
+              {/* Turning some of these off costs the resident shifts, and they
+                  should be told which in plain words at the moment they do it
+                  — not left to find out in March. Only shown when it is off,
+                  because a warning about a thing you have not done is noise. */}
+              {!event.current.push && event.costsShifts ? (
+                <p className="mt-1.5 pr-10 text-xs font-medium text-ink">
+                  {event.costsShifts}
+                </p>
+              ) : null}
+            </li>
+          ))}
         </ul>
         {!resource.data && !resource.error && (
           <p className="text-sm text-ink-muted">Loading your preferences…</p>

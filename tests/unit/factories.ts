@@ -124,3 +124,45 @@ export function makeContext(input: {
     rules: input.rules ?? [],
   };
 }
+
+/**
+ * A one-leg context: somebody taking a shift and giving nothing back.
+ *
+ * The single leg is deliberate rather than a switch with one side blanked.
+ * A giveaway has exactly one resident whose schedule changes, and the
+ * distinction matters to the rules: `buildProposedSchedule` subtracts nothing,
+ * so the taker's proposed schedule is one shift longer than their current one.
+ * That is the whole reason rest and workload limits are the point of this
+ * shape and merely incidental to a switch.
+ */
+export function makeGiveawayContext(input: {
+  taker?: ResidentInfo;
+  shift: ShiftInfo;
+  takerSchedule?: ShiftInfo[];
+  rules?: RuleRow[];
+  now?: Date;
+  trades?: number;
+  offers?: number;
+  defaultTradeApprovalRequired?: boolean;
+}): TradeContext {
+  const taker = input.taker ?? makeResident({ name: "Dr. T" });
+  const leg: TradeLegContext = buildProposedSchedule({
+    resident: taker,
+    gives: null,
+    receives: input.shift,
+    currentSchedule: input.takerSchedule ?? [],
+    completedTradesThisMonth: input.trades ?? 0,
+    openOffers: input.offers ?? 0,
+  });
+  return {
+    program: {
+      id: "program-1",
+      name: "Internal Medicine Residency",
+      timezone: NY,
+      defaultTradeApprovalRequired: input.defaultTradeApprovalRequired ?? false,
+    },
+    now: input.now ?? zonedWallTimeToInstant("2026-07-01", "08:00", NY),
+    legs: [leg],
+    rules: input.rules ?? [],
+  };
+}

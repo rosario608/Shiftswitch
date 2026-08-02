@@ -216,6 +216,10 @@ const EXPECTED: Record<string, Capability | "session" | "resident"> = {
   "switches/[switchId]/cancel": "session",
   "switches/[switchId]/candidates": "resident",
   "switches/[switchId]/offers": "resident",
+  /* Picking up a shift somebody is giving away. `resident`, because it changes
+     who works a shift — the same bar as making an offer, not the lower one for
+     reading a posting. */
+  "switches/[switchId]/take": "resident",
   "switches/done/[switchId]": "session",
   "switches/done/[switchId]/email": "session",
 };

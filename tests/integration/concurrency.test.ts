@@ -12,6 +12,7 @@ import {
   withdrawOffer,
 } from "@/server/domain/trades";
 import { updateShift } from "@/server/domain/admin";
+import { takeShift } from "@/server/domain/giveaway";
 import {
   activeAssignee,
   assertDatabaseConsistent,
@@ -528,6 +529,149 @@ describe("an uncoordinated storm", () => {
 
     // And it is consistent after a second sweep over whatever is left.
     await runMaintenance(fixture.program.id);
+    await assertDatabaseConsistent();
+  });
+});
+
+/**
+ * A shift changing hands one way, raced.
+ *
+ * The switch races above all turn on "two people cannot both end up holding
+ * one shift". A giveaway has the same failure mode reached by a different
+ * road: there is no offered shift to lock, so the only thing standing between
+ * two simultaneous takers is the row lock on the posting and the status
+ * transition inside the same transaction.
+ *
+ * Counting successes is not enough here either. "One take won and one lost" is
+ * compatible with the shift having two active assignments, so every case ends
+ * in `assertDatabaseConsistent()`, which asserts the state rather than the
+ * outcome.
+ */
+describe("one-way transfers, raced", () => {
+  async function postGiveaway(owner: TestResident, day = 10) {
+    const shift = await createShift(fixture.program, {
+      inDays: day,
+      service: fixture.services.MICU,
+      residentId: owner.resident.id,
+    });
+    const request = await postShiftForTrade(owner.context, {
+      shiftId: shift.id,
+      kind: "giveaway",
+    });
+    return { shift, request };
+  }
+
+  it("only one of two simultaneous takers gets the shift", async () => {
+    const { shift, request } = await postGiveaway(alice);
+
+    const results = await Promise.allSettled([
+      takeShift(bob.context, request.id, { acknowledgedWarnings: [] }),
+      takeShift(carol.context, request.id, { acknowledgedWarnings: [] }),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    /* The state, not the tally: exactly one active assignment, held by
+       whichever of them won, and never by both. */
+    expect(await countActiveAssignments(shift.id)).toBe(1);
+    const holder = await activeAssignee(shift.id);
+    expect([bob.resident.id, carol.resident.id]).toContain(holder);
+    await assertDatabaseConsistent();
+  });
+
+  it("double-tapping take produces one transfer, not two", async () => {
+    const { shift, request } = await postGiveaway(alice);
+
+    const results = await Promise.allSettled([
+      takeShift(bob.context, request.id, { acknowledgedWarnings: [] }),
+      takeShift(bob.context, request.id, { acknowledgedWarnings: [] }),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(await countActiveAssignments(shift.id)).toBe(1);
+
+    const completed = await query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM completed_trades",
+    );
+    expect(completed[0].count).toBe("1");
+    await assertDatabaseConsistent();
+  });
+
+  /* The same shift cannot be both given away and switched. Whichever posting
+     is created second is refused by the partial unique index, so this races
+     one live posting against a take rather than two postings. */
+  it("a take racing a switch on the same shift settles on one owner", async () => {
+    const { shift, request } = await postGiveaway(alice);
+    /* Bob has a shift of his own, and tries to acquire Alice's through a
+       switch he posts in the other direction at the same moment Carol takes
+       it outright. */
+    const bobShift = await createShift(fixture.program, {
+      inDays: 14,
+      service: fixture.services.Floor,
+      residentId: bob.resident.id,
+    });
+    const bobPost = await postShiftForTrade(bob.context, { shiftId: bobShift.id });
+
+    const results = await Promise.allSettled([
+      takeShift(carol.context, request.id, { acknowledgedWarnings: [] }),
+      (async () => {
+        const offer = await createOffer(alice.context, {
+          tradeRequestId: bobPost.id,
+          offeredShiftId: shift.id,
+        });
+        return acceptOffer(bob.context, offer.offer.id);
+      })(),
+    ]);
+
+    /* Either order is legitimate; what is not legitimate is both landing.
+       Alice's shift has exactly one holder afterwards whichever won. */
+    expect(results.some((result) => result.status === "fulfilled")).toBe(true);
+    expect(await countActiveAssignments(shift.id)).toBe(1);
+    expect(await countActiveAssignments(bobShift.id)).toBe(1);
+    await assertDatabaseConsistent();
+  });
+
+  it("a posting withdrawn mid-take leaves the shift with its owner or its taker, never nobody", async () => {
+    const { shift, request } = await postGiveaway(alice);
+
+    const results = await Promise.allSettled([
+      takeShift(bob.context, request.id, { acknowledgedWarnings: [] }),
+      cancelTradeRequest(alice.context, request.id),
+    ]);
+    /* One of the two must have won outright. The forbidden outcome is a live
+       shift with nobody on it, which is a ward with nobody on it. */
+    expect(results.filter((r) => r.status === "fulfilled").length).toBeGreaterThanOrEqual(1);
+    expect(await countActiveAssignments(shift.id)).toBe(1);
+    const holder = await activeAssignee(shift.id);
+    expect([alice.resident.id, bob.resident.id]).toContain(holder);
+    await assertDatabaseConsistent();
+  });
+
+  it("a take racing the expiry sweep does not produce a transfer on a dead posting", async () => {
+    const { shift, request } = await postGiveaway(alice);
+    await query("UPDATE trade_requests SET expires_at = now() - interval '1 minute' WHERE id = $1", [
+      request.id,
+    ]);
+
+    const results = await Promise.allSettled([
+      takeShift(bob.context, request.id, { acknowledgedWarnings: [] }),
+      runMaintenance(fixture.program.id),
+    ]);
+    expect(results[0].status).toBe("rejected");
+    expect(await activeAssignee(shift.id)).toBe(alice.resident.id);
+    await assertDatabaseConsistent();
+  });
+
+  it("survives an uncoordinated storm around one giveaway", async () => {
+    const { shift, request } = await postGiveaway(alice);
+
+    await Promise.allSettled([
+      takeShift(bob.context, request.id, { acknowledgedWarnings: [] }),
+      takeShift(carol.context, request.id, { acknowledgedWarnings: [] }),
+      takeShift(bob.context, request.id, { acknowledgedWarnings: [] }),
+      cancelTradeRequest(alice.context, request.id),
+      runMaintenance(fixture.program.id),
+    ]);
+
+    expect(await countActiveAssignments(shift.id)).toBe(1);
     await assertDatabaseConsistent();
   });
 });

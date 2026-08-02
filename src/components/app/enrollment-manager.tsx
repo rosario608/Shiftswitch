@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Check, Copy, Link2, UserCheck, X } from "lucide-react";
+import { ShareButton } from "@/components/app/share-button";
 import { Alert } from "@/components/ui/alert";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -304,7 +305,7 @@ function FreshLink({ url }: { url: string }) {
   return (
     <Alert tone="success" title="Your link is ready. Copy it now.">
       <p className="mt-1 break-all font-mono text-xs text-ink">{url}</p>
-      <div className="mt-2">
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <Button
           size="sm"
           onClick={async () => {
@@ -320,6 +321,16 @@ function FreshLink({ url }: { url: string }) {
           )}
           {copied ? "Copied" : "Copy link"}
         </Button>
+        {/* The same link, through whatever a phone uses to send things. The
+            enrollment link is the credential, so this changes how it travels
+            and not what it can do: every limit on it — revocation, the domain
+            list, the pending queue — is enforced when somebody opens it. */}
+        <ShareButton
+          path={url}
+          title="Join our programme on ShiftSwitch"
+          label="Send it"
+          variant="ghost"
+        />
       </div>
       <p className="mt-2 text-xs">
         This is the only time it is shown. We keep only a scrambled copy, so if

@@ -1,4 +1,4 @@
-import { formatShiftDate, restHoursBetween } from "@/server/domain/time";
+import { formatShiftDate, overlaps, restHoursBetween } from "@/server/domain/time";
 import {
   APPROVAL_TRIGGERING_TYPES,
   evaluateRules,
@@ -113,10 +113,66 @@ function evaluateSystemChecks(context: TradeContext): ValidationCheck[] {
       );
     }
 
-    for (const [role, shift] of [
-      ["gives", leg.gives],
-      ["receives", leg.receives],
-    ] as const) {
+    /* Nobody in two places at once.
+     *
+     * This was only ever a *configured* rule — `no_overlapping_shifts` — which
+     * meant a programme that had not set it up had no overlap protection at
+     * all. That is every programme on its first day, and every programme
+     * onboarded through the marketplace-first path, which deliberately starts
+     * with no services and no rules so that a resident can post a shift before
+     * anybody configures anything.
+     *
+     * The integration suite caught it as an intermittent failure, because
+     * whether a swap happens to double-book somebody depends on the generated
+     * schedule: one resident ended up holding two different services from
+     * 11:00 to 23:00 on the same day. Intermittent, but not a flake — the
+     * product genuinely permitted it, and the only reason it did not happen
+     * every run is that most pairs of shifts do not overlap.
+     *
+     * So it is a system check now: always evaluated, never overridable, and
+     * not something a programme can forget to turn on. The configured rule
+     * stays, because it can be scoped to a service or rotation and can carry a
+     * programme's own wording; this is the floor beneath it. A chief override
+     * cannot lift it either — an override is for policy, and being in two
+     * places at once is not policy. */
+    const clash = leg.proposedSchedule.find(
+      (shift) =>
+        shift.id !== leg.receives.id &&
+        overlaps(shift.start, shift.end, leg.receives.start, leg.receives.end),
+    );
+    if (clash) {
+      checks.push(
+        systemCheck(
+          /* The key carries the resident so two clashing legs produce two
+             checks rather than one overwriting the other; `ruleType` stays
+             stable so the check can still be found by kind. */
+          `no_overlap:${leg.resident.id}`,
+          RULE_CATEGORY.safety,
+          "No overlapping shifts",
+          "fail",
+          /* No name prefix: both screens print the resident already, and the
+             engine's messages are asserted not to stutter. */
+          `Already on ${shiftName(clash, context.program.timezone)}, which overlaps ${shiftName(
+            leg.receives,
+            context.program.timezone,
+          )}.`,
+          { ...scope, ruleType: "system.no_overlap" },
+        ),
+      );
+    }
+
+    /* A leg with no `gives` is a resident taking a shift and giving nothing
+       back, so there is one shift to check rather than two. Filtering here
+       rather than guarding inside the loop keeps every check below written
+       once, about "the shift in hand", whichever side it came from. */
+    const sides: Array<readonly ["gives" | "receives", ShiftInfo]> = leg.gives
+      ? [
+          ["gives", leg.gives],
+          ["receives", leg.receives],
+        ]
+      : [["receives", leg.receives]];
+
+    for (const [role, shift] of sides) {
       if (shift.programId !== context.program.id) {
         checks.push(
           systemCheck(
@@ -124,7 +180,9 @@ function evaluateSystemChecks(context: TradeContext): ValidationCheck[] {
             RULE_CATEGORY.program,
             "Program match",
             "fail",
-            "Both shifts must belong to the same residency program.",
+            leg.gives
+              ? "Both shifts must belong to the same residency program."
+              : "That shift belongs to a different residency program.",
             scope,
           ),
         );
@@ -180,15 +238,20 @@ function evaluateSystemChecks(context: TradeContext): ValidationCheck[] {
     }
   }
 
-  const bothTradeable = legs.every((leg) => leg.gives.tradeable && leg.receives.tradeable);
-  if (bothTradeable) {
+  const everyShiftTradeable = legs.every(
+    (leg) => (leg.gives?.tradeable ?? true) && leg.receives.tradeable,
+  );
+  const oneWay = legs.every((leg) => leg.gives === null);
+  if (everyShiftTradeable) {
     checks.push(
       systemCheck(
         "tradeable",
         RULE_CATEGORY.shift,
         "Shift is tradeable",
         "pass",
-        "Both shifts are tradeable.",
+        /* "Both shifts are tradeable" is false rather than merely clumsy when
+           there is one shift, and this string is shown to a resident. */
+        oneWay ? "This shift can be given away." : "Both shifts are tradeable.",
       ),
     );
   }
@@ -225,7 +288,7 @@ export function validateTrade(context: TradeContext): TradeValidationResult {
     approvalReasons.push("This program requires chief approval for every trade.");
   }
   for (const leg of context.legs) {
-    for (const shift of [leg.gives, leg.receives]) {
+    for (const shift of leg.gives ? [leg.gives, leg.receives] : [leg.receives]) {
       if (shift.approvalRequired) {
         const reason = `${shiftName(shift, context.program.timezone)} requires chief approval.`;
         if (!approvalReasons.includes(reason)) approvalReasons.push(reason);
@@ -255,12 +318,19 @@ export function validateTrade(context: TradeContext): TradeValidationResult {
 /**
  * Builds the "after the trade" schedule for one leg: the resident's current
  * assignments, minus the shift they give away, plus the shift they receive.
+ *
+ * With no `gives`, nothing is removed — the resident keeps everything they had
+ * and gains one more. That subtraction is the whole difference between the two
+ * shapes, and it is why the safety rules matter so much more here: a switch
+ * hands the rest and workload checks a schedule of unchanged size, and a
+ * giveaway hands them a longer one.
  */
 export function buildProposedSchedule(
   leg: Omit<TradeLegContext, "proposedSchedule">,
 ): TradeLegContext {
+  const givenAway = leg.gives?.id;
   const proposed = leg.currentSchedule
-    .filter((shift) => shift.id !== leg.gives.id)
+    .filter((shift) => shift.id !== givenAway)
     .concat(leg.receives)
     .sort((a, b) => a.start.getTime() - b.start.getTime());
   return { ...leg, proposedSchedule: proposed };
@@ -274,4 +344,53 @@ export function summariseValidation(result: TradeValidationResult): string {
       : "Valid — all checks passed";
   }
   return `Invalid — ${result.failures[0]?.message ?? "one or more checks failed"}`;
+}
+
+/**
+ * The same validation, read as a one-way transfer rather than a switch.
+ *
+ * ## What changes and what does not
+ *
+ * A resident picking up a colleague's shift ends up working **more**, and
+ * rest limits, consecutive-day limits and workload caps are exactly the rules
+ * that will object. Refusing on those grounds would mean the product deciding
+ * how much a resident may take on, which is not its decision to make: somebody
+ * who wants the extra shift, or who is covering for a friend, is entitled to.
+ *
+ * So a failure that a programme has marked **overridable** becomes a warning.
+ * `overridable` already carries precisely this meaning everywhere else in the
+ * product — it is what lets a chief approve a switch over a rule — and reusing
+ * it means a programme that has marked a rule as absolute keeps it absolute
+ * here too, without a second flag to configure and disagree with the first.
+ *
+ * What never softens: system checks. Overlap, a shift that has already
+ * started, a cancelled shift, a resident who is not eligible, the wrong
+ * programme. Those are all `overridable: false` and stay failures. "Never
+ * refuse it" is about workload, not about physics — being in two places at
+ * once is not a trade-off a resident gets to weigh.
+ *
+ * Nothing is recomputed: the checks are the same objects with a different
+ * status, so the sentence a resident reads is the sentence the engine wrote,
+ * with its real numbers in it.
+ */
+export function asOneWayTransfer(
+  result: TradeValidationResult,
+): TradeValidationResult {
+  const softened = result.checks.map((check) =>
+    check.status === "fail" && check.overridable
+      ? { ...check, status: "warn" as const }
+      : check,
+  );
+  const failures = softened.filter((check) => check.status === "fail");
+  const warnings = softened.filter((check) => check.status === "warn");
+  return {
+    ...result,
+    checks: softened,
+    failures,
+    warnings,
+    valid: failures.length === 0,
+    /* A softened rule still deserves a chief's attention where the programme
+       said so, and the approval reasons were computed from the original
+       warnings — so they are left exactly as they were. */
+  };
 }

@@ -206,6 +206,6 @@ test("08 — completed switch and the program email", async ({ page }) => {
 test("10 — notification settings", async ({ page }) => {
   await signIn(page, ACCOUNTS.alice);
   await page.getByRole("link", { name: "You" }).click();
-  await expect(page.getByText("Trade offers and responses")).toBeVisible();
+  await expect(page.getByText("An offer on your shift")).toBeVisible();
   await page.screenshot({ path: `${OUTPUT}/phone-10-settings.png` });
 });

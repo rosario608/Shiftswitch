@@ -93,6 +93,16 @@ export interface PostShiftInput {
   preferences?: TradePreferences;
   notes?: string;
   expiresAt?: Date;
+  /**
+   * `switch` wants a shift back; `giveaway` does not.
+   *
+   * Decided when the shift is posted rather than when somebody responds,
+   * because it changes what the posting *is* and therefore who should see it
+   * and what they are being asked for. A colleague reading the board needs to
+   * know whether saying yes costs them a shift or gains them one before they
+   * tap, not after.
+   */
+  kind?: "switch" | "giveaway";
 }
 
 export async function postShiftForTrade(
@@ -151,10 +161,11 @@ export async function postShiftWithin(
       ),
     );
 
+  const kind = input.kind ?? "switch";
   const request = await queryOne<TradeRequestRow>(
     `INSERT INTO trade_requests
-       (program_id, source_shift_id, initiating_resident_id, preferences, notes, expires_at)
-     VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+       (program_id, source_shift_id, initiating_resident_id, preferences, notes, expires_at, kind)
+     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
      RETURNING *`,
     [
       context.program.id,
@@ -163,6 +174,7 @@ export async function postShiftWithin(
       JSON.stringify(input.preferences ?? {}),
       input.notes ?? "",
       expiresAt,
+      kind,
     ],
     client,
   );
@@ -174,19 +186,60 @@ export async function postShiftWithin(
       programId: context.program.id,
       actorUserId: context.user.id,
       actorLabel: context.user.email,
-      action: "trade.posted",
+      action: kind === "giveaway" ? "giveaway.posted" : "trade.posted",
       entityType: "trade_request",
       entityId: request!.id,
       previousState: { shiftStatus: shift.status },
       newState: {
         shiftId: shift.id,
         shiftStatus: "posted",
+        kind,
         preferences: input.preferences ?? {},
         expiresAt,
       },
     },
     client,
   );
+
+  /* Tell the people who could take it.
+   *
+   * A giveaway is the one posting with no specific counterparty: a switch goes
+   * on the board and waits for somebody with a shift to trade, but a shift
+   * being given away is useful to anybody free that day, and nobody is
+   * watching the board at 3am. Without this the event existed in the catalogue
+   * and in the audit trail and was never once sent, which is the same as the
+   * board being the only way to find out.
+   *
+   * `giveaway.posted` is *ambient* — it defaults off — so this reaches only
+   * residents who asked for it. That is the point of the default: the person
+   * who wants extra shifts opts in, and everybody else is not woken up for
+   * somebody else's Saturday.
+   *
+   * The poster is excluded because being told about your own posting is noise,
+   * and `notify` filters by preference server-side, so a resident who turned
+   * this off has nothing written for them at all rather than something hidden
+   * on a screen. */
+  if (kind === "giveaway") {
+    const program = await getProgram(context.program.id, client);
+    const others = await query<{ id: string }>(
+      `SELECT u.id FROM users u
+         JOIN residents r ON r.user_id = u.id
+        WHERE u.program_id = $1 AND u.active = true AND r.id <> $2`,
+      [context.program.id, context.resident.id],
+      client,
+    );
+    await notify(
+      others.map((row) => ({
+        recipientUserId: row.id,
+        type: "giveaway.posted" as const,
+        title: "A shift you could pick up",
+        body: `${context.user.fullName} is giving away ${shiftLabel(shift, program.timezone)}.`,
+        relatedEntityType: "trade_request",
+        relatedEntityId: request!.id,
+      })),
+      client,
+    );
+  }
 
   return request as TradeRequestRow;
 }
@@ -197,6 +250,8 @@ export async function cancelTradeRequest(
   reason?: string,
 ): Promise<void> {
   await withTransaction(async (client) => {
+    /* Before any row lock — see `serialiseTrade`. */
+    await serialiseTrade(client, context.program.id);
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
       [requestId],
@@ -282,6 +337,8 @@ export async function createOffer(
   input: { tradeRequestId: string; offeredShiftId: string },
 ): Promise<OfferResult> {
   return withTransaction(async (client) => {
+    /* Before any row lock — see `serialiseTrade`. */
+    await serialiseTrade(client, context.program.id);
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
       [input.tradeRequestId],
@@ -414,6 +471,8 @@ export async function withdrawOffer(
   offerId: string,
 ): Promise<void> {
   await withTransaction(async (client) => {
+    /* Before any row lock — see `serialiseTrade`. */
+    await serialiseTrade(client, context.program.id);
     const offer = await queryOne<TradeOfferRow>(
       "SELECT * FROM trade_offers WHERE id = $1 FOR UPDATE",
       [offerId],
@@ -452,6 +511,8 @@ export async function rejectOffer(
   reason?: string,
 ): Promise<void> {
   await withTransaction(async (client) => {
+    /* Before any row lock — see `serialiseTrade`. */
+    await serialiseTrade(client, context.program.id);
     const offer = await queryOne<TradeOfferRow>(
       "SELECT * FROM trade_offers WHERE id = $1 FOR UPDATE",
       [offerId],
@@ -580,6 +641,69 @@ async function releaseShiftIfIdle(client: PoolClient, shiftId: string): Promise<
 }
 
 /** Locks two shifts in a deterministic order so concurrent trades cannot deadlock. */
+/**
+ * Serialise every write to one programme's trade activity.
+ *
+ * ## Three deadlocks taught this its shape
+ *
+ * The first attempt ordered the row locks; the second keyed an advisory lock on
+ * the shifts a transaction named. Both were wrong in the same way, and CI found
+ * a fresh pair of statements each time:
+ *
+ *   1. accept (offers → requests → shifts) against take (requests → shifts)
+ *   2. a single posting against the sweep's bulk `UPDATE ... WHERE trade_request_id`
+ *   3. two transactions holding *different* shift locks, still colliding
+ *
+ * The third is the one that settles the design. `finaliseTrade` invalidates
+ * every competing offer on either shift — and those offers belong to postings
+ * on *other* shifts, whose own offers reference others again. The set a
+ * transaction actually touches is the transitive closure of
+ * offers → requests → shifts, and it cannot be known before the transaction
+ * starts, which is exactly when the lock has to be taken. Any key narrower than
+ * the programme is a guess about which rows will be reached, and each guess
+ * bought one more round of this.
+ *
+ * So the key is the programme. Every verb that mutates a posting, an offer or a
+ * completion takes it first, and two such transactions in one programme queue
+ * instead of interleaving.
+ *
+ * ## What this costs
+ *
+ * Trade writes within a programme are serial. That is a real constraint and it
+ * is the right trade: a programme completes a handful of switches a day, each
+ * one a person tapping a button and waiting for an answer, and the transactions
+ * are milliseconds. Different programmes never contend at all. Against that,
+ * the alternative is a lock whose correctness depends on predicting a join
+ * closure, which has now failed three times in a row.
+ *
+ * The concurrency suite still asserts what it always did — one winner, and the
+ * loser told why. Serialising does not change that: the loser takes the lock
+ * second, re-reads the row, and fails its status check with the same sentence
+ * it always produced.
+ *
+ * Transaction-scoped, so it is released on commit or rollback with nothing to
+ * unlock by hand.
+ */
+export async function serialiseTrade(
+  client: PoolClient,
+  programId: string,
+): Promise<void> {
+  await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+    `trades:${programId}`,
+  ]);
+}
+
+/** The same lock, for a sweep that spans programmes. Sorted, so two sweeps
+ *  cannot take them in opposite orders. */
+async function serialiseTradesFor(
+  client: PoolClient,
+  programIds: string[],
+): Promise<void> {
+  for (const id of Array.from(new Set(programIds)).sort()) {
+    await serialiseTrade(client, id);
+  }
+}
+
 async function lockShifts(
   client: PoolClient,
   shiftIdA: string,
@@ -608,6 +732,8 @@ export async function acceptOffer(
 ): Promise<AcceptOutcome> {
   return withFollowUp(() =>
     withTransaction(async (client) => {
+    /* Before any row lock — see `serialiseTrade`. */
+    await serialiseTrade(client, context.program.id);
     const offer = await queryOne<TradeOfferRow>(
       "SELECT * FROM trade_offers WHERE id = $1 FOR UPDATE",
       [offerId],
@@ -668,6 +794,11 @@ export async function acceptOffer(
              UPDATE is guarded on the previous status, so exactly one of them
              matches a row and does the work. */
           await withTransaction(async (followUpClient) => {
+            /* A follow-up is a *second* transaction, opened after the first
+               rolled back, and it mutates the same tables — so it needs the
+               same lock. Without it the follow-ups were the one path still
+               able to interleave with a resident's tap. */
+            await serialiseTrade(followUpClient, context.program.id);
             const expired = await queryOne<TradeRequestRow>(
               `UPDATE trade_requests SET status = 'expired'
                 WHERE id = $1 AND status IN ('open', 'offer_pending')
@@ -700,15 +831,16 @@ export async function acceptOffer(
           { validation },
         ),
         () =>
-          withTransaction((followUpClient) =>
-            invalidateOffer(
+          withTransaction(async (followUpClient) => {
+            await serialiseTrade(followUpClient, context.program.id);
+            await invalidateOffer(
               followUpClient,
               offer,
               reason,
               context.user.id,
               context.program.id,
-            ),
-          ),
+            );
+          }),
       );
     }
 
@@ -892,7 +1024,20 @@ interface FinaliseInput {
   request: TradeRequestRow;
   offer: TradeOfferRow;
   sourceShift: ShiftDetail;
-  offeredShift: ShiftDetail;
+  /**
+   * The shift coming back the other way, or null for a giveaway.
+   *
+   * Null is what makes this one writer instead of two. The atomic move is the
+   * most consequential code in the product — `SELECT … FOR UPDATE`, a guarded
+   * row count, offer invalidation, the completion record and the audit trail,
+   * all in one transaction — and a second copy of it for one-way transfers
+   * would be the place the two shapes quietly drift apart. A partial or
+   * inconsistent switch is the worst thing this software can do; two
+   * implementations of it is how that happens.
+   */
+  offeredShift: ShiftDetail | null;
+  /** Who is taking the shift, when there is no offered shift to name them by. */
+  takingResidentId?: string;
   validation: TradeValidationResult;
   actorUserId: string;
   actorLabel: string;
@@ -930,44 +1075,73 @@ async function finaliseTrade(
   } = input;
 
   const residentA = request.initiating_resident_id;
-  const residentB = offer.offering_resident_id;
+  const residentB = offeredShift
+    ? offer.offering_resident_id
+    : (input.takingResidentId ?? offer.offering_resident_id);
+  const oneWay = offeredShift === null;
 
-  const previousAssignments = {
-    [sourceShift.id]: residentA,
-    [offeredShift.id]: residentB,
-  };
-  const resultingAssignments = {
-    [sourceShift.id]: residentB,
-    [offeredShift.id]: residentA,
-  };
+  /* Every shift this finalisation touches. One for a giveaway, two for a
+     switch — written once so the status update, the lock set and the
+     invalidation sweep below cannot disagree about which is which. */
+  const shiftIds = oneWay ? [sourceShift.id] : [sourceShift.id, offeredShift.id];
 
-  // End the current assignments. The row count guards against a concurrent
-  // change that slipped between validation and this write.
+  const previousAssignments = oneWay
+    ? { [sourceShift.id]: residentA }
+    : { [sourceShift.id]: residentA, [offeredShift.id]: residentB };
+  const resultingAssignments = oneWay
+    ? { [sourceShift.id]: residentB }
+    : { [sourceShift.id]: residentB, [offeredShift.id]: residentA };
+
+  /* End the current assignments. The row count guards against a concurrent
+     change that slipped between validation and this write.
+   *
+   * A giveaway ends exactly one: the poster's hold on their own shift. They
+   * keep it right up to this statement — there is no window in which the shift
+   * is live and unheld, because the end and the reassignment are the same
+   * transaction. */
   const endedRows = await query<{ id: string }>(
-    `UPDATE shift_assignments
-        SET assignment_status = 'ended', ended_at = now()
-      WHERE assignment_status = 'active'
-        AND ((shift_id = $1 AND resident_id = $3) OR (shift_id = $2 AND resident_id = $4))
-      RETURNING id`,
-    [sourceShift.id, offeredShift.id, residentA, residentB],
+    /* Parameter lists are built per shape rather than padded with a null:
+       an unused `$2` leaves PostgreSQL unable to infer its type and the
+       statement is rejected outright. */
+    oneWay
+      ? `UPDATE shift_assignments
+            SET assignment_status = 'ended', ended_at = now()
+          WHERE assignment_status = 'active'
+            AND shift_id = $1 AND resident_id = $2
+          RETURNING id`
+      : `UPDATE shift_assignments
+            SET assignment_status = 'ended', ended_at = now()
+          WHERE assignment_status = 'active'
+            AND ((shift_id = $1 AND resident_id = $3) OR (shift_id = $2 AND resident_id = $4))
+          RETURNING id`,
+    oneWay
+      ? [sourceShift.id, residentA]
+      : [sourceShift.id, offeredShift.id, residentA, residentB],
     client,
   );
-  if (endedRows.length !== 2) {
+  if (endedRows.length !== shiftIds.length) {
     throw conflict(
-      "These shifts changed while the switch was being completed. Nothing was changed — please try again.",
+      oneWay
+        ? "This shift changed while it was being taken. Nothing was changed — please try again."
+        : "These shifts changed while the switch was being completed. Nothing was changed — please try again.",
     );
   }
 
   await query(
-    `INSERT INTO shift_assignments (shift_id, resident_id, assignment_status)
-     VALUES ($1, $2, 'active'), ($3, $4, 'active')`,
-    [sourceShift.id, residentB, offeredShift.id, residentA],
+    oneWay
+      ? `INSERT INTO shift_assignments (shift_id, resident_id, assignment_status)
+         VALUES ($1, $2, 'active')`
+      : `INSERT INTO shift_assignments (shift_id, resident_id, assignment_status)
+         VALUES ($1, $2, 'active'), ($3, $4, 'active')`,
+    oneWay
+      ? [sourceShift.id, residentB]
+      : [sourceShift.id, residentB, offeredShift.id, residentA],
     client,
   );
 
   await query(
     `UPDATE shifts SET status = 'scheduled' WHERE id = ANY($1::uuid[])`,
-    [[sourceShift.id, offeredShift.id]],
+    [shiftIds],
     client,
   );
 
@@ -979,7 +1153,7 @@ async function finaliseTrade(
         AND (offered_shift_id = ANY($2::uuid[]) OR trade_request_id IN (
               SELECT id FROM trade_requests WHERE source_shift_id = ANY($2::uuid[])
             ))`,
-    [offer.id, [sourceShift.id, offeredShift.id]],
+    [offer.id, shiftIds],
     client,
   );
   for (const orphan of orphanedOffers) {
@@ -1000,7 +1174,7 @@ async function finaliseTrade(
         AND source_shift_id = ANY($2::uuid[])
         AND status IN ('open', 'offer_pending', 'accepted', 'pending_approval', 'approved')
       RETURNING *`,
-    [request.id, [sourceShift.id, offeredShift.id]],
+    [request.id, shiftIds],
     client,
   );
 
@@ -1020,17 +1194,21 @@ async function finaliseTrade(
        (program_id, trade_request_id, trade_offer_id, source_shift_id, destination_shift_id,
         resident_a, resident_b, previous_assignments, resulting_assignments,
         approval_required, approved_by, approved_at, approval_notes, override_applied,
-        validation_snapshot, completed_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $13, $14, $15::jsonb, $16)
+        validation_snapshot, completed_by, kind)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $13, $14, $15::jsonb, $16, $17)
      RETURNING *`,
     [
       program.id,
       request.id,
       offer.id,
       sourceShift.id,
-      offeredShift.id,
+      /* Null for both, and pinned by a CHECK constraint: a giveaway that named
+         a destination shift or a second resident would be a switch wearing the
+         wrong label, and the invariant reads `kind` to decide how many legs to
+         expect. */
+      offeredShift?.id ?? null,
       residentA,
-      residentB,
+      oneWay ? null : residentB,
       JSON.stringify(previousAssignments),
       JSON.stringify(resultingAssignments),
       input.approvalRequired,
@@ -1040,38 +1218,70 @@ async function finaliseTrade(
       input.overrideApplied ?? false,
       JSON.stringify(validation),
       actorUserId,
+      oneWay ? "giveaway" : "switch",
     ],
     client,
   );
 
+  /* One leg for a giveaway, two for a switch. This is the fact the invariant
+     checks, and the reason it can tell the shapes apart rather than being
+     loosened to "one or two legs is fine" — which would have stopped catching
+     the half-applied switch it was written for. */
   await query(
-    `INSERT INTO trade_legs (completed_trade_id, leg_index, shift_id, from_resident_id, to_resident_id)
-     VALUES ($1, 0, $2, $3, $4), ($1, 1, $5, $4, $3)`,
-    [completed!.id, sourceShift.id, residentA, residentB, offeredShift.id],
+    oneWay
+      ? `INSERT INTO trade_legs (completed_trade_id, leg_index, shift_id, from_resident_id, to_resident_id)
+         VALUES ($1, 0, $2, $3, $4)`
+      : `INSERT INTO trade_legs (completed_trade_id, leg_index, shift_id, from_resident_id, to_resident_id)
+         VALUES ($1, 0, $2, $3, $4), ($1, 1, $5, $4, $3)`,
+    oneWay
+      ? [completed!.id, sourceShift.id, residentA, residentB]
+      : [completed!.id, sourceShift.id, residentA, residentB, offeredShift.id],
     client,
   );
 
   const userA = await userIdForResident(residentA, client);
   const userB = await userIdForResident(residentB, client);
   await notify(
-    [
-      {
-        recipientUserId: userA,
-        type: "switch.completed",
-        title: "Shift switch completed",
-        body: `You now work ${shiftLabel(offeredShift, program.timezone)}. ${sourceShift.service_name} on ${formatShiftDate(sourceShift.start_datetime, program.timezone)} is covered.`,
-        relatedEntityType: "completed_trade",
-        relatedEntityId: completed!.id,
-      },
-      {
-        recipientUserId: userB,
-        type: "switch.completed",
-        title: "Shift switch completed",
-        body: `You now work ${shiftLabel(sourceShift, program.timezone)}. ${offeredShift.service_name} on ${formatShiftDate(offeredShift.start_datetime, program.timezone)} is covered.`,
-        relatedEntityType: "completed_trade",
-        relatedEntityId: completed!.id,
-      },
-    ],
+    oneWay
+      ? [
+          {
+            recipientUserId: userA,
+            type: "giveaway.taken" as const,
+            title: "Somebody took your shift",
+            /* Names the shift the way the rest of the product names it, and
+               says the thing the poster actually wants to know: they are off
+               it. */
+            body: `${shiftLabel(sourceShift, program.timezone)} is covered. You are no longer on it.`,
+            relatedEntityType: "completed_trade",
+            relatedEntityId: completed!.id,
+          },
+          {
+            recipientUserId: userB,
+            type: "giveaway.taken" as const,
+            title: "You picked up a shift",
+            body: `You now work ${shiftLabel(sourceShift, program.timezone)}.`,
+            relatedEntityType: "completed_trade",
+            relatedEntityId: completed!.id,
+          },
+        ]
+      : [
+          {
+            recipientUserId: userA,
+            type: "switch.completed" as const,
+            title: "Shift switch completed",
+            body: `You now work ${shiftLabel(offeredShift!, program.timezone)}. ${sourceShift.service_name} on ${formatShiftDate(sourceShift.start_datetime, program.timezone)} is covered.`,
+            relatedEntityType: "completed_trade",
+            relatedEntityId: completed!.id,
+          },
+          {
+            recipientUserId: userB,
+            type: "switch.completed" as const,
+            title: "Shift switch completed",
+            body: `You now work ${shiftLabel(sourceShift, program.timezone)}. ${offeredShift!.service_name} on ${formatShiftDate(offeredShift!.start_datetime, program.timezone)} is covered.`,
+            relatedEntityType: "completed_trade",
+            relatedEntityId: completed!.id,
+          },
+        ],
     client,
   );
 
@@ -1102,19 +1312,24 @@ async function finaliseTrade(
     },
     client,
   );
-  await recordAudit(
-    {
-      programId: program.id,
-      actorUserId,
-      actorLabel,
-      action: "shift.reassigned",
-      entityType: "shift",
-      entityId: offeredShift.id,
-      previousState: { residentId: residentB },
-      newState: { residentId: residentA },
-    },
-    client,
-  );
+  /* Only a switch moves a second shift. A giveaway's single reassignment is
+     recorded above; adding a second entry naming a shift that did not move
+     would put a fiction in the audit trail. */
+  if (!oneWay) {
+    await recordAudit(
+      {
+        programId: program.id,
+        actorUserId,
+        actorLabel,
+        action: "shift.reassigned",
+        entityType: "shift",
+        entityId: offeredShift.id,
+        previousState: { residentId: residentB },
+        newState: { residentId: residentA },
+      },
+      client,
+    );
+  }
 
   logger.info("trade.completed", {
     completedTradeId: completed!.id,
@@ -1124,6 +1339,28 @@ async function finaliseTrade(
   });
 
   return completed as CompletedTradeRow;
+}
+
+/**
+ * Finalising a giveaway: the same writer, one leg.
+ *
+ * Exported so `./giveaway.ts` can drive it without duplicating the atomic
+ * move. Deliberately not a second implementation — `finaliseTrade` holds the
+ * guarded row count, the offer invalidation sweep, the completion record and
+ * the audit entries, and a shape that had its own copy of all that is a shape
+ * whose bugs get fixed once.
+ */
+export async function finaliseGiveaway(
+  client: PoolClient,
+  input: Omit<FinaliseInput, "offeredShift" | "approvalRequired"> & {
+    takingResidentId: string;
+  },
+): Promise<CompletedTradeRow> {
+  return finaliseTrade(client, {
+    ...input,
+    offeredShift: null,
+    approvalRequired: false,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1157,6 +1394,9 @@ export async function approveTrade(
 ): Promise<{ completedTradeId: string; validation: TradeValidationResult }> {
   assertApprover(context);
   return withTransaction(async (client) => {
+    /* Approval finalises, so it moves shifts and invalidates competing offers
+       exactly as accepting does — same lock, same reason. */
+    await serialiseTrade(client, context.program.id);
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
       [requestId],
@@ -1279,6 +1519,8 @@ export async function rejectTrade(
     throw validationFailed("Say why you are turning this switch down — both residents will read it.");
   }
   await withTransaction(async (client) => {
+    /* Before any row lock — see `serialiseTrade`. */
+    await serialiseTrade(client, context.program.id);
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
       [requestId],
@@ -1355,6 +1597,8 @@ export async function requestTradeChanges(
     throw validationFailed("Say what needs to change.");
   }
   await withTransaction(async (client) => {
+    /* Before any row lock — see `serialiseTrade`. */
+    await serialiseTrade(client, context.program.id);
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
       [requestId],
@@ -1522,6 +1766,23 @@ export async function runMaintenance(programId?: string): Promise<MaintenanceRes
   return withTransaction(async (client) => {
     const params = programId ? [programId] : [];
     const scope = programId ? "AND program_id = $1" : "";
+
+    /* The sweep is the one bulk actor, and that makes it every other verb's
+       deadlock partner. It takes the same programme lock everything else takes,
+       for every programme it is about to touch, before its first row lock —
+       sorted, so two sweeps cannot take them in opposite orders. */
+    const touched = programId
+      ? [programId]
+      : (
+          await query<{ id: string }>(
+            `SELECT DISTINCT program_id AS id FROM trade_requests
+              WHERE status IN ('open', 'offer_pending') AND expires_at <= now()`,
+            [],
+            client,
+          )
+        ).map((row) => row.id);
+    await serialiseTradesFor(client, touched);
+
 
     const expiredOffers = await query<TradeOfferRow>(
       `UPDATE trade_offers o

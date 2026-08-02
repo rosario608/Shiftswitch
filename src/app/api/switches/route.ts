@@ -28,6 +28,7 @@ export const POST = apiHandler(async (request: Request) => {
     notes: input.notes,
     preferences: input.preferences,
     expiresAt: input.expiresAt ? new Date(input.expiresAt) : undefined,
+    kind: input.kind,
   });
   return ok({ tradeRequest }, { status: 201 });
 });
