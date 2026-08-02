@@ -10,6 +10,16 @@ const registerSchema = z.object({
   installId: z.string().min(8).max(128),
   platform: z.enum(["ios", "android", "web"]),
   pushToken: z.string().min(10).max(4096).nullable().optional(),
+  /* A browser subscription's two keys. Base64url, and short — the sizes are
+     fixed by the spec, so a generous bound still refuses anything that is not
+     one of these. */
+  pushKeys: z
+    .object({
+      p256dh: z.string().min(20).max(255),
+      auth: z.string().min(8).max(255),
+    })
+    .nullable()
+    .optional(),
   appVersion: z.string().max(40).optional(),
   osVersion: z.string().max(60).optional(),
   model: z.string().max(80).optional(),

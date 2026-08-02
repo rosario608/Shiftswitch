@@ -364,6 +364,13 @@ export function checkDelivery(env: EnvLike = process.env): HealthComponent {
  * everything. What they do not get is a reason to open it.
  */
 export function checkPush(env: EnvLike = process.env): HealthComponent {
+  /* Web push first, because it is the one that reaches the people using the
+     website — which is everybody, until a native app ships. A deployment with
+     VAPID keys and no Firebase project notifies its residents perfectly well,
+     and reporting that as "not configured" because `FCM_PROJECT_ID` is absent
+     would be false. */
+  const web = Boolean(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY);
+
   const missing = (
     [
       ["FCM_PROJECT_ID", env.FCM_PROJECT_ID],
@@ -374,12 +381,35 @@ export function checkPush(env: EnvLike = process.env): HealthComponent {
     .filter(([, value]) => !value)
     .map(([name]) => name);
 
-  if (missing.length === 0) {
+  const native = missing.length === 0;
+
+  if (web && native) {
     return {
       name: "push",
       status: "ok",
-      summary: "Push notifications are configured.",
-      detail: { projectId: env.FCM_PROJECT_ID },
+      summary: "Push notifications are configured, for browsers and for the app.",
+      detail: { web: true, native: true, projectId: env.FCM_PROJECT_ID },
+    };
+  }
+
+  if (web) {
+    return {
+      name: "push",
+      status: "ok",
+      summary:
+        "Web push is configured, so residents using the website can be notified. " +
+        "On an iPhone that requires adding ShiftSwitch to the Home Screen; the app prompts for it.",
+      detail: { web: true, native: false },
+    };
+  }
+
+  if (native) {
+    return {
+      name: "push",
+      status: "degraded",
+      summary:
+        "Only the app can notify anybody: no VAPID keys are set, so residents using the website get nothing. Run `npm run push:keys`.",
+      detail: { web: false, native: true, projectId: env.FCM_PROJECT_ID },
     };
   }
 
@@ -388,9 +418,9 @@ export function checkPush(env: EnvLike = process.env): HealthComponent {
     status: "degraded",
     summary:
       missing.length === 3
-        ? "No push service is configured, so nobody gets a notification when somebody offers on their shift. They will only see it by opening the app."
+        ? "No push service is configured, so nobody gets a notification when somebody offers on their shift. They will only see it by opening the app. `npm run push:keys` sets up web push, which needs no account."
         : `Push is half-configured: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not set, so no notification can be sent.`,
-    detail: { missing },
+    detail: { web: false, native: false, missing },
   };
 }
 

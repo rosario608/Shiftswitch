@@ -217,14 +217,37 @@ describe("whether a resident's phone will ever buzz", () => {
     FCM_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----zzsecretzz",
   };
 
-  it("is ok when all three credentials are set", () => {
-    expect(checkPush(configured).status).toBe("ok");
+  const vapid = { VAPID_PUBLIC_KEY: "pub", VAPID_PRIVATE_KEY: "priv" };
+
+  it("is ok when both roads are open", () => {
+    expect(checkPush({ ...configured, ...vapid }).status).toBe("ok");
+  });
+
+  /* Web push alone is a complete answer, not a partial one: it reaches
+     everybody using the website, which is everybody until a native app ships. */
+  it("is ok with web push and no Firebase project at all", () => {
+    const component = checkPush(vapid);
+    expect(component.status).toBe("ok");
+    expect(component.summary).toMatch(/Home Screen/i);
+  });
+
+  /* The inverse is *not* fine, and this is the assertion that changed. FCM
+     alone notifies only people who installed the app from a store — nobody, in
+     a programme whose residents opened an enrollment link in a browser. It read
+     `ok` before web push existed, which was the product quietly claiming to
+     notify people it could not reach. */
+  it("is degraded with Firebase alone, because website residents get nothing", () => {
+    const component = checkPush(configured);
+    expect(component.status).toBe("degraded");
+    expect(component.summary).toMatch(/website get nothing/i);
+    expect(component.summary).toMatch(/push:keys/);
   });
 
   /* Degraded, never failed: nothing breaks for a resident who opens the app.
      What they lose is the reason to open it. */
   it("is degraded, not failed, when nothing is configured", () => {
     const component = checkPush({});
+    expect(component.summary).toMatch(/push:keys/);
     expect(component.status).toBe("degraded");
     expect(component.summary).toMatch(/only see it by opening the app/i);
   });
@@ -239,7 +262,7 @@ describe("whether a resident's phone will ever buzz", () => {
   });
 
   it("never puts the private key in the report", () => {
-    const serialised = JSON.stringify(checkPush(configured));
+    const serialised = JSON.stringify(checkPush({ ...configured, ...vapid }));
     expect(serialised).not.toContain("zzsecretzz");
     expect(serialised).not.toContain("BEGIN PRIVATE KEY");
   });
