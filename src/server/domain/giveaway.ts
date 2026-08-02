@@ -215,7 +215,7 @@ export async function takeShift(
   return withTransaction(async (client) => {
     /* Before any row lock — see `serialiseTrade`. A take and a switch accept
        on the same shift used to be able to deadlock against each other. */
-    await serialiseTrade(client, { requestId });
+    await serialiseTrade(client, context.program.id);
     const { request, shift } = await loadOpenGiveaway(
       client,
       requestId,

@@ -251,7 +251,7 @@ export async function cancelTradeRequest(
 ): Promise<void> {
   await withTransaction(async (client) => {
     /* Before any row lock — see `serialiseTrade`. */
-    await serialiseTrade(client, { requestId });
+    await serialiseTrade(client, context.program.id);
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
       [requestId],
@@ -338,7 +338,7 @@ export async function createOffer(
 ): Promise<OfferResult> {
   return withTransaction(async (client) => {
     /* Before any row lock — see `serialiseTrade`. */
-    await serialiseTrade(client, { requestId: input.tradeRequestId });
+    await serialiseTrade(client, context.program.id);
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
       [input.tradeRequestId],
@@ -472,7 +472,7 @@ export async function withdrawOffer(
 ): Promise<void> {
   await withTransaction(async (client) => {
     /* Before any row lock — see `serialiseTrade`. */
-    await serialiseTrade(client, { offerId });
+    await serialiseTrade(client, context.program.id);
     const offer = await queryOne<TradeOfferRow>(
       "SELECT * FROM trade_offers WHERE id = $1 FOR UPDATE",
       [offerId],
@@ -512,7 +512,7 @@ export async function rejectOffer(
 ): Promise<void> {
   await withTransaction(async (client) => {
     /* Before any row lock — see `serialiseTrade`. */
-    await serialiseTrade(client, { offerId });
+    await serialiseTrade(client, context.program.id);
     const offer = await queryOne<TradeOfferRow>(
       "SELECT * FROM trade_offers WHERE id = $1 FOR UPDATE",
       [offerId],
@@ -642,85 +642,66 @@ async function releaseShiftIfIdle(client: PoolClient, shiftId: string): Promise<
 
 /** Locks two shifts in a deterministic order so concurrent trades cannot deadlock. */
 /**
- * Serialise everything that can move a shift, before any row lock is taken.
+ * Serialise every write to one programme's trade activity.
  *
- * ## The deadlock this exists to remove
+ * ## Three deadlocks taught this its shape
  *
- * Accepting an offer locks **offers → requests → shifts**, then invalidates the
- * competing offers. Taking a giveaway locks **requests → shifts**, then
- * invalidates the competing offers. Two transactions touching one shift can
- * therefore hold each other's next lock — one holding an offer row and waiting
- * on the shift, the other holding the shift and waiting on that offer row.
- * PostgreSQL detects it and aborts one of them, which reaches a resident as a
- * failure on a tap that should simply have waited its turn.
+ * The first attempt ordered the row locks; the second keyed an advisory lock on
+ * the shifts a transaction named. Both were wrong in the same way, and CI found
+ * a fresh pair of statements each time:
  *
- * Reordering the row locks to match would work and would be fragile: the order
- * is spread across three functions, and the next verb added to this file would
- * have to rediscover it. An advisory lock keyed on the shift is the whole rule
- * in one place — anything that moves a shift takes it first, so two such
- * transactions never interleave at all and the row-lock order inside them
- * stops mattering.
+ *   1. accept (offers → requests → shifts) against take (requests → shifts)
+ *   2. a single posting against the sweep's bulk `UPDATE ... WHERE trade_request_id`
+ *   3. two transactions holding *different* shift locks, still colliding
  *
- * Sorted, because a switch names two shifts and two transactions taking two
- * advisory locks in opposite orders is the same deadlock one level up. Keyed
- * on the shift rather than the request or the offer because the shift is what
- * both paths are ultimately fighting over, and it is the one identifier every
- * competing offer on either side has in common.
+ * The third is the one that settles the design. `finaliseTrade` invalidates
+ * every competing offer on either shift — and those offers belong to postings
+ * on *other* shifts, whose own offers reference others again. The set a
+ * transaction actually touches is the transitive closure of
+ * offers → requests → shifts, and it cannot be known before the transaction
+ * starts, which is exactly when the lock has to be taken. Any key narrower than
+ * the programme is a guess about which rows will be reached, and each guess
+ * bought one more round of this.
  *
- * Transaction-scoped: released on commit or rollback, with nothing to unlock
- * by hand and nothing left held by a transaction that threw.
- */
-async function serialiseOnShifts(
-  client: PoolClient,
-  shiftIds: Array<string | null | undefined>,
-): Promise<void> {
-  const ids = Array.from(
-    new Set(shiftIds.filter((id): id is string => Boolean(id))),
-  ).sort();
-  for (const id of ids) {
-    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`shift:${id}`]);
-  }
-}
-
-/** The shifts a posting and an optional offer would move, read without locking. */
-async function shiftsInvolved(
-  client: PoolClient,
-  options: { requestId?: string; offerId?: string },
-): Promise<string[]> {
-  if (options.offerId) {
-    const row = await queryOne<{ source_shift_id: string; offered_shift_id: string | null }>(
-      `SELECT r.source_shift_id, o.offered_shift_id
-         FROM trade_offers o
-         JOIN trade_requests r ON r.id = o.trade_request_id
-        WHERE o.id = $1`,
-      [options.offerId],
-      client,
-    );
-    return row ? [row.source_shift_id, row.offered_shift_id].filter((id): id is string => Boolean(id)) : [];
-  }
-  const row = await queryOne<{ source_shift_id: string }>(
-    "SELECT source_shift_id FROM trade_requests WHERE id = $1",
-    [options.requestId],
-    client,
-  );
-  return row ? [row.source_shift_id] : [];
-}
-
-/**
- * Take the advisory lock for whatever this offer or posting would move.
+ * So the key is the programme. Every verb that mutates a posting, an offer or a
+ * completion takes it first, and two such transactions in one programme queue
+ * instead of interleaving.
  *
- * The read that finds the shift ids is deliberately *not* `FOR UPDATE`: taking
- * a row lock here would reintroduce the ordering problem this is meant to
- * remove. It may therefore read a row that is about to change, which costs
- * nothing — every caller re-reads `FOR UPDATE` immediately afterwards and
- * decides on that. The worst case is locking a shift that turns out not to be
- * involved, and the transaction is about to fail its status check anyway.
+ * ## What this costs
+ *
+ * Trade writes within a programme are serial. That is a real constraint and it
+ * is the right trade: a programme completes a handful of switches a day, each
+ * one a person tapping a button and waiting for an answer, and the transactions
+ * are milliseconds. Different programmes never contend at all. Against that,
+ * the alternative is a lock whose correctness depends on predicting a join
+ * closure, which has now failed three times in a row.
+ *
+ * The concurrency suite still asserts what it always did — one winner, and the
+ * loser told why. Serialising does not change that: the loser takes the lock
+ * second, re-reads the row, and fails its status check with the same sentence
+ * it always produced.
+ *
+ * Transaction-scoped, so it is released on commit or rollback with nothing to
+ * unlock by hand.
  */
 export async function serialiseTrade(
   client: PoolClient,
-  options: { requestId?: string; offerId?: string },
+  programId: string,
 ): Promise<void> {
-  await serialiseOnShifts(client, await shiftsInvolved(client, options));
+  await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+    `trades:${programId}`,
+  ]);
+}
+
+/** The same lock, for a sweep that spans programmes. Sorted, so two sweeps
+ *  cannot take them in opposite orders. */
+async function serialiseTradesFor(
+  client: PoolClient,
+  programIds: string[],
+): Promise<void> {
+  for (const id of Array.from(new Set(programIds)).sort()) {
+    await serialiseTrade(client, id);
+  }
 }
 
 async function lockShifts(
@@ -752,7 +733,7 @@ export async function acceptOffer(
   return withFollowUp(() =>
     withTransaction(async (client) => {
     /* Before any row lock — see `serialiseTrade`. */
-    await serialiseTrade(client, { offerId });
+    await serialiseTrade(client, context.program.id);
     const offer = await queryOne<TradeOfferRow>(
       "SELECT * FROM trade_offers WHERE id = $1 FOR UPDATE",
       [offerId],
@@ -1409,7 +1390,7 @@ export async function approveTrade(
   return withTransaction(async (client) => {
     /* Approval finalises, so it moves shifts and invalidates competing offers
        exactly as accepting does — same lock, same reason. */
-    await serialiseTrade(client, { requestId });
+    await serialiseTrade(client, context.program.id);
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
       [requestId],
@@ -1533,7 +1514,7 @@ export async function rejectTrade(
   }
   await withTransaction(async (client) => {
     /* Before any row lock — see `serialiseTrade`. */
-    await serialiseTrade(client, { requestId });
+    await serialiseTrade(client, context.program.id);
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
       [requestId],
@@ -1611,7 +1592,7 @@ export async function requestTradeChanges(
   }
   await withTransaction(async (client) => {
     /* Before any row lock — see `serialiseTrade`. */
-    await serialiseTrade(client, { requestId });
+    await serialiseTrade(client, context.program.id);
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
       [requestId],
@@ -1781,39 +1762,21 @@ export async function runMaintenance(programId?: string): Promise<MaintenanceRes
     const scope = programId ? "AND program_id = $1" : "";
 
     /* The sweep is the one bulk actor, and that makes it every other verb's
-       deadlock partner: it updates many offer rows by `trade_request_id` while
-       a resident's tap is locking one posting and walking to its offers. Both
-       orders are reasonable and they are opposites.
-     *
-     * So the sweep takes the same advisory locks everything else takes, for
-     * every shift it is about to touch, before its first row lock. Sorted, and
-     * therefore in the same order as any single-posting transaction would take
-     * them, so the two can queue but never hold each other up.
-     *
-     * A posting created after this SELECT cannot be missed in a way that
-     * matters: it is new, so it has not expired, so no statement below would
-     * have matched it. */
-    const affected = await query<{ shift_id: string }>(
-      `SELECT DISTINCT r.source_shift_id AS shift_id
-         FROM trade_requests r
-        WHERE (r.status IN ('open', 'offer_pending') AND r.expires_at <= now())
-        ${programId ? "AND r.program_id = $1" : ""}
-       UNION
-       SELECT DISTINCT o.offered_shift_id AS shift_id
-         FROM trade_offers o
-        WHERE o.status = 'pending' AND o.expires_at <= now()
-          AND o.offered_shift_id IS NOT NULL
-        ${programId ? "AND o.trade_request_id IN (SELECT id FROM trade_requests WHERE program_id = $1)" : ""}
-       UNION
-       SELECT DISTINCT r2.source_shift_id AS shift_id
-         FROM trade_offers o2
-         JOIN trade_requests r2 ON r2.id = o2.trade_request_id
-        WHERE o2.status = 'pending' AND o2.expires_at <= now()
-        ${programId ? "AND r2.program_id = $1" : ""}`,
-      params,
-      client,
-    );
-    await serialiseOnShifts(client, affected.map((row) => row.shift_id));
+       deadlock partner. It takes the same programme lock everything else takes,
+       for every programme it is about to touch, before its first row lock —
+       sorted, so two sweeps cannot take them in opposite orders. */
+    const touched = programId
+      ? [programId]
+      : (
+          await query<{ id: string }>(
+            `SELECT DISTINCT program_id AS id FROM trade_requests
+              WHERE status IN ('open', 'offer_pending') AND expires_at <= now()`,
+            [],
+            client,
+          )
+        ).map((row) => row.id);
+    await serialiseTradesFor(client, touched);
+
 
     const expiredOffers = await query<TradeOfferRow>(
       `UPDATE trade_offers o
