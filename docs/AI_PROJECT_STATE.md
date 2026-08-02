@@ -824,6 +824,109 @@ Choices made without asking, as `/CLAUDE.md` requires. Each says what was
 chosen, why, and what was rejected, so any of them can be revisited by someone
 who disagrees rather than rediscovered.
 
+### A new account joins as a resident, with nobody's permission
+
+**Chosen by the product owner**, over two narrower alternatives that were put
+to them explicitly with this cost stated. Recorded here because it is the one
+decision in this repository that trades access control for reach, and a future
+session must not "tighten" it back without asking.
+
+A verified Google identity signing in for the first time becomes a **confirmed
+resident** of the programme, with a `residents` row and any held roster rows
+claimed, in the same transaction. No administrator step.
+
+**What it costs, plainly:** a confirmed resident can read the whole
+programme's schedule and the switch board. With no approved email domains
+configured, any Google account that reaches the sign-in page gets that.
+
+**What it does not cost: phone numbers.** The product owner asked directly
+whether a self-enrolled account could read them. It cannot, and no change was
+needed — `residents.contact_info` is held by chief, APD, PD and administrator
+and *not* by resident, so the directory page refuses them and both roster
+queries select `NULL::text` in place of the column. The guard is in the SQL
+rather than in a template that could forget to hide a field. What changed is
+that this is now *asserted* — `tests/integration/auth.test.ts`, "what a
+self-enrolled account can reach", drives a real self-enrolment against a
+colleague who has a number stored, checks the resident gets rows with names and
+null phones, and checks a chief on the same data does get the number, so the
+first half cannot pass by returning nothing.
+
+Getting a phone number therefore still requires somebody to decide: an
+administrator changes the role. That is exactly the boundary asked for, and it
+was already where it needed to be.
+
+Rejected: **domain-matched only** — a matching address becomes a full resident,
+everybody else lands `pending` (own schedule only) until confirmed. Safer, and
+it was the recommendation, but it makes the good path depend on a field being
+set and leaves everyone else in exactly the wait the change exists to remove.
+
+Rejected: **domain-matched, others refused at the door.** Tightest, and it
+locks out a resident whose account is a personal address — which, for a
+product somebody opens at 3am on their own phone, is a real population.
+
+**The one control that still binds:** `programs.approved_email_domains`. When
+an administrator has set it, an address outside it is refused at sign-in —
+now checked *before* any account is written, where it previously only bound
+somebody who already belonged to the programme. Setting that field is the
+single action that turns the paragraph above off, and it is how this decision
+gets revisited without a code change.
+
+Bootstrap still outranks self-enrolment: the first administrator of a fresh
+instance arrives as an administrator, or nobody can configure the programme
+they just joined. And a *missing* role is the only thing filled in — signing
+in never demotes somebody who was deliberately made a chief.
+
+An account left unconfigured under the old behaviour is adopted on its next
+sign-in. A fix that only reached people who had not tried yet would be the
+wrong half: everybody who already met the old screen is still sitting on it.
+
+### A released shift is published as cancelled, not dropped from the feed
+
+**Chosen:** the iCalendar feed emits a `VEVENT` with `STATUS:CANCELLED`,
+`SEQUENCE:1` and `TRANSP:TRANSPARENT` for every shift the resident held and no
+longer holds, for as long as that shift stays inside the feed's sixty-day
+window. `listReleasedShifts` finds them: an ended assignment with no active one
+for the same resident — which is exactly what the atomic switch writes — or a
+shift cancelled outright while still theirs.
+
+Rejected: letting the shift simply disappear, which is what the feed did
+before. Every other surface in the product is re-read from scratch, so a shift
+changing hands is invisible by construction. A subscription is not read, it is
+*reconciled*: the client holds a copy, and clients disagree about what a
+vanished event means. Google Calendar frequently keeps showing one. The failure
+that produces is precisely the one this product exists to prevent — a resident
+who gave away a Saturday, whose app agrees they are off it, and whose phone
+goes on saying MICU 07:00.
+
+Rejected: a shorter window than the live feed's sixty days. The cancellation
+has to survive at least as long as the event it retracts, and a second constant
+is a second thing to get wrong.
+
+The description on a cancelled event says "This shift is no longer yours" and
+points at `/schedule`. It deliberately does not name who has it now: the token
+in the URL is a credential, not a session, and a feed that is one resident's
+schedule must stay one resident's schedule. `tests/unit/calendar.test.ts` pins
+that.
+
+### The calendar link is shown once, and rotating it is the only recovery
+
+**Chosen:** the token is stored as a SHA-256 hash, so `GET
+/api/calendar/subscription` can report *whether* a feed exists and never what
+its URL is. A resident who loses the link presses the button again, which
+rotates it and kills the old one. The web profile says so in those words.
+
+Rejected: storing the token recoverably so the page could redisplay it. The URL
+is worth what a session is worth — anyone holding it can read when a resident
+works — and the whole reason it is hashed is that a database read should not
+hand somebody a schedule. A convenience that undoes the reason for the design
+is not a convenience.
+
+The feed route sends `X-Robots-Tag: noindex, nofollow, noarchive` and
+`Referrer-Policy: no-referrer` on both the feed and its 404, and the 404 does
+not distinguish revoked from rotated from never-existed. None of that stops a
+leaked link being used; rotation is what does that. It stops a leaked link
+becoming a crawlable one.
+
 ### A shift going one way is a **giveaway**, and never a handoff
 
 **Chosen:** *switch* stays the word for a two-legged exchange. A one-way
@@ -1977,6 +2080,33 @@ migration `0005`.
   release, route, role and a six-character reference the resident can read off
   their screen. No migration; the manifest is generated by
   `npm run migrations:manifest`. See `docs/RUNBOOK.md`.
+- **Web push, without a third-party account** — VAPID transport (RFC 8291), a
+  service worker handling `push` and `notificationclick`, a subscribe flow that
+  asks at a moment a resident can see the reason for rather than on load, and an
+  iOS branch that says plainly that a tab cannot receive notifications and shows
+  the two taps that fix it. Migration `0013_web_push.sql`. Configured in
+  production and reporting `ok`.
+- **One-way transfers** — a **giveaway** alongside the two-legged switch: the
+  poster holds the shift until somebody takes it, both happen in one
+  transaction, and the rules engine runs against the *taker* and warns rather
+  than refuses, with the acknowledgement recorded, audited and visible to
+  whoever oversees coverage. Notifications became a per-event, per-channel
+  choice with quiet hours and an urgent override, honoured server-side so a
+  disabled notification is never sent rather than sent and hidden. Migration
+  `0014_giveaways_and_notification_choice.sql`. Three defects found that were
+  not part of the feature — overlap protection was optional, the `in_app`
+  preference was stored and never read, and `giveaway.posted` was catalogued but
+  never sent. PR #18, merged. See **Decisions**.
+- **The calendar feed residents could not reach** — the iCalendar subscription
+  existed end to end and was offered only by the native app, so nobody arriving
+  by link could use it; the web profile now creates, rotates and revokes the
+  link, and an end-to-end test walks that path because no other suite could see
+  the gap. A shift that stops being the resident's is published as
+  `STATUS:CANCELLED` rather than dropped, so a subscribed calendar removes it
+  instead of going on showing a shift they gave away. The feed and its 404 send
+  `noindex` and `no-referrer`, and the authorization sweep — which only ever
+  read `src/app/api` — now pins the one deliberate handler outside it. No
+  migration. See **Decisions**.
 
 ## Demo data
 
@@ -2099,6 +2229,50 @@ The most recent are under **Audit, 1 August 2026**, near the top. The sections
 below are earlier sessions, newest first. They are kept rather than summarised
 because several of them explain *why* a piece of code looks the way it does, and
 a later session that does not know will simplify the defect back in.
+
+### Defects found and fixed (self-enrolment session)
+
+1. **The board was refused to an unconfirmed account by the page and served by
+   the API.** `/switches` checks `isPending` and shows an explanation; `GET
+   /api/switches` called `requireUser()` and returned every posting in the
+   programme, with names. So the restriction held only for somebody using the
+   web interface — the native client, or anything else holding a session, got
+   the lot. Found while tracing what a self-enrolled account could reach. The
+   rule now sits on the data rather than on one screen.
+2. **A domain restriction only bound people who already belonged.** The
+   `approved_email_domains` check ran against `existing.program_id`, so it
+   refused a member whose address had fallen outside the list and did nothing
+   at all about a stranger signing in for the first time — which is the case
+   it reads as if it exists for. It is now checked before any account is
+   written, so a refused address also leaves no user row behind.
+
+### Defects found and fixed (calendar feed session)
+
+Three, and the first is the reason the other two were ever looked at.
+
+1. **A finished feature nobody could reach.** The iCalendar feed — the token
+   table, `buildCalendar`, the public route, the subscription API, the whole
+   thing — has existed since the native client was built, and only the *native*
+   Profile screen ever offered it. The web app had no calendar section at all.
+   Residents arrive by link, so in practice not one of them could subscribe to
+   a feature that was complete and tested underneath. No suite noticed: the
+   domain was covered, the API was covered, and nothing asked whether a person
+   could get to it. `tests/e2e/schedule-operations.spec.ts` now does.
+2. **The feed went stale the moment a shift changed hands.**
+   `listResidentSchedule` filters to active assignments, so a shift given away
+   simply vanished from the feed — and a subscribed calendar client is entitled
+   to keep showing an event that merely disappeared. A resident's phone could
+   go on saying they were working a shift they had given away. Released shifts
+   are now published as `STATUS:CANCELLED`; see **Decisions**. `buildCalendar`
+   already had the cancelled branch, and nothing could reach it, because the
+   query it was fed excluded cancelled shifts too.
+3. **The authorization sweep only swept `src/app/api`.** `tests/unit/route-guards.test.ts`
+   opens by calling every route handler a door, and Next.js will serve a
+   `route.ts` anywhere under `src/app` — so a handler written one directory to
+   the left was invisible to it while being just as reachable. There is exactly
+   one today and it is deliberate (the feed, whose credential is its own token
+   because a calendar app cannot sign in), but nothing said so and nothing would
+   have caught a second. The exception is now pinned: one file, `GET` only.
 
 ### Defects found and fixed (resilience session)
 
@@ -2531,30 +2705,67 @@ a wrong assertion and a wrong claim. Last run: **12/12**.
 
 **`npm run verify` exits 0.** That is the whole answer, and the only one worth
 quoting — it runs every row below in one command with one exit code. Last full
-run: 10 steps, **1238 seconds**, 1 August 2026, on the tree this session left
-behind, from a cleared `.next`.
+run: 10 steps, **1164 seconds**, 2 August 2026, on the tree this session left
+behind, from a cleared `.next` and a machine checked idle first.
 
 | Step | Result |
 |---|---|
 | Typecheck (`tsc --noEmit`) | clean |
 | Lint, server + web | clean, no warnings |
 | Lint, native client | clean |
-| Server unit + integration (`vitest run`) | **747 passed**, 42 files |
+| Server unit + integration (`vitest run`) | **968 passed**, 54 files |
 | Native client unit (`npm --prefix mobile run test`) | **64 passed**, 8 files |
 | Production build (`next build`) | succeeds |
-| Web end-to-end (`playwright test`) | **182 passed**, mobile + desktop projects |
+| Web end-to-end (`playwright test`) | **192 passed**, mobile + desktop projects |
 | Native end-to-end (`--config playwright.mobile.config.ts`) | **16 passed**, including the 9 screenshot specs |
-| Migrations from scratch (`migrate.ts --reset`) | **0001–0009 apply to an empty database** |
-| Integration suite against the rebuilt schema | **421 passed**, 22 files |
+| Migrations from scratch (`migrate.ts --reset`) | **0001–0014 apply to an empty database** |
+| Integration suite against the rebuilt schema | **497 passed**, 26 files |
 
-1009 distinct tests. The final 421 is the integration subset re-run against the
+1240 distinct tests. The final 497 is the integration subset re-run against the
 freshly rebuilt schema, which is why it is not added again.
 
-The run before this one **failed**, at the web end-to-end step, and is worth
-recording rather than tidying away: three of its four failures were real
-defects in the resilience work and one was `verify` being defeated by a dev
-server left running. All four are under **Defects found and fixed (resilience
-session)**.
+### The run before this one failed, and was not a defect
+
+Worth recording, because the conclusion "it was environmental" is the one most
+likely to be wrong and the one this project has been burned by before.
+
+`scheduler.spec.ts` — *a chief builds a draft, edits it, and sees the diff
+before publishing* — failed on both projects at the same assertion. The page
+snapshot showed the generic **Something went wrong. Please try again.** alert
+with no matching `api.rejected` on the server, which is the signature of a
+request that never got an answer rather than one that was refused.
+
+What was checked, in order, before calling it environmental:
+
+| Check | Result |
+|---|---|
+| The test alone | passes |
+| The test with `schedule-operations.spec.ts` immediately before it — the adjacency this session created, since Playwright runs files alphabetically with one worker | passes, 15/15 |
+| Whether that spec's state could leak | it cannot: `scheduler.spec.ts` truncates and rebuilds the fixture in its own `beforeAll`, and the failure is in its *second* test |
+| The full web suite, re-run locally | **192 passed** |
+| CI's own end-to-end job on the same commit | **192 passed** |
+| Whether CI merely *retried* a flake — `playwright.config.ts` sets `retries: 1` under CI, so a green job can hide one | no: the log contains no `flaky` line and no retry |
+
+That last row is the one that makes the rest mean anything. "Passes when run
+alone" is recorded elsewhere in this document as the shape of a wrong claim
+rather than proof of a flake, and a retried CI pass would have been exactly as
+misleading. Two full suites green with no retry is a different kind of evidence.
+
+The likely mechanism is already documented here: `verify` runs `next build`
+immediately before the end-to-end step, Playwright's web server is `next dev`,
+and the two share `.next` — on a container that warns about a slow filesystem,
+a route compiling on demand from a just-rewritten `.next` fits a request that
+fails with nothing logged server-side. Not proven, and deliberately written as
+a hypothesis rather than a finding.
+
+An **earlier** failing run, in the resilience session, went the other way and is
+the reason the checks above are done at all: three of its four failures were
+real defects and one was `verify` being defeated by a dev server left running.
+All four are under **Defects found and fixed (resilience session)**. A failing
+end-to-end step is a defect until the evidence says otherwise, and it has been a
+defect more often than not.
+
+### Concurrency, run twelve times
 
 Run **separately** from `verify`, because it is about flakiness rather than
 correctness: the two concurrency suites plus `schedule-lifecycle`, twelve

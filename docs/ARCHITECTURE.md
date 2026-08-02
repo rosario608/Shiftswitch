@@ -29,7 +29,7 @@ Business rules never live in components. The domain layer never reads cookies.
 | Table                | Purpose |
 | -------------------- | ------- |
 | `programs`           | Residency program: timezone, approved email domains, approval policy |
-| `users`              | Google identity, role, program. `role IS NULL` means "not yet configured" |
+| `users`              | Google identity, role, program. First sign-in joins the program as `resident`; `role IS NULL` now means only that there was no program to join |
 | `sessions`           | Opaque session tokens, stored as SHA-256 hashes |
 | `residents`          | A user's residency record: PGY level, credentials, graduation year |
 | `services`, `rotations` | Program structure |

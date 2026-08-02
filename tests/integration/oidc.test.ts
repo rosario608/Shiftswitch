@@ -239,7 +239,7 @@ describe("token exchange and id_token verification", () => {
 });
 
 describe("full sign-in path", () => {
-  it("turns a verified Google identity into an unconfigured application user", async () => {
+  it("turns a verified Google identity into a resident who can use the product", async () => {
     nextToken = {
       id_token: await signIdToken({
         iss: issuer,
@@ -261,7 +261,18 @@ describe("full sign-in path", () => {
       "SELECT * FROM users WHERE lower(email) = 'brand.new@hospital.org'",
     );
     expect(stored?.auth_user_id).toBe("google-sub-new");
-    expect(stored?.role).toBeNull();
     expect(stored?.last_login_at).toBeTruthy();
+
+    /* The whole point of the path: somebody who has done nothing but prove
+       who they are can now use the product. Asserted here, on the real
+       token-verification route rather than only on the provisioning function,
+       because this is the one test that walks it end to end. */
+    expect(stored?.role).toBe("resident");
+    expect(stored?.program_id).not.toBeNull();
+    const resident = await queryOne<{ id: string }>(
+      "SELECT id FROM residents WHERE user_id = $1",
+      [stored!.id],
+    );
+    expect(resident, "a role without a resident record cannot post a shift").not.toBeNull();
   });
 });
