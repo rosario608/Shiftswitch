@@ -210,9 +210,12 @@ export async function takeShift(
   requestId: string,
   input: TakeInput,
 ): Promise<TakeOutcome> {
-  const { finaliseGiveaway } = await import("./trades");
+  const { finaliseGiveaway, serialiseTrade } = await import("./trades");
 
   return withTransaction(async (client) => {
+    /* Before any row lock — see `serialiseTrade`. A take and a switch accept
+       on the same shift used to be able to deadlock against each other. */
+    await serialiseTrade(client, { requestId });
     const { request, shift } = await loadOpenGiveaway(
       client,
       requestId,

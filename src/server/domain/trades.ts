@@ -633,6 +633,88 @@ async function releaseShiftIfIdle(client: PoolClient, shiftId: string): Promise<
 }
 
 /** Locks two shifts in a deterministic order so concurrent trades cannot deadlock. */
+/**
+ * Serialise everything that can move a shift, before any row lock is taken.
+ *
+ * ## The deadlock this exists to remove
+ *
+ * Accepting an offer locks **offers → requests → shifts**, then invalidates the
+ * competing offers. Taking a giveaway locks **requests → shifts**, then
+ * invalidates the competing offers. Two transactions touching one shift can
+ * therefore hold each other's next lock — one holding an offer row and waiting
+ * on the shift, the other holding the shift and waiting on that offer row.
+ * PostgreSQL detects it and aborts one of them, which reaches a resident as a
+ * failure on a tap that should simply have waited its turn.
+ *
+ * Reordering the row locks to match would work and would be fragile: the order
+ * is spread across three functions, and the next verb added to this file would
+ * have to rediscover it. An advisory lock keyed on the shift is the whole rule
+ * in one place — anything that moves a shift takes it first, so two such
+ * transactions never interleave at all and the row-lock order inside them
+ * stops mattering.
+ *
+ * Sorted, because a switch names two shifts and two transactions taking two
+ * advisory locks in opposite orders is the same deadlock one level up. Keyed
+ * on the shift rather than the request or the offer because the shift is what
+ * both paths are ultimately fighting over, and it is the one identifier every
+ * competing offer on either side has in common.
+ *
+ * Transaction-scoped: released on commit or rollback, with nothing to unlock
+ * by hand and nothing left held by a transaction that threw.
+ */
+async function serialiseOnShifts(
+  client: PoolClient,
+  shiftIds: Array<string | null | undefined>,
+): Promise<void> {
+  const ids = Array.from(
+    new Set(shiftIds.filter((id): id is string => Boolean(id))),
+  ).sort();
+  for (const id of ids) {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`shift:${id}`]);
+  }
+}
+
+/** The shifts a posting and an optional offer would move, read without locking. */
+async function shiftsInvolved(
+  client: PoolClient,
+  options: { requestId?: string; offerId?: string },
+): Promise<string[]> {
+  if (options.offerId) {
+    const row = await queryOne<{ source_shift_id: string; offered_shift_id: string | null }>(
+      `SELECT r.source_shift_id, o.offered_shift_id
+         FROM trade_offers o
+         JOIN trade_requests r ON r.id = o.trade_request_id
+        WHERE o.id = $1`,
+      [options.offerId],
+      client,
+    );
+    return row ? [row.source_shift_id, row.offered_shift_id].filter((id): id is string => Boolean(id)) : [];
+  }
+  const row = await queryOne<{ source_shift_id: string }>(
+    "SELECT source_shift_id FROM trade_requests WHERE id = $1",
+    [options.requestId],
+    client,
+  );
+  return row ? [row.source_shift_id] : [];
+}
+
+/**
+ * Take the advisory lock for whatever this offer or posting would move.
+ *
+ * The read that finds the shift ids is deliberately *not* `FOR UPDATE`: taking
+ * a row lock here would reintroduce the ordering problem this is meant to
+ * remove. It may therefore read a row that is about to change, which costs
+ * nothing — every caller re-reads `FOR UPDATE` immediately afterwards and
+ * decides on that. The worst case is locking a shift that turns out not to be
+ * involved, and the transaction is about to fail its status check anyway.
+ */
+export async function serialiseTrade(
+  client: PoolClient,
+  options: { requestId?: string; offerId?: string },
+): Promise<void> {
+  await serialiseOnShifts(client, await shiftsInvolved(client, options));
+}
+
 async function lockShifts(
   client: PoolClient,
   shiftIdA: string,
@@ -661,6 +743,8 @@ export async function acceptOffer(
 ): Promise<AcceptOutcome> {
   return withFollowUp(() =>
     withTransaction(async (client) => {
+    /* Before any row lock — see `serialiseTrade`. */
+    await serialiseTrade(client, { offerId });
     const offer = await queryOne<TradeOfferRow>(
       "SELECT * FROM trade_offers WHERE id = $1 FOR UPDATE",
       [offerId],
@@ -1315,6 +1399,9 @@ export async function approveTrade(
 ): Promise<{ completedTradeId: string; validation: TradeValidationResult }> {
   assertApprover(context);
   return withTransaction(async (client) => {
+    /* Approval finalises, so it moves shifts and invalidates competing offers
+       exactly as accepting does — same lock, same reason. */
+    await serialiseTrade(client, { requestId });
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
       [requestId],
