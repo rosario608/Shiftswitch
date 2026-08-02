@@ -112,9 +112,25 @@ The branch was then deleted; `main` was never touched.
 
 ### Before you roll back: is it just the migration window?
 
-**Every merge produces roughly twelve minutes during which production answers
-`503` on every API call.** This is by design and it is not a fault, but it looks
-exactly like one, and rolling back during it would be the wrong move.
+**Every merge produces a window — twelve to twenty minutes — during which
+production answers `503` on every API call.** This is by design and it is not a
+fault, but it looks exactly like one, and rolling back during it would be the
+wrong move.
+
+**Do not treat the number as a constant.** Migrations are applied by
+`workflow_run`, which fires only when CI *finishes green* on `main`, so the wait
+is however long CI takes plus the deploy — and CI grows with the test suite.
+Two measurements so far:
+
+| Merge | Window | What set it |
+|---|---|---|
+| PR #13, 1 August | ~12 min | measured from the deploy |
+| PR #16, 2 August | ~18 min | measured from the merge; CI finished at 03:17:52Z, the migration applied at 03:18:26Z |
+
+The second is the one to plan against, because a merge is what a person
+actually does and watches. If you need the real answer on the day, open the
+`Apply migrations to production` workflow: the window ends when its latest run
+goes green.
 
 Measured on 1 August 2026, on the merge of pull request #13:
 

@@ -154,8 +154,8 @@ test.
 |---|---|---|
 | In the repository | `0001` – `0013` | `ls db/migrations` |
 | Applied locally, and proven to apply to an **empty** database in order | `0001` – `0013` | step 9 of `npm run verify`, every run |
-| **Applied to production** | **`0001` – `0011`** | `0001`–`0006` reported by the session of 31 July; `0007` applied by hand the same day; `0008` and `0009` verified by query in Neon on 1 August 2026; **`0010` and `0011` applied by the pipeline** at 21:30:29Z on 1 August 2026 — [run #4 of `apply-migrations.yml`](https://github.com/rosario608/Shiftswitch/actions/runs/30719252564), whose log reads `2 pending: 0010_beta_onboarding.sql, 0011_pending_enrollment.sql` then `applied 2` |
-| **Not applied to production** | **`0012_assisted_import.sql`**, **`0013_web_push.sql`** | Both are on this branch and have not merged. The pipeline applies them when CI passes on `main`. |
+| **Applied to production** | **`0001` – `0013`** | `0001`–`0006` reported by the session of 31 July; `0007` applied by hand the same day; `0008` and `0009` verified by query in Neon on 1 August 2026; **`0010` and `0011` applied by the pipeline** at 21:30:29Z on 1 August 2026 — [run #4 of `apply-migrations.yml`](https://github.com/rosario608/Shiftswitch/actions/runs/30719252564), whose log reads `2 pending: 0010_beta_onboarding.sql, 0011_pending_enrollment.sql` then `applied 2`; **`0012` applied by the pipeline** at 02:15Z on 2 August — [run #12](https://github.com/rosario608/Shiftswitch/actions/runs/30728546373); **`0013` applied by the pipeline** at 03:18:26Z on 2 August — [run #16](https://github.com/rosario608/Shiftswitch/actions/runs/30730378288), whose log reads `1 pending: 0013_web_push.sql` then `applied 1` |
+| **Not applied to production** | *(none)* | Run #16's `1 pending` is itself the evidence that `0012` was already in: had it not been, the same run would have named two files. |
 
 `0013_web_push.sql` adds one nullable column, `devices.push_keys`, holding the
 two encryption keys a browser subscription needs. It is additive and breaks
@@ -164,6 +164,15 @@ subscription with no keys cannot be encrypted to, and is refused as
 `missing_subscription_keys` rather than logged as sent. The endpoint deliberately
 reuses the existing `push_token` column so that re-subscribing **moves** a
 device through the unique index instead of leaving a second, dead row behind.
+
+**The window between merge and migration was about eighteen minutes**, and it is
+worth writing down because the earlier measurement of ~12 minutes was taken from
+a deploy, not from a merge. Pull request #16 merged at roughly 03:00Z; CI had to
+finish on `main` before `workflow_run` fired at 03:17:52Z, and the column existed
+at 03:18:26Z. **CI is the gate, so the wait is however long CI takes, plus the
+deploy.** Anybody watching `/api/health` in that window sees a missing migration
+and should wait rather than roll back — `docs/RUNBOOK.md` says so, and the number
+there should be read as "the length of a CI run", not as a constant.
 
 **The pipeline works, and this is the first record of it working rather than a
 claim that it should.** `0010` and `0011` were the first migrations in this
