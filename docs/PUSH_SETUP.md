@@ -1,15 +1,116 @@
 # Turning on notifications
 
-Written for somebody who has never opened the Firebase console. Nothing here
-needs a developer. It takes about **40 minutes** the first time, most of it
-waiting for Apple.
+There are two roads a notification can travel, and they reach different people.
 
-Until it is done, the product does not pretend: every notification attempt is
-recorded as **skipped**, the self-test on a resident's phone says "no
-notification credentials are configured on the server", and residents get
-in-app notifications only — nothing on the lock screen.
+| | Reaches | What it costs to set up |
+| --- | --- | --- |
+| **Web push** | Anybody using ShiftSwitch in a browser — which, for a programme onboarded by an enrollment link, is everybody | **Two minutes.** One command. No account anywhere. |
+| **Firebase (FCM)** | Only people who installed the app from the App Store or Play Store | About 40 minutes, a Firebase project, and a paid Apple developer account |
+
+**Do web push first, and possibly only.** While the app stores are parked there
+is no native app to install, so Firebase on its own reaches nobody at all —
+`/api/health` says exactly that, in those words, if it is ever the only one
+configured.
+
+Until *one* of them is done the product does not pretend: every notification
+attempt is recorded as **skipped**, the self-test says no notification
+credentials are configured on the server, and residents see notifications only
+when they open ShiftSwitch — nothing on a lock screen.
 
 ---
+
+# Part one — web push (do this one)
+
+## 1. Generate the keypair
+
+On any machine with the repository checked out:
+
+```
+npm run push:keys
+```
+
+That prints three environment variables. There is no console to visit and
+nobody to sign up with: a VAPID keypair is generated locally and identifies
+*this server* to Apple's, Google's and Mozilla's push services. That is the
+entire credential.
+
+## 2. Put them in Vercel
+
+**Vercel → your project → Settings → Environment Variables**, environment
+**Production**:
+
+| Variable | Value |
+| --- | --- |
+| `VAPID_PUBLIC_KEY` | the public key the command printed |
+| `VAPID_PRIVATE_KEY` | the private key the command printed |
+| `VAPID_SUBJECT` | `mailto:` followed by a real address you read |
+
+`VAPID_SUBJECT` is what a push service uses to contact you if something is
+wrong with what you are sending. It is not optional in spirit even though the
+code defaults it.
+
+Then **redeploy**. Environment variables are read when the server starts.
+
+> **Two rules about the private key.** It is a secret — anybody holding it can
+> send a notification to every subscribed resident — so it lives in Vercel and
+> nowhere else, never in this repository and never in a message. And **do not
+> generate a new pair once residents have subscribed**: every subscription is
+> bound to the public key it was created with, and a new pair silently breaks
+> all of them. Each resident would have to grant permission again.
+
+## 3. Check it
+
+Open `https://your-domain/api/health` and find the `push` check. With web push
+configured it reads:
+
+> Push notifications are configured, for browsers and for the app.
+
+or, when Firebase is not set up too — which is the expected state right now,
+and is a pass, not a warning:
+
+> Web push is configured, so residents using the website can be notified. On an
+> iPhone that requires adding ShiftSwitch to the Home Screen; the app prompts
+> for it.
+
+## 4. What residents see
+
+Nobody is asked for permission on load. The prompt appears after a resident's
+first real action — posting a shift — when the reason for it is on the screen
+in front of them. A permission prompt asked too early is the one people deny,
+and a denial is close to permanent: undoing it means finding a per-site setting
+buried in browser preferences that cannot be linked to.
+
+On Android, Windows, macOS and Linux that prompt is a single button and the
+browser's own dialog does the rest.
+
+**On an iPhone or iPad it is different, and this is the part worth knowing.**
+Safari delivers a web push notification *only to a site that has been added to
+the Home Screen*. Not to a tab. Not to a bookmark. There is no flag and no code
+that changes it. So on those devices ShiftSwitch does not offer a button it
+cannot honour — it says, plainly, that the resident will not be told about
+their shifts yet, and shows the two taps that fix it:
+
+1. **Share** at the bottom of Safari
+2. **Add to Home Screen**
+
+That card can be dismissed, and it comes back the next day, because the cost of
+ignoring it is a resident who hears nothing and believes otherwise. Once the
+site is on the Home Screen and opened from there, the normal permission prompt
+appears and notifications work.
+
+Worth saying out loud when a programme onboards: *iPhone users need to add
+ShiftSwitch to their Home Screen or they will not get notifications.* One
+sentence in the first email saves half a programme.
+
+---
+
+# Part two — Firebase, for when there is an app in the stores
+
+Skip all of this unless you are shipping the native app. It reaches installed
+apps and nothing else.
+
+Written for somebody who has never opened the Firebase console. It takes about
+**40 minutes** the first time, most of it waiting for Apple.
 
 ## What you are collecting
 
@@ -24,8 +125,6 @@ Four things. Three come from Google, one from Apple.
 
 1 and 3 go **into the app build**. 2 goes **into the server's environment**.
 4 goes **into Firebase**, so that Firebase can talk to Apple on your behalf.
-
----
 
 ## 1. Make the Firebase project
 
@@ -107,9 +206,7 @@ work without it, and nothing else does either.
 4. Firebase → **Project settings** → **Cloud Messaging** → under **Apple app
    configuration**, **Upload** the `.p8`, and enter the Key ID and Team ID.
 
----
-
-## Checking it worked
+## Checking the native side worked
 
 **Do not check by waiting for a real notification.** Use the self-test, which
 is in the app for exactly this:
@@ -144,17 +241,30 @@ nowhere.
 
 ---
 
-## What the product does while this is not configured
+## How a device is routed
 
-Deliberately, and testably (`tests/integration/mobile-backend.test.ts`):
+Each registered device is sent by the one road that can reach it, and no other:
+a browser subscription by web push, a phone that installed the app by Firebase.
+The delivery row records which service actually answered — `webpush` or `fcm` —
+so "did Apple accept it" stays an answerable question.
+
+A device whose road is not configured is recorded as **skipped** with the
+reason `not_configured`. It is never recorded as sent.
+
+## What the product does while neither is configured
+
+Deliberately, and testably (`tests/integration/mobile-backend.test.ts`,
+`tests/unit/web-push.test.ts`):
 
 - every attempt is recorded in `push_deliveries` with status **skipped** and
   the reason `not_configured` — never *sent*;
+- a web subscription with no encryption keys is refused as
+  `missing_subscription_keys` rather than logged as delivered;
 - the self-test reports *skipped*, not a pass, and says an administrator needs
   to add the credentials;
 - `npm run check:release` warns rather than failing, because a program can run
   perfectly well without lock-screen notifications;
-- in-app notifications, the notification list and email all work as normal.
+- in-app notifications and the notification list work as normal.
 
 A notification the product could not send is never reported as sent. That is
 the one rule this whole area is built around.

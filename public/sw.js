@@ -130,3 +130,64 @@ self.addEventListener("fetch", (event) => {
     );
   }
 });
+
+/* -------------------------------------------------------------------------
+ * Notifications
+ *
+ * The half of push that lives on the device. The server encrypts a payload to
+ * this browser's key and hands it to Apple, Google or Mozilla; this is what
+ * runs when it arrives, whether or not the app is open.
+ * ---------------------------------------------------------------------- */
+
+self.addEventListener("push", (event) => {
+  /* A push with no readable payload still means *something happened*. Showing
+     a generic notification is better than showing none: the alternative on
+     some browsers is a "this site was updated in the background" notice the
+     user did not ask for, and on others, silence where a resident expected to
+     be told. */
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = {};
+  }
+
+  const title = payload.title || "ShiftSwitch";
+  const options = {
+    body: payload.body || "Something on your schedule needs you.",
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    /* The route travels with the notification so a tap lands on the thing it
+       is about rather than the home screen. */
+    data: { route: payload.route || "/notifications" },
+    /* One notification per subject replaces the previous one rather than
+       stacking: three offers on the same shift is one thing a resident needs
+       to look at, not three. */
+    tag: payload.notificationId ? `n-${payload.notificationId}` : payload.category || "shiftswitch",
+    renotify: true,
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const route = (event.notification.data && event.notification.data.route) || "/";
+
+  /* Focus a tab that is already open rather than opening a second one — a
+     resident who has the app open on their phone should not end up with two
+     copies of it because they tapped a notification. */
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((clients) => {
+        for (const client of clients) {
+          if ("focus" in client) {
+            client.navigate(route);
+            return client.focus();
+          }
+        }
+        return self.clients.openWindow(route);
+      }),
+  );
+});

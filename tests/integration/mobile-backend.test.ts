@@ -240,6 +240,103 @@ describe("device registry and push", () => {
     expect(transport.sent[0].target.token).toBe("token-abc-1234567890");
   });
 
+  /* The encryption keys are the half of a browser subscription that unit tests
+     cannot reach: they go into a `jsonb` column and come back out through a
+     different query, and a transport handed `keys: null` refuses to send. So
+     everything about web push can be right and a resident still hear nothing,
+     on nothing worse than a column name. */
+  it("carries a browser subscription's encryption keys through the database", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "browser-1",
+      platform: "web",
+      pushToken: "https://push.example.invalid/endpoint-1",
+      pushKeys: { p256dh: "p256dh-value", auth: "auth-value" },
+    });
+
+    await sendPush({
+      userId: alice.user.id,
+      type: "offer.created",
+      title: "New offer",
+      body: "Bob offered a shift",
+    });
+
+    expect(transport.sent).toHaveLength(1);
+    expect(transport.sent[0].target.platform).toBe("web");
+    expect(transport.sent[0].target.keys).toEqual({
+      p256dh: "p256dh-value",
+      auth: "auth-value",
+    });
+  });
+
+  /* A phone has no keys and must not acquire an empty object on the way
+     through: `RoutingPushTransport` sends a native device by Firebase, but
+     `WebPushTransport` reads `keys` to decide whether it can encrypt, and a
+     falsy-but-present value is the kind of thing a JSON round-trip invents. */
+  it("leaves a native device's keys null rather than inventing an empty object", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "phone-1",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+    });
+
+    await sendPush({ userId: alice.user.id, type: "offer.created", title: "x", body: "y" });
+
+    expect(transport.sent[0].target.keys).toBeNull();
+  });
+
+  /* Re-subscribing issues a *new* endpoint with *new* keys. Keeping the old
+     keys against the new endpoint produces a payload the browser cannot
+     decrypt — a notification that is accepted, delivered, and silently
+     discarded on the device. */
+  it("replaces the keys when a browser re-subscribes to a new endpoint", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "browser-1",
+      platform: "web",
+      pushToken: "https://push.example.invalid/endpoint-1",
+      pushKeys: { p256dh: "old-p256dh", auth: "old-auth" },
+    });
+    await registerDevice(alice.user.id, {
+      installId: "browser-1",
+      platform: "web",
+      pushToken: "https://push.example.invalid/endpoint-2",
+      pushKeys: { p256dh: "new-p256dh", auth: "new-auth" },
+    });
+
+    await sendPush({ userId: alice.user.id, type: "offer.created", title: "x", body: "y" });
+
+    /* One device, not two: the same installation re-subscribing must move
+       rather than leave a dead endpoint behind that is still pushed to. */
+    expect(transport.sent).toHaveLength(1);
+    expect(transport.sent[0].target.token).toBe("https://push.example.invalid/endpoint-2");
+    expect(transport.sent[0].target.keys).toEqual({
+      p256dh: "new-p256dh",
+      auth: "new-auth",
+    });
+  });
+
+  /* A heartbeat registration sends no token — it should not wipe the keys of
+     the subscription the device already has. */
+  it("keeps the keys when a later registration carries no token", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "browser-1",
+      platform: "web",
+      pushToken: "https://push.example.invalid/endpoint-1",
+      pushKeys: { p256dh: "p256dh-value", auth: "auth-value" },
+    });
+    await registerDevice(alice.user.id, {
+      installId: "browser-1",
+      platform: "web",
+      appVersion: "1.1.0",
+    });
+
+    await sendPush({ userId: alice.user.id, type: "offer.created", title: "x", body: "y" });
+
+    expect(transport.sent[0].target.keys).toEqual({
+      p256dh: "p256dh-value",
+      auth: "auth-value",
+    });
+  });
+
   it("re-registering the same installation updates rather than duplicates", async () => {
     await registerDevice(alice.user.id, {
       installId: "install-1",

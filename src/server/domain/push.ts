@@ -1,5 +1,10 @@
 import { getPool, query, queryOne, type Queryable } from "@/server/db/pool";
 import { logger } from "@/server/observability/logger";
+import {
+  RoutingPushTransport,
+  vapidKeysFromEnv,
+  WebPushTransport,
+} from "./web-push";
 import type { NotificationType } from "./notifications";
 
 /**
@@ -24,7 +29,10 @@ export interface PushMessage {
 export interface PushTarget {
   deviceId: string;
   platform: "ios" | "android" | "web";
+  /** FCM registration token, or — for `web` — the subscription endpoint URL. */
   token: string;
+  /** Web push only: the browser's keys, without which nothing can be encrypted. */
+  keys?: { p256dh: string; auth: string } | null;
 }
 
 export interface PushResult {
@@ -33,6 +41,11 @@ export interface PushResult {
   errorCode?: string;
   /** True when the platform says this token will never work again. */
   permanentFailure?: boolean;
+  /**
+   * Which service actually answered, when a router chose between several.
+   * Recorded on the delivery row so "did Google accept it" stays answerable.
+   */
+  provider?: string;
 }
 
 export interface PushTransport {
@@ -180,10 +193,20 @@ export function getPushTransport(): PushTransport {
   const projectId = process.env.FCM_PROJECT_ID;
   const clientEmail = process.env.FCM_CLIENT_EMAIL;
   const privateKey = process.env.FCM_PRIVATE_KEY;
-  transport =
+  const native =
     projectId && clientEmail && privateKey
       ? new FcmPushTransport({ projectId, clientEmail, privateKey })
       : new NoopPushTransport();
+
+  /* Either half can be configured without the other, and usually is: a
+     programme on the website has VAPID keys and no Firebase project, and the
+     reverse is true for one that shipped the app first. The router sends each
+     device by the only road that reaches it, and a device whose road is not
+     built reports `skipped` rather than a delivery. */
+  const vapid = vapidKeysFromEnv();
+  const web = vapid ? new WebPushTransport(vapid) : new NoopPushTransport();
+
+  transport = new RoutingPushTransport(web, native);
   return transport;
 }
 
@@ -199,7 +222,10 @@ export function setPushTransport(next: PushTransport | null): void {
 export interface DeviceRegistration {
   installId: string;
   platform: "ios" | "android" | "web";
+  /** FCM token, or the subscription endpoint for a browser. */
   pushToken?: string | null;
+  /** Web push only. Meaningless without `pushToken` and always sent with it. */
+  pushKeys?: { p256dh: string; auth: string } | null;
   appVersion?: string;
   osVersion?: string;
   model?: string;
@@ -218,11 +244,18 @@ export async function registerDevice(
     );
   }
   const row = await queryOne<{ id: string }>(
-    `INSERT INTO devices (user_id, install_id, platform, push_token, app_version, os_version, model)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO devices (user_id, install_id, platform, push_token, push_keys, app_version, os_version, model)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)
      ON CONFLICT (user_id, install_id) DO UPDATE
         SET platform = EXCLUDED.platform,
             push_token = COALESCE(EXCLUDED.push_token, devices.push_token),
+            /* Kept together with the token: a subscription's keys belong to
+               the endpoint they were issued with, and carrying old keys onto a
+               new endpoint produces a payload the browser cannot decrypt. */
+            push_keys = CASE
+              WHEN EXCLUDED.push_token IS NOT NULL THEN EXCLUDED.push_keys
+              ELSE devices.push_keys
+            END,
             app_version = EXCLUDED.app_version,
             os_version = EXCLUDED.os_version,
             model = EXCLUDED.model,
@@ -234,6 +267,7 @@ export async function registerDevice(
       input.installId,
       input.platform,
       input.pushToken ?? null,
+      input.pushKeys ? JSON.stringify(input.pushKeys) : null,
       input.appVersion ?? null,
       input.osVersion ?? null,
       input.model ?? null,
@@ -260,8 +294,9 @@ async function listTargets(
     id: string;
     platform: "ios" | "android" | "web";
     push_token: string;
+    push_keys: { p256dh: string; auth: string } | null;
   }>(
-    `SELECT id, platform, push_token FROM devices
+    `SELECT id, platform, push_token, push_keys FROM devices
       WHERE user_id = $1 AND push_token IS NOT NULL AND disabled_at IS NULL`,
     [userId],
     executor,
@@ -270,6 +305,7 @@ async function listTargets(
     deviceId: row.id,
     platform: row.platform,
     token: row.push_token,
+    keys: row.push_keys,
   }));
 }
 
@@ -386,7 +422,7 @@ export async function sendPush(dispatch: PushDispatch): Promise<PushResult[]> {
           dispatch.notificationId ?? null,
           result.deviceId,
           result.status,
-          transportImpl.name,
+          result.provider ?? transportImpl.name,
           result.errorCode ?? null,
         ],
       ).catch(() => undefined);

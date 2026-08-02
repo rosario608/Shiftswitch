@@ -9,6 +9,7 @@ import { ShiftCard } from "@/components/app/shift-card";
 import { OfferShiftSheet } from "@/components/app/offer-sheet";
 import { OfferDecisionList, type OfferView } from "@/components/app/offer-decision";
 import { CancelPostButton, WithdrawOfferButton } from "@/components/app/trade-actions";
+import { NotificationPrompt } from "@/components/app/notification-prompt";
 import { requirePageUser } from "@/server/auth/page-guards";
 import { getTradeRequestDetail } from "@/server/domain/trades";
 import { REQUEST_STATUS_LABELS } from "@/server/domain/status";
@@ -34,6 +35,11 @@ export default async function TradeDetailPage({
   const timezone = context.program.timezone;
   const sourceShift = toShiftView(trade.shift, timezone);
   const isOwner = context.resident?.id === trade.initiating_resident_id;
+  /* Read on the server: the public key is not a secret — every subscribing
+     browser receives it — but there is no reason to ship it to people who are
+     not being asked, and its absence is how the prompt knows to render
+     nothing. */
+  const vapidPublicKey = process.env.VAPID_PUBLIC_KEY ?? null;
   const myOffer = trade.offers.find(
     (offer) =>
       offer.offering_resident_id === context.resident?.id &&
@@ -77,6 +83,16 @@ export default async function TradeDetailPage({
         <ArrowLeft className="h-4 w-4" aria-hidden="true" />
         Switches
       </Link>
+
+      {/* The one moment worth asking. A resident who has just posted a shift is
+          waiting for exactly the thing a notification would tell them about, so
+          the answer to "why would I want this" is the screen they are looking
+          at. Asked anywhere earlier it is the prompt people deny, and a denial
+          is close to permanent. Renders nothing for anyone but the person who
+          posted, and nothing at all on a deployment with no VAPID keys. */}
+      {isOwner && trade.status === "open" ? (
+        <NotificationPrompt vapidPublicKey={vapidPublicKey} />
+      ) : null}
 
       <header>
         <div className="flex items-start justify-between gap-3">

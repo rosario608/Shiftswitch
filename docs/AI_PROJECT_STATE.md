@@ -152,10 +152,18 @@ test.
 
 | | | How that is known |
 |---|---|---|
-| In the repository | `0001` – `0012` | `ls db/migrations` |
-| Applied locally, and proven to apply to an **empty** database in order | `0001` – `0012` | step 9 of `npm run verify`, every run |
+| In the repository | `0001` – `0013` | `ls db/migrations` |
+| Applied locally, and proven to apply to an **empty** database in order | `0001` – `0013` | step 9 of `npm run verify`, every run |
 | **Applied to production** | **`0001` – `0011`** | `0001`–`0006` reported by the session of 31 July; `0007` applied by hand the same day; `0008` and `0009` verified by query in Neon on 1 August 2026; **`0010` and `0011` applied by the pipeline** at 21:30:29Z on 1 August 2026 — [run #4 of `apply-migrations.yml`](https://github.com/rosario608/Shiftswitch/actions/runs/30719252564), whose log reads `2 pending: 0010_beta_onboarding.sql, 0011_pending_enrollment.sql` then `applied 2` |
-| **Not applied to production** | **`0012_assisted_import.sql`** | It is on this branch and has not merged |
+| **Not applied to production** | **`0012_assisted_import.sql`**, **`0013_web_push.sql`** | Both are on this branch and have not merged. The pipeline applies them when CI passes on `main`. |
+
+`0013_web_push.sql` adds one nullable column, `devices.push_keys`, holding the
+two encryption keys a browser subscription needs. It is additive and breaks
+nothing if it lands late; what breaks without it is web push itself — a
+subscription with no keys cannot be encrypted to, and is refused as
+`missing_subscription_keys` rather than logged as sent. The endpoint deliberately
+reuses the existing `push_token` column so that re-subscribing **moves** a
+device through the unique index instead of leaving a second, dead row behind.
 
 **The pipeline works, and this is the first record of it working rather than a
 claim that it should.** `0010` and `0011` were the first migrations in this
@@ -321,10 +329,19 @@ fixed:
   an unauthenticated caller gets `401` rather than `422` and the request schema.
   Recorded below as a non-blocker; fixed because it was two lines.
 
-Everything remaining needs a credential that does not exist yet. Signing up to
-Resend, Firebase, Sentry or Neon means proving you are a person who controls a
-mailbox and a DNS zone, and no automation can bring a secret into existence that
-a third party has not issued. **`docs/LAUNCH_CHECKLIST.md`** is the click-by-click
+- **Notifications no longer need a third party at all.** Check 4 asked whether a
+  resident would hear anything and the honest answer was worse than "not
+  configured": `notify()` sends push and in-app, not email, and the only push
+  transport reached installed apps — of which, with the store plans paused,
+  there are none. So the answer was *nobody hears anything, by any route*. Web
+  push fixes it with a keypair generated locally by `npm run push:keys`; the
+  keys were generated in-session and handed to the owner, leaving only a paste
+  into Vercel. See the decision *Web push before the app stores*.
+
+Everything else remaining needs a credential that does not exist yet. Signing up
+to Resend, Sentry or Neon means proving you are a person who controls a mailbox
+and a DNS zone, and no automation can bring a secret into existence that a third
+party has not issued. **`docs/LAUNCH_CHECKLIST.md`** is the click-by-click
 version of the table below.
 
 ### What has to happen before the link goes out
@@ -332,7 +349,7 @@ version of the table below.
 | | What | Who | How long |
 |---|---|---|---|
 | 1 | **Configure email.** Set the email transport's credentials in **Vercel → Settings → Environment Variables** for Production, then redeploy and confirm `/api/health` reports `email: ok`. Until then invitations are not sent and the UI correctly tells you to copy the link by hand — which does not scale to a class of forty. | owner | ~15 min |
-| 2 | **Decide about push.** `/api/health` now says whether it is configured and names any missing credential, so this no longer needs the Vercel dashboard to answer. Either set `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL` and `FCM_PRIVATE_KEY`, or accept knowingly that residents get no notifications. | owner | ~20 min, or 0 to skip |
+| 2 | **Turn on web push.** No longer a decision and no longer optional: paste `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` into Vercel Production. The keypair is already generated. Without it nobody is told when a colleague offers on their shift, and there is no email fallback to soften it. Firebase is a separate, later thing that reaches only store-installed apps. | owner | ~2 min |
 | 3 | **Check the Preview database**, now by comparing the `database` fingerprint on production's `/api/health` with a preview's. Same means every pull-request preview reads and writes the live programme. Fix: **Neon → Branches → New branch** named `preview` from `main`, then add its connection string as `DATABASE_URL` for **Preview only**. | owner | ~10 min |
 | 4 | **Set `ERROR_REPORTING_DSN`**, or accept that errors reach only Vercel's logs and nobody is paged. | owner | ~5 min |
 | 5 | **Sign in once, as a real resident**, and walk the three screens this check could not reach: the empty state, posting one shift, and a second account offering on it. This is the one thing no automated check can stand in for. | owner | ~10 min |
@@ -435,12 +452,20 @@ holds it; a session does not.
 | 3 | Searched the environment and every `.env` file for a production connection string | Only `DATABASE_URL` and `TEST_DATABASE_URL`, both pointing at `127.0.0.1`. Nothing remote anywhere. | Nothing. This is the intended state — the repository secret holds it and the pipeline uses it. | Nothing is broken by this. It is listed so a later session does not go looking for a connection string, find none, and conclude the deployment is unconfigured. |
 | 4 | Looked for a Neon API key or `neonctl` session, to create a `preview` branch | No `NEON_*` variable, no `neonctl`, no config on disk. `console.neon.tech` is reachable and answers **401** — the network is not the blocker, the credential is. | **Neon → Branches → New branch**, named `preview`, from `main`. | Every pull-request preview reads and writes the **live programme**. Previews are SSO-protected so nobody outside the team can reach one, which stops it being an exposure and does not stop it being a corruption. |
 | 5 | Looked for a Vercel token or CLI session, to point the Preview environment at that branch | No `VERCEL_*` variable and no CLI session on disk. A Vercel MCP connection was authenticated to the team `rosario608-2488's projects`, but its tool surface has no environment-variable management at all — and it disconnected mid-session. | **Vercel → Settings → Environment Variables**, add `DATABASE_URL` for **Preview only**, holding the `preview` branch's connection string. | As row 4. Rows 4 and 5 are one job in two places and neither half helps alone. |
+| 11 | `npm run push:keys` — generating the VAPID keypair web push needs | It works, here, offline: there is no account to create and no service to ask. What cannot be done from here is the second half, which is the same wall as row 5 — putting the two values into Vercel. | **Vercel → Settings → Environment Variables**, environment **Production**: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` as `mailto:` plus an address somebody reads. Redeploy. | **Nobody is told anything.** `notify()` sends push and in-app, not email, and with the app stores parked there is no installed app for Firebase to reach — so until these three exist, "somebody offered on your shift" reaches a screen the resident has to think to open. `/api/health` says so in those words. Step by step in `docs/PUSH_SETUP.md`. |
 
 ### Not a credential problem: things only a person can be
 
 | # | The artefact | Where it comes from | Until then |
 | --- | --- | --- | --- |
 | 6 | The residents' email addresses, and the block schedule as CSV or XLSX | The institution's roster and scheduling office | Nothing to onboard. `npm run demo:seed` exists so that no development waits on this, and the importer now holds rows for people who have not joined, so the file can arrive before the people do. |
+Rows 7 to 10 are **parked** with the app-store plans — see the decision *Web
+push before the app stores*, below. Nothing in them blocks a browser
+notification; they block the native app, and there is no native app to ship
+until somebody buys the two developer accounts.
+
+| # | The artefact | Where it comes from | Until then |
+| --- | --- | --- | --- |
 | 7 | `google-services.json` and `GoogleService-Info.plist` | Firebase console → add an Android app and an iOS app with the exact package name and bundle id. **Both are safe to commit** — they identify the app, they do not authorise sending | Phones never register for notifications at all. |
 | 7b | `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY` in Vercel Production | Firebase → Project settings → Service accounts → Generate new private key, then three fields out of the JSON. **These three are secrets** — delete the downloaded file afterwards and never commit it | Every notification is recorded **skipped** and says so; nothing is ever claimed as sent. Step by step in `docs/PUSH_SETUP.md`. |
 | 8 | An APNs auth key (`.p8`) with its Key ID and Team ID, uploaded to Firebase | Apple Developer → Keys. Needs the paid membership. Apple lets you download the key **once** | iPhone notifications are accepted by Firebase and delivered nowhere. |
@@ -780,6 +805,96 @@ in the end-to-end suite.
 Choices made without asking, as `/CLAUDE.md` requires. Each says what was
 chosen, why, and what was rejected, so any of them can be revisited by someone
 who disagrees rather than rediscovered.
+
+### Web push before the app stores
+
+**Chosen:** notifications reach residents through **web push**, sent from this
+server with a VAPID keypair generated by `npm run push:keys`. The App Store and
+Play Store work is parked, not abandoned, and the Firebase transport is left in
+place beside the new one rather than removed.
+
+The owner paused the store plans on the ground that the installed web app is
+already close enough to an app. That was a reasonable call about effort, and it
+had a consequence nobody had said out loud: `notify()` sends push and in-app,
+**not** email, and the only push transport was Firebase, which reaches installed
+apps and nothing else. So with the stores paused, "somebody offered on your
+shift" would have reached nobody — the notification existed, was recorded, and
+was never delivered to anything a resident would see without opening the app on
+purpose. A trade is time-critical; a resident who does not hear about an offer
+for six hours may as well not have had one.
+
+Web push needs no third party. A VAPID keypair is two strings generated
+locally, and it is what identifies this server to Apple's, Google's and
+Mozilla's push services. There is no console to visit, no account to own, no
+$99, and nothing to hand over when the person who set it up moves on. Against
+that, the store route costs two paid developer accounts, a Mac, and Apple's
+review — for a channel that reaches only the people who installed the app.
+
+Rejected: adding an email transport to `notify()` instead. It would reach
+everybody without any of this, and it is worse for the case that matters —
+an offer needs a lock screen, not an inbox somebody reads between patients.
+Worth doing later, as well as this, not instead of it.
+
+Rejected: sending both roads to every device. A device is registered as one
+platform and reached by one service; sending twice would double-notify anybody
+who both installed the app and subscribed in a browser, and doubling a
+notification is how people turn notifications off.
+
+### A device is routed by the only road that reaches it
+
+**Chosen:** `RoutingPushTransport` sends a `web` device by web push and a
+native device by Firebase, and stamps the delivery row with the service that
+actually answered — `webpush` or `fcm`, never `routing`.
+
+The obvious alternative is one transport that tries both and reports the first
+success. It hides the thing you need when a resident says they got nothing:
+*which* service was asked, and what it said. With the provider recorded per
+delivery, "did Apple accept it" is a query. Without it, every row says the same
+word and the question is unanswerable.
+
+The router reports itself as configured when **either** half is, because one
+half is the normal case and not an edge — a programme running on the website has
+VAPID keys and no Firebase project, and a router that called that
+"unconfigured" would make `/api/health` claim nothing worked while
+notifications were arriving.
+
+A device whose road is not configured is `skipped` with `not_configured`, and a
+web subscription with no encryption keys is `failed` with
+`missing_subscription_keys`. Neither is ever `sent`. Reporting a delivery for a
+notification nobody could receive is the specific lie this area is built to
+avoid.
+
+### An iPhone is told the truth, assertively, and more than once
+
+**Chosen:** on an iPhone or iPad in a browser tab, ShiftSwitch does not show a
+notification button. It shows a card saying the resident will not be told about
+their shifts yet, with the two taps that fix it, and that card **returns 20
+hours after it is dismissed**.
+
+Safari delivers web push only to a site added to the Home Screen. A tab cannot
+receive one — no flag, no permission, no code. Roughly half a residency
+programme is on an iPhone and an enrollment link opens in a tab, so the default
+outcome for half the programme is silence they do not know about. A polite
+dismissible hint shown once is, for that population, the same as showing
+nothing.
+
+So it is assertive, and it is honest about being assertive: it names what will
+not work rather than asking for a permission the browser will not grant, it can
+always be dismissed, and it comes back because the cost of it being ignored is
+borne by somebody who does not know they are paying it. Twenty hours was chosen
+so it cannot nag twice inside one shift but does reappear the next day.
+
+`pushSupport()` checks for an Apple portable **before** checking for the Push
+API, deliberately. An iPhone in a tab has no `PushManager` at all, so an
+API-first order reports `unsupported` and tells the resident their browser
+cannot do this — when in fact it can, one step away. The difference between
+"impossible" and "one step away" is the entire point of the card.
+
+Rejected: prompting for permission on load. A prompt before somebody has done
+anything is the one they deny, and a denial is close to permanent — undoing it
+means a per-site setting buried in browser preferences that cannot be linked
+to. The prompt appears after a resident posts a shift, when the reason for it
+is on the screen.
 
 ### A model proposes rows; it never writes a schedule
 
