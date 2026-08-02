@@ -154,7 +154,14 @@ export async function previewTake(
   context: AuthedContext & { resident: { id: string } },
   requestId: string,
 ): Promise<TakePreview> {
+  const { serialiseTrade } = await import("./trades");
   return withTransaction(async (client) => {
+    /* A preview mutates nothing, but `loadOpenGiveaway` takes row locks, and
+       deciding by case analysis whether that can join a cycle is exactly the
+       reasoning that produced three deadlocks. It takes the lock like
+       everything else. Queueing behind a take is also the behaviour you want:
+       a preview should describe settled state, not a half-finished one. */
+    await serialiseTrade(client, context.program.id);
     const { request, shift } = await loadOpenGiveaway(
       client,
       requestId,

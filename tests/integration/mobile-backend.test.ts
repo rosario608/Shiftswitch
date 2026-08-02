@@ -510,11 +510,16 @@ describe("device registry and push", () => {
       pushToken: "token-abc-1234567890",
     });
     /* Nobody has set anything. A new resident is neither spammed nor silent:
-       a shift going spare is worth a line in the list, a shift of theirs being
-       taken is worth their phone buzzing. */
+       a schedule being published is worth a line in the list, a shift of
+       theirs being taken is worth their phone buzzing.
+     *
+     * This used to use `giveaway.posted` as the ambient example, and that
+     * event has since stopped being ambient — see the invitation case below.
+     * A published schedule is the honest example of the category: it is a fact
+     * about the reader's own working life that nothing waits on. */
     await notifyAndFlush({
       recipientUserId: alice.user.id,
-      type: "giveaway.posted",
+      type: "schedule.published",
       title: "x",
       body: "y",
     });
@@ -528,6 +533,47 @@ describe("device registry and push", () => {
       body: "y",
     });
     expect(transport.sent).toHaveLength(1);
+  });
+
+  /* An invitation is the third default, and the only event that has it.
+     "Somebody is giving a shift away" is not a fact about the reader — it is
+     an opportunity, and there are as many of them as the programme posts.
+     Writing an in-app row for each would turn the notification list, which
+     exists to say what happened to *you*, into a feed of other people's
+     Saturdays. Off everywhere until asked for. */
+  it("writes nothing at all for an invitation nobody asked for", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+    });
+    await notifyAndFlush({
+      recipientUserId: alice.user.id,
+      type: "giveaway.posted",
+      title: "x",
+      body: "y",
+    });
+    expect(transport.sent).toHaveLength(0);
+    /* Not merely unpushed — not written. A disabled notification is never
+       sent rather than sent and hidden. */
+    expect(await countUnread(alice.user.id)).toBe(0);
+  });
+
+  it("delivers the same invitation to somebody who did ask", async () => {
+    await registerDevice(alice.user.id, {
+      installId: "install-1",
+      platform: "ios",
+      pushToken: "token-abc-1234567890",
+    });
+    await setPreference(alice.user.id, "giveaway.posted", { push: true, inApp: true });
+    await notifyAndFlush({
+      recipientUserId: alice.user.id,
+      type: "giveaway.posted",
+      title: "x",
+      body: "y",
+    });
+    expect(transport.sent).toHaveLength(1);
+    expect(await countUnread(alice.user.id)).toBe(1);
   });
 
   it("holds a quiet-hours push but still delivers what cannot wait", async () => {

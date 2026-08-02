@@ -794,6 +794,11 @@ export async function acceptOffer(
              UPDATE is guarded on the previous status, so exactly one of them
              matches a row and does the work. */
           await withTransaction(async (followUpClient) => {
+            /* A follow-up is a *second* transaction, opened after the first
+               rolled back, and it mutates the same tables — so it needs the
+               same lock. Without it the follow-ups were the one path still
+               able to interleave with a resident's tap. */
+            await serialiseTrade(followUpClient, context.program.id);
             const expired = await queryOne<TradeRequestRow>(
               `UPDATE trade_requests SET status = 'expired'
                 WHERE id = $1 AND status IN ('open', 'offer_pending')
@@ -826,15 +831,16 @@ export async function acceptOffer(
           { validation },
         ),
         () =>
-          withTransaction((followUpClient) =>
-            invalidateOffer(
+          withTransaction(async (followUpClient) => {
+            await serialiseTrade(followUpClient, context.program.id);
+            await invalidateOffer(
               followUpClient,
               offer,
               reason,
               context.user.id,
               context.program.id,
-            ),
-          ),
+            );
+          }),
       );
     }
 
