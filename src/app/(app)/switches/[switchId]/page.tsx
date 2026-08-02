@@ -10,6 +10,7 @@ import { OfferShiftSheet } from "@/components/app/offer-sheet";
 import { OfferDecisionList, type OfferView } from "@/components/app/offer-decision";
 import { CancelPostButton, WithdrawOfferButton } from "@/components/app/trade-actions";
 import { NotificationPrompt } from "@/components/app/notification-prompt";
+import { ShareButton } from "@/components/app/share-button";
 import { requirePageUser } from "@/server/auth/page-guards";
 import { getTradeRequestDetail } from "@/server/domain/trades";
 import { REQUEST_STATUS_LABELS } from "@/server/domain/status";
@@ -26,8 +27,13 @@ export default async function TradeDetailPage({
 }: {
   params: Promise<{ switchId: string }>;
 }) {
-  const context = await requirePageUser();
+  /* The share link lands here, and the recipient may not be signed in yet —
+     which is the normal case for the person a shift is sent to. Passing the
+     path through sign-in is what makes the link do what the sender meant:
+     without it they arrive, sign in, and are dropped on the home screen with
+     no idea which shift they were sent. */
   const { switchId } = await params;
+  const context = await requirePageUser(`/switches/${switchId}`);
   if (!isUuid(switchId)) notFound();
   const trade = await getTradeRequestDetail(switchId, context.program.id);
   if (!trade) notFound();
@@ -92,6 +98,23 @@ export default async function TradeDetailPage({
           posted, and nothing at all on a deployment with no VAPID keys. */}
       {isOwner && trade.status === "open" ? (
         <NotificationPrompt vapidPublicKey={vapidPublicKey} />
+      ) : null}
+
+      {/* Sharing an open shift is how a resident actually asks — the app is
+          not where they go first, a group chat is. The link carries a path and
+          nothing else: whoever opens it signs in and sees the shift only if
+          their programme owns it, so the message itself names nobody. Only
+          while it is open, because a link to something already settled sends
+          somebody to a dead end. */}
+      {!closed ? (
+        <div className="flex justify-end">
+          <ShareButton
+            path={`/switches/${switchId}`}
+            title="A shift on ShiftSwitch"
+            label="Send this to someone"
+            variant="ghost"
+          />
+        </div>
       ) : null}
 
       <header>

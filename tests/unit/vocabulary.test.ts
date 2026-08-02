@@ -15,9 +15,27 @@ import { describe, expect, it } from "vitest";
  * | Concept | The word | Rejected |
  * | --- | --- | --- |
  * | The exchange, at every stage | switch | trade, swap |
+ * | A shift going one way, nothing back | giveaway | handoff, handover, giveback |
+ * | Putting a shift up to be taken | give away | offload, unload, dump |
+ * | Taking one without giving one back | pick up / take | claim, grab |
  * | Putting your shift up | post | list, put up for grabs |
  * | What a colleague sends back | offer | bid, proposal |
  * | A shift the program allows to be switched | switchable | tradeable, swappable |
+ *
+ * ## Why a giveaway is not a handoff
+ *
+ * "Handoff" is already a word in a hospital, and it means transferring
+ * responsibility for a *patient* — sign-out, I-PASS, the thing residents are
+ * formally assessed on. Using it for a shift changing hands would collide with
+ * the one meaning every user of this product already has for it.
+ *
+ * "Cover" was the other candidate and is what residents actually say. It is
+ * rejected because this product already uses *coverage* for staffing levels —
+ * coverage requirements, the coverage report, `checkTradeCoverage` — and that
+ * is a chief's word for a different thing. One word per concept cuts both ways.
+ *
+ * A resident must never confuse a giveaway with a switch: one leaves you
+ * working the same amount and the other leaves you working more.
  *
  * ## Why a test and not a style note
  *
@@ -61,7 +79,8 @@ const SCANNED = [
   "src/server/http/errors.ts",
 ];
 
-const REJECTED = /\b(trade|trades|traded|trading|tradeable|tradable|swap|swaps|swapped|swapping|swappable)\b/i;
+const REJECTED =
+  /\b(trade|trades|traded|trading|tradeable|tradable|swap|swaps|swapped|swapping|swappable|handoffs?|hand-offs?|handovers?|hand-overs?|give-?backs?)\b/i;
 
 /**
  * Strings that are not prose and never reach a screen. Each one is a *value*
@@ -195,10 +214,19 @@ describe("one word per concept", () => {
     expect(REJECTED.test("Residents may swap these shifts")).toBe(true);
     expect(REJECTED.test("Blocks the trade")).toBe(true);
     expect(REJECTED.test("This shift is marked non-tradeable")).toBe(true);
+    expect(REJECTED.test("Accept this handoff")).toBe(true);
+    expect(REJECTED.test("Shift handover requested")).toBe(true);
 
     // And does not fire on the words that are allowed to survive.
     expect(REJECTED.test("Post this shift for switch")).toBe(false);
     expect(REJECTED.test("Switch completed")).toBe(false);
     expect(REJECTED.test("upgrade")).toBe(false);
+    /* The words this product chose for a one-way transfer, which must survive
+       a check whose whole job is rejecting the alternatives. */
+    expect(REJECTED.test("Give away this shift")).toBe(false);
+    expect(REJECTED.test("Somebody took your shift")).toBe(false);
+    expect(REJECTED.test("Pick up this shift")).toBe(false);
+    /* "Coverage" is the chief's word for staffing levels and is untouched. */
+    expect(REJECTED.test("This shift is covered")).toBe(false);
   });
 });
