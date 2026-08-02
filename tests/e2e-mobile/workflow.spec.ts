@@ -184,10 +184,15 @@ test("settings shows real notification, calendar and account controls", async ({
   await signIn(page, ACCOUNTS.alice);
   await page.getByRole("link", { name: "You" }).click();
 
-  // Every notification category the server defines is listed and switchable.
-  // This screen crashed on a shape mismatch once; the assertion stays.
-  await expect(page.getByText("Trade offers and responses")).toBeVisible();
-  const offers = page.getByRole("switch", { name: "Trade offers and responses" });
+  /* Every notification event the server defines is listed and switchable.
+     This screen crashed on a shape mismatch once, and broke again when
+     preferences moved from four coarse categories to one row per event — the
+     screen kept reading `preferences` and `labels` from a response that no
+     longer had either. The assertion stays, and it names an *event* now:
+     "an offer on your shift" is a thing that happens to somebody, where
+     "trade offers and responses" was a bucket. */
+  await expect(page.getByText("An offer on your shift")).toBeVisible();
+  const offers = page.getByRole("switch", { name: "An offer on your shift" });
   await expect(offers).toBeChecked();
   // The switch reflects what the server confirmed, not the tap, so this is a
   // click plus a retrying assertion rather than `uncheck()`.
@@ -197,7 +202,7 @@ test("settings shows real notification, calendar and account controls", async ({
   // The preference survives a reload, so it was actually saved.
   await page.reload();
   await expect(
-    page.getByRole("switch", { name: "Trade offers and responses" }),
+    page.getByRole("switch", { name: "An offer on your shift" }),
   ).not.toBeChecked();
 
   // The calendar link is issued once and shown once.
