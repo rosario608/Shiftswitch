@@ -197,7 +197,7 @@ non-Apple device, `VAPID_PUBLIC_KEY` did not survive the redeploy — check
 
 ## Step 9 — Sending the link
 
-**Wait fifteen minutes after any code change.** For about twelve minutes after
+**Wait twenty minutes after any code change.** For twelve to twenty minutes after
 every update the site loads but every button fails, because the code is ahead of
 the database until the migration catches up. Residents opening the link then
 will conclude it is broken.
