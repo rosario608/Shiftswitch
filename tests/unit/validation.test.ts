@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { validateTrade } from "@/server/domain/validation";
 import { zonedWallTimeToInstant } from "@/server/domain/time";
-import { makeContext, makeResident, makeRule, makeShift, NY } from "./factories";
+import {
+  makeContext,
+  makeGiveawayContext,
+  makeResident,
+  makeRule,
+  makeShift,
+  NY,
+} from "./factories";
 
 describe("validateTrade — structural checks", () => {
   it("accepts a straightforward swap with no rules configured", () => {
@@ -615,5 +622,96 @@ describe("what a rule failure reads like", () => {
       expect(message, check.ruleType).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
       expect(message, check.ruleType).not.toMatch(/\b[a-z]+_[a-z_]+\b/);
     }
+  });
+});
+
+describe("nobody in two places at once", () => {
+  /**
+   * This was a *configured* rule and nothing else, which meant a programme
+   * that had never set it up had no overlap protection at all — including
+   * every programme on its first day, and every programme onboarded through
+   * the marketplace-first path, which starts with no services and no rules on
+   * purpose. The integration suite reported it as an intermittent
+   * inconsistency, because whether a swap happens to double-book anybody
+   * depends on which pair of shifts it is.
+   *
+   * So these run with `rules: []`. If they ever pass only because somebody
+   * configured `no_overlapping_shifts`, they are not testing the floor.
+   */
+  it("refuses a switch that would put a resident on two shifts at once, with no rules configured", () => {
+    const clash = makeShift({ date: "2026-07-22", serviceName: "Floor" });
+    const result = validateTrade(
+      makeContext({
+        shiftA: makeShift({ date: "2026-07-15", serviceName: "MICU" }),
+        shiftB: makeShift({ date: "2026-07-22", serviceName: "MICU" }),
+        /* Dr. A already works the Floor on the 22nd, which is the day of the
+           shift they would receive. */
+        scheduleA: [makeShift({ date: "2026-07-15", serviceName: "MICU" }), clash],
+        rules: [],
+      }),
+    );
+    expect(result.valid).toBe(false);
+    const overlap = result.failures.find((f) => f.ruleType === "system.no_overlap");
+    expect(overlap).toBeDefined();
+    /* The sentence names both shifts the way the rest of the product names
+       them, because the resident has to recognise which one they already had. */
+    expect(overlap!.message).toContain("Floor");
+    expect(overlap!.message).toContain("MICU");
+  });
+
+  /* An override is for policy. Being in two places at once is not policy, so
+     there must be no route by which a chief waves it through. */
+  it("is never overridable", () => {
+    const result = validateTrade(
+      makeContext({
+        shiftA: makeShift({ date: "2026-07-15" }),
+        shiftB: makeShift({ date: "2026-07-22", serviceName: "MICU" }),
+        scheduleA: [
+          makeShift({ date: "2026-07-15" }),
+          makeShift({ date: "2026-07-22", serviceName: "Floor" }),
+        ],
+      }),
+    );
+    const overlap = result.failures.find((f) => f.ruleType === "system.no_overlap");
+    expect(overlap!.overridable).toBe(false);
+  });
+
+  it("catches it on a giveaway too, where the taker gains a shift and loses none", () => {
+    const result = validateTrade(
+      makeGiveawayContext({
+        shift: makeShift({ date: "2026-07-22", serviceName: "MICU" }),
+        takerSchedule: [makeShift({ date: "2026-07-22", serviceName: "Floor" })],
+      }),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.failures.some((f) => f.ruleType === "system.no_overlap")).toBe(true);
+  });
+
+  it("allows a giveaway on a day the taker is free", () => {
+    const result = validateTrade(
+      makeGiveawayContext({
+        shift: makeShift({ date: "2026-07-22", serviceName: "MICU" }),
+        takerSchedule: [makeShift({ date: "2026-07-15", serviceName: "Floor" })],
+      }),
+    );
+    expect(result.valid).toBe(true);
+  });
+
+  /* Touching at the boundary is not overlapping: a day shift ending at 19:00
+     and an evening starting at 19:00 are two shifts one person can work. Off
+     by one here would refuse ordinary back-to-back cover. */
+  it("does not call a shift that starts when another ends an overlap", () => {
+    const result = validateTrade(
+      makeGiveawayContext({
+        shift: makeShift({
+          date: "2026-07-22",
+          serviceName: "MICU",
+          start: zonedWallTimeToInstant("2026-07-22", "19:00", NY),
+          end: zonedWallTimeToInstant("2026-07-22", "23:00", NY),
+        }),
+        takerSchedule: [makeShift({ date: "2026-07-22", serviceName: "Floor" })],
+      }),
+    );
+    expect(result.failures.some((f) => f.ruleType === "system.no_overlap")).toBe(false);
   });
 });

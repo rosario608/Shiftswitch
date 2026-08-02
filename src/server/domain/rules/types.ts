@@ -56,10 +56,25 @@ export interface ResidentInfo {
  * One side of a trade: a resident giving up `gives` and receiving `receives`.
  * Modelling the trade as a list of legs keeps the engine ready for future
  * A -> B -> C -> A rotations without any redesign.
+ *
+ * ## Why `gives` can be null
+ *
+ * A resident taking a shift without giving one away gives nothing. That is the
+ * whole point of a giveaway, and it is the case the safety rules exist for:
+ * every other exchange in this product leaves both people working the same
+ * number of hours, and this one does not.
+ *
+ * Null rather than "the same shift twice" or an optional field, because the
+ * type is what forces each of the seven handlers that read `gives` to say what
+ * it means when there is nothing there. Two of them turn out to mean "check
+ * the incoming shift only"; one — the rule about switching between different
+ * services — turns out not to apply to a one-way transfer at all, which is
+ * worth knowing rather than discovering from a null dereference in production.
  */
 export interface TradeLegContext {
   resident: ResidentInfo;
-  gives: ShiftInfo;
+  /** Null when this resident is taking a shift and giving nothing back. */
+  gives: ShiftInfo | null;
   receives: ShiftInfo;
   currentSchedule: ShiftInfo[];
   proposedSchedule: ShiftInfo[];

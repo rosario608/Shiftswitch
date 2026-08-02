@@ -41,25 +41,47 @@ function bool(params: Record<string, unknown>, key: string, fallback = false): b
   return typeof value === "boolean" ? value : fallback;
 }
 
+/**
+ * Whether a scoped rule has anything to say about this leg.
+ *
+ * A leg with no `gives` is a resident taking a shift and giving nothing back,
+ * so a rule scoped to a service, rotation or shift matches on the incoming
+ * shift alone. Treating the missing half as "no match" is right: there is no
+ * outgoing shift for a rule to be scoped to, and inventing one would apply
+ * rules the resident's giveaway never touched.
+ */
 function scopeApplies(rule: RuleRow, leg: TradeLegContext): boolean {
   switch (rule.scope) {
     case "program":
       return true;
     case "service":
       return (
-        leg.gives.serviceId === rule.scope_id ||
+        leg.gives?.serviceId === rule.scope_id ||
         leg.receives.serviceId === rule.scope_id
       );
     case "rotation":
       return (
-        leg.gives.rotationId === rule.scope_id ||
+        leg.gives?.rotationId === rule.scope_id ||
         leg.receives.rotationId === rule.scope_id
       );
     case "shift":
-      return leg.gives.id === rule.scope_id || leg.receives.id === rule.scope_id;
+      return leg.gives?.id === rule.scope_id || leg.receives.id === rule.scope_id;
     default:
       return true;
   }
+}
+
+/**
+ * The shifts a leg puts in front of a rule that cares about either side.
+ *
+ * One entry for a giveaway, two for a switch. Written once because the three
+ * call sites (blackout dates, holidays, blocked services) all had the same
+ * `[leg.gives, leg.receives]` literal, and all three would otherwise need the
+ * same null filter added — and remembering to add it to the fourth is exactly
+ * the kind of thing that does not happen.
+ */
+function shiftsInPlay(leg: TradeLegContext): ShiftInfo[] {
+  return leg.gives ? [leg.gives, leg.receives] : [leg.receives];
 }
 
 function baseCheck(
@@ -377,7 +399,7 @@ const blackoutDates: RuleHandler = {
     const checks: ValidationCheck[] = [];
     for (const leg of context.legs) {
       if (!scopeApplies(rule, leg)) continue;
-      const blocked = [leg.gives, leg.receives].find((shift) =>
+      const blocked = shiftsInPlay(leg).find((shift) =>
         coveredLocalDates(shift.start, shift.end, context.program.timezone).some((d) =>
           dates.has(d),
         ),
@@ -422,7 +444,7 @@ const holidayRestriction: RuleHandler = {
     const checks: ValidationCheck[] = [];
     for (const leg of context.legs) {
       if (!scopeApplies(rule, leg)) continue;
-      const holiday = [leg.gives, leg.receives].find((shift) =>
+      const holiday = shiftsInPlay(leg).find((shift) =>
         coveredLocalDates(shift.start, shift.end, context.program.timezone).some((d) =>
           dates.has(d),
         ),
@@ -567,7 +589,7 @@ const nonTradeableService: RuleHandler = {
     if (blocked.size === 0) return [];
     const checks: ValidationCheck[] = [];
     for (const leg of context.legs) {
-      const offending = [leg.gives, leg.receives].find((shift) => blocked.has(shift.serviceId));
+      const offending = shiftsInPlay(leg).find((shift) => blocked.has(shift.serviceId));
       if (offending) {
         checks.push(
           baseCheck(
@@ -767,9 +789,20 @@ const approvalRequirement: RuleHandler = {
   evaluate: (rule, context) => {
     const reasons: string[] = [];
     if (bool(rule.params, "always")) reasons.push("this program requires chief approval for every switch");
+    /* Two legs means a switch. Both of the comparisons below are about the
+       relationship between two shifts or two people, and a giveaway has one of
+       each — "the two shifts are on different services" is not a sentence about
+       a one-way transfer. The `gives` guard is belt and braces: a two-leg
+       exchange always has both, and if that ever stops being true this reads
+       as "no reason found" rather than throwing inside a rule evaluation. */
     if (context.legs.length === 2) {
       const [a, b] = context.legs;
-      if (bool(rule.params, "whenServiceDiffers") && a.gives.serviceId !== b.gives.serviceId) {
+      if (
+        bool(rule.params, "whenServiceDiffers") &&
+        a.gives &&
+        b.gives &&
+        a.gives.serviceId !== b.gives.serviceId
+      ) {
         reasons.push("the two shifts are on different services");
       }
       if (bool(rule.params, "whenPgyDiffers") && a.resident.pgyLevel !== b.resident.pgyLevel) {
