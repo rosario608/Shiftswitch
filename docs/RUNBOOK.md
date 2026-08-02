@@ -110,6 +110,45 @@ once on a throwaway branch to check that it is genuinely one command and leaves
 a clean tree. It removed all 150 files of that change and produced no conflicts.
 The branch was then deleted; `main` was never touched.
 
+### Before you roll back: is it just the migration window?
+
+**Every merge produces roughly twelve minutes during which production answers
+`503` on every API call.** This is by design and it is not a fault, but it looks
+exactly like one, and rolling back during it would be the wrong move.
+
+Measured on 1 August 2026, on the merge of pull request #13:
+
+| | |
+|---|---|
+| 23:06:11 | the merge lands, Vercel deploys the new code within about a minute |
+| 23:06:11 – 23:17:48 | CI runs on `main`. The new code is already serving. |
+| ~23:18:0x | CI finishes green, `apply-migrations.yml` fires and applies the migration |
+
+Between the deploy and the migration, the build is ahead of the database and the
+schema gate does what it was built to do: `/api/health` reports `failed` and
+every API route returns `503 schema_drift` — *"ShiftSwitch has been updated but
+the database has not."* Pages still render, because the gate is on the API
+wrapper; so a resident sees screens that load and every action failing.
+
+**How to tell this apart from a real outage, in one request:**
+
+```
+curl -s https://shiftswitch.vercel.app/api/health | jq '.components[] | select(.name=="migrations")'
+```
+
+- `"status":"failed"` naming a migration file, and the merge was under ~15
+  minutes ago → **wait.** It will clear itself. Rolling back the code here makes
+  it worse, because the *older* build expects fewer migrations and the newer
+  database is fine for it, but you will have thrown away the deploy for nothing.
+- `"status":"failed"` and the merge was an hour ago → the pipeline did not run
+  or failed. Check the **Apply migrations to production** workflow in Actions,
+  and see *"The database is missing migrations…"* above.
+
+**Consequence worth planning around: do not send an enrollment link to a class
+within about fifteen minutes of a merge.** Forty people opening it in that
+window meet a product where nothing works, and they will not all come back to
+try again.
+
 ### What a rollback does *not* undo
 
 **Migrations are forward-only.** Rolling back the code does not roll back the

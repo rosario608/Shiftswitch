@@ -3,7 +3,17 @@
 Authoritative checkpoint for any new session. **Read this first**, inspect only
 what the current task needs, verify with targeted commands, and continue.
 
-Last updated: 1 August 2026, after **putting the marketplace first**: a resident
+Last updated: 1 August 2026, after a **pre-launch check against production**,
+which returned **NO-GO** — see **Launch check, 1 August 2026** below. Nothing it
+found is a defect in the product: email is not configured, push probably is not
+and no screen would say so, and the Preview environment may share production's
+database. All four remaining items are configuration the owner does in about
+half an hour. The check also measured something nobody had: every merge leaves
+about twelve minutes during which production serves new code against an old
+database and refuses every API call, which is now in the runbook with the
+instruction not to send an enrollment link inside that window.
+
+Before that, **putting the marketplace first**: a resident
 whose programme has configured nothing — no services, no block year, no uploaded
 schedule — can name the one shift they cannot work and have it up for switch in
 two taps, and a coordinator can upload the file they actually have rather than
@@ -241,6 +251,114 @@ The audit of 1 August 2026 did not find a blocker either. What it found were
 nine defects, all fixed; what it leaves behind is a short list of things a
 session cannot do, under **User action required**, of which only the first three
 are genuine prerequisites for a pilot.
+
+## Launch check, 1 August 2026 — **NO-GO**
+
+A read-only check of `https://shiftswitch.vercel.app` run immediately before an
+enrollment link was to go to real residents. Nothing was written to the
+production database: see **What this check did to production** at the end, which
+lists the one side effect it had.
+
+**The verdict: do not send the link yet.** Nothing found is a defect in the
+product, and nothing found is hard to fix. But three things are unresolved, and
+two of them mean a resident who uses the product hears nothing back:
+
+1. **Email is not configured.** Production says so itself.
+2. **Push is probably not configured**, and no screen in the product will tell
+   you either way.
+3. **Preview may share production's database.** Unverified from here, and the
+   last recorded attempt says it does.
+
+The first two are the ones that decide adoption. A resident posts a shift, a
+colleague offers on it, and the first resident finds out only if they happen to
+reopen the app. That is the product failing at the exact moment it is working.
+
+### The checks
+
+| # | Check | Verdict | On what evidence |
+|---|---|---|---|
+| 1 | Deployed commit equals the head of `main` | **pass** | `/api/health` reports `release: af2ff2af…`, identical to `origin/main`. The tree is byte-identical to the local build (`git diff --stat 62cfc75 origin/main` is empty). |
+| 1 | `/api/health` reports every migration applied, no drift | **pass** | 12 of 12, `missing: []`, `changed: []`, `unexpected: []`. It reported 11 of 12 for the first twelve minutes of this check — see **The migration window** below. |
+| 1 | The build behind the deployment succeeded, logs hold no unexplained error | **partial** | CI run #46 on `af2ff2a` is green on all jobs. Vercel's own build log needs a Vercel credential this machine does not have. |
+| 2 | Every authenticated route refuses an unauthenticated caller | **pass** | 97 routes probed with GET and POST. GET: 46 × 401, 44 × 405, 4 × 200 (all public by design), 3 × 307. POST: 51 × 401, 39 × 405, 3 × 422, 2 × 403, 1 × 202, 1 × 200. |
+| 2 | No refusal body leaks a name, email, phone or shift | **pass** | Every body scanned for personal fields, anything email-shaped, and stack traces. None found in 194 responses. |
+| 2 | `test-login` and the dev routes are off in production | **pass** | `POST /api/auth/test-login` → 403. `POST /api/dev/accept-invitation` → 403. |
+| 2 | A resident-scoped route refuses a *different* resident | **human-required** | Needs two real Google accounts in one programme. Covered by `tests/e2e/security.spec.ts` against a fixture, which is not the same as production. |
+| 2 | Preview resolves to a different database than production | **UNVERIFIED — treat as a blocker** | Preview is behind Vercel SSO and could not be reached. See below. |
+| 3 | Enrollment link resolves; a bad one is refused neutrally | **pass** | `/join/<invalid>` renders *"This link isn't working…"* — one message for all four causes, as designed. |
+| 3 | Redirect to Google carries the production client ID and an accepted redirect URI | **pass** | `/api/auth/google/start` → 307 to `accounts.google.com` with the production client ID, `redirect_uri=https://shiftswitch.vercel.app/api/auth/google/callback`, PKCE `S256`, `state` and `nonce`. Following it, **Google served an account chooser rather than `redirect_uri_mismatch`** — so Google's own configuration accepts it. |
+| 3 | The callback handles a refused consent without a stack trace | **pass** | `?error=access_denied` → 307 to `/login?error=cancelled`, which renders *"Sign-in was cancelled."* No params and a forged `code`/`state` both 307 with no stack trace. |
+| 3 | A non-matching email domain is rejected understandably | **human-required** | Reachable only after a real Google sign-in. Covered by integration tests. |
+| 3 | The rate limit engages | **human-required** | Per-link, counted on refusals, and reachable only with a real link and real sign-ins. Covered by an integration test (35 residents, 30 wrong guesses). |
+| 3 | Completing a Google sign-in | **human-required** | Named as such in the goal. Needs a person with a real account. |
+| 4 | Email delivers in production | **FAIL** | Production's own `/api/health`: *"No email service is configured, so the invitation was not sent automatically."* |
+| 4 | Push delivers in production | **FAIL (unverified, and unreportable)** | `push.ts` falls back to `NoopPushTransport` — status `skipped` — unless `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL` and `FCM_PRIVATE_KEY` are all set. Whether they are cannot be read from outside, **and no screen in the product reports it**: `checkHealth()` covers database, migrations, auth and email only. |
+| 5 | A deliberate error reaches wherever errors are reported | **partial — the shape is right, the destination is not established** | A real report was observed carrying `release`, `route: "/join/:token"`, `role: "anonymous"`, a `requestId`, and no resident data — exactly the contract. But it was `delivered: false`, *"No error-reporting DSN is configured, so this was written to the logs only."* That observation is from an identical local build; production's `ERROR_REPORTING_DSN` cannot be read from outside and is reported on no screen. |
+| 6 | Phone viewport: no horizontal scroll, no broken layout, no dead end, no scheduler jargon | **pass on every public screen** | 390 × 844. `/login`, `/login?error=cancelled`, `/join/<invalid>`, `/legal/privacy`, `/legal/terms`: no horizontal scroll, no element overflowing the viewport, no console errors, and none of the twelve scheduler words a resident should never meet. |
+| 6 | The empty state a new account lands on, and posting one shift | **human-required** | Both are behind Google sign-in. |
+| 7 | A previous deployment can be promoted | **human-required** | The steps are in `docs/RUNBOOK.md` and were written from the dashboard. Confirming a previous deployment is listed and promotable needs a Vercel login. |
+
+### What has to happen before the link goes out
+
+| | What | Who | How long |
+|---|---|---|---|
+| 1 | **Configure email.** Set the email transport's credentials in **Vercel → Settings → Environment Variables** for Production, then redeploy and confirm `/api/health` reports `email: ok`. Until then invitations are not sent and the UI correctly tells you to copy the link by hand — which does not scale to a class of forty. | owner | ~15 min |
+| 2 | **Decide about push, then look.** In **Vercel → Settings → Environment Variables**, check whether `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL` and `FCM_PRIVATE_KEY` are set for Production. If they are not, either set them or accept that residents get no notifications — but accept it knowingly. | owner | ~2 min to look |
+| 3 | **Check the Preview database.** In **Vercel → Settings → Environment Variables**, look for `DATABASE_URL` scoped to **Preview**. If there is none, every pull-request preview reads and writes the live programme. Fix: **Neon → Branches → New branch** named `preview` from `main`, then add its connection string as `DATABASE_URL` for Preview only. | owner | ~10 min |
+| 4 | **Set `ERROR_REPORTING_DSN`**, or accept that errors reach only Vercel's logs and nobody is paged. | owner | ~5 min |
+| 5 | **Sign in once, as a real resident**, and walk the three screens this check could not reach: the empty state, posting one shift, and a second account offering on it. This is the one thing no automated check can stand in for. | owner | ~10 min |
+| 6 | **Confirm rollback**: open **Vercel → Deployments** and check that at least one earlier production deployment is listed as Ready. | owner | ~1 min |
+| 7 | **Do not send the link within ~15 minutes of a merge.** See **Rolling back a bad deploy → Before you roll back** in `docs/RUNBOOK.md`. | owner | — |
+
+None of the above is a code change. The product is not what is blocking launch.
+
+### The migration window
+
+The most operationally significant thing this check found, and it was found by
+accident — the check began four minutes after pull request #13 merged.
+
+For **about twelve minutes after every merge**, production runs new code against
+an old database. The schema gate refuses every API call with `503 schema_drift`
+while pages still render, because the gate is on the API wrapper and not on page
+rendering. Measured: deploy at 23:06:11Z, migration applied at ~23:18:0xZ.
+
+This is the gate working as designed — the alternative is code querying columns
+that do not exist — and the resident-facing message is right. But it has a
+launch consequence, now written into the runbook: a class of residents opening a
+link in that window meets a product where nothing works.
+
+### Two findings that are not blockers
+
+**Two routes validate the request body before checking the session.**
+`POST /api/account/delete` and `POST /api/admin/schedule-versions/<id>` answer
+`422` rather than `401` to an unauthenticated caller with an empty body. Nothing
+is disclosed but the request schema and nothing is performed — both return `401`
+the moment the body is well-formed, which was checked directly. Worth reordering
+when something else touches those files; not worth a commit of its own.
+
+**`schema_drift` names the missing migration file to an unauthenticated
+caller.** That is operational information rather than anybody's data, and the
+message is deliberately written for a resident to read. Recorded because it is
+the sort of thing a later reader might otherwise flag as a leak.
+
+### What this check did to production
+
+Almost nothing, and precisely this much:
+
+- **Reads only**, over HTTPS. No database connection was opened from this
+  session — this machine holds no production connection string, which was
+  confirmed by looking rather than assumed.
+- **No disposable programme was created.** Creating one needs either a database
+  credential or a completed Google sign-in, and this machine has neither. Since
+  nothing was created, nothing needed removing; the production database is
+  untouched by this session. Saying "the disposable programme was cleaned up"
+  would have been a claim about work that never happened.
+- **One side effect**, disclosed rather than glossed: the route sweep POSTed
+  `{}` to every endpoint, and `/api/client-errors` accepts unauthenticated
+  reports by design. The empty body failed its schema, so **no error report was
+  created** — the endpoint logged one `client_error.malformed` warning and
+  returned `202`. That single log line is the entire footprint of this check on
+  production.
 
 ## User action required
 
