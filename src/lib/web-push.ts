@@ -91,6 +91,17 @@ export function decodeVapidKey(base64: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
+/** Whether an existing subscription was made against the key we send with. */
+export function sameKey(
+  existing: ArrayBuffer | null | undefined,
+  expected: Uint8Array,
+): boolean {
+  if (!existing) return false;
+  const bytes = new Uint8Array(existing);
+  if (bytes.length !== expected.length) return false;
+  return bytes.every((byte, index) => byte === expected[index]);
+}
+
 /** A stable id for this browser, so re-subscribing updates rather than duplicates. */
 function installId(): string {
   const key = "shiftswitch.installId";
@@ -106,6 +117,38 @@ export interface SubscribeOutcome {
   ok: boolean;
   /** Why not, in words the resident can act on. */
   reason?: string;
+}
+
+/** Long enough for a slow phone to install a worker, short enough to not look broken. */
+const WORKER_READY_TIMEOUT_MS = 10_000;
+
+/**
+ * The registration to subscribe against, or `null` if there will never be one.
+ *
+ * `navigator.serviceWorker.ready` is the documented way to wait for an active
+ * worker, and it has a trap: **if nothing was ever registered it does not
+ * reject, it simply never settles**. Awaiting it bare means a button that spins
+ * for the rest of the session with nothing said — and that is not a rare edge.
+ * `ServiceWorkerRegistrar` skips registration entirely outside production and
+ * swallows a failed one, so "no registration" is the *guaranteed* state in
+ * development and a plausible one anywhere.
+ *
+ * So: register if nothing has, and put a deadline on the wait. A resident who
+ * is told "that did not work, try again" has somewhere to go. A spinner has
+ * nowhere.
+ */
+async function activeRegistration(): Promise<ServiceWorkerRegistration | null> {
+  try {
+    if (!(await navigator.serviceWorker.getRegistration())) {
+      await navigator.serviceWorker.register("/sw.js");
+    }
+  } catch {
+    return null;
+  }
+  return Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), WORKER_READY_TIMEOUT_MS)),
+  ]);
 }
 
 /**
@@ -143,17 +186,49 @@ export async function subscribeToPush(vapidPublicKey: string): Promise<Subscribe
     return { ok: false, reason: "No notifications, then — nothing else changes." };
   }
 
-  const registration = await navigator.serviceWorker.ready;
-  const existing = await registration.pushManager.getSubscription();
-  const subscription =
-    existing ??
-    (await registration.pushManager.subscribe({
-      /* Required by every browser: a push may only be sent if it results in a
-         notification the user sees. We always show one, so this costs nothing
-         and is what makes iOS deliver at all. */
-      userVisibleOnly: true,
-      applicationServerKey: decodeVapidKey(vapidPublicKey),
-    }));
+  const registration = await activeRegistration();
+  if (!registration) {
+    return {
+      ok: false,
+      reason: "Notifications could not start up on this device. Try again in a moment.",
+    };
+  }
+
+  const serverKey = decodeVapidKey(vapidPublicKey);
+
+  /* A subscription made against a *different* server key is worse than none:
+     the browser hands it over happily and every send is refused, so the
+     resident is subscribed and hears nothing. It happens for real whenever the
+     keypair is regenerated. Drop it and make a new one. */
+  let existing = await registration.pushManager.getSubscription();
+  if (existing && !sameKey(existing.options.applicationServerKey, serverKey)) {
+    try {
+      await existing.unsubscribe();
+    } catch {
+      /* Keeping the stale one would be worse than a failed tidy-up. */
+    }
+    existing = null;
+  }
+
+  let subscription: PushSubscription;
+  try {
+    subscription =
+      existing ??
+      (await registration.pushManager.subscribe({
+        /* Required by every browser: a push may only be sent if it results in a
+           notification the user sees. We always show one, so this costs nothing
+           and is what makes iOS deliver at all. */
+        userVisibleOnly: true,
+        applicationServerKey: serverKey,
+      }));
+  } catch {
+    /* Thrown rather than returned by every browser, and for causes a resident
+       cannot distinguish. Left as one honest sentence rather than guessed at. */
+    return {
+      ok: false,
+      reason: "Your browser would not set up notifications. Try again in a moment.",
+    };
+  }
 
   const json = subscription.toJSON();
   if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {

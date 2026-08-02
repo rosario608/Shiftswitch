@@ -5,7 +5,7 @@ import {
   WebPushTransport,
 } from "@/server/domain/web-push";
 import { NoopPushTransport, type PushTarget } from "@/server/domain/push";
-import { isApplePortable, decodeVapidKey } from "@/lib/web-push";
+import { isApplePortable, decodeVapidKey, sameKey } from "@/lib/web-push";
 
 /**
  * Web push, the half that can be tested without a browser.
@@ -191,6 +191,34 @@ describe("recognising a device that must install the site first", () => {
   it("does not mistake a real Mac or an Android phone for one", () => {
     expect(isApplePortable("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", 0)).toBe(false);
     expect(isApplePortable("Mozilla/5.0 (Linux; Android 14; Pixel 7)", 5)).toBe(false);
+  });
+});
+
+describe("noticing a subscription made against a different server key", () => {
+  /* This is the failure with no symptom. The browser hands over a subscription
+     from an older keypair perfectly happily; every send against it is then
+     refused, so the resident is subscribed, believes they will be notified, and
+     hears nothing. It happens for real the first time somebody regenerates the
+     keys. */
+  const current = decodeVapidKey("BEl-_wcQ");
+
+  it("accepts a subscription made against the key we send with", () => {
+    expect(sameKey(decodeVapidKey("BEl-_wcQ").buffer, current)).toBe(true);
+  });
+
+  it("rejects one made against a different key", () => {
+    expect(sameKey(decodeVapidKey("QUJDRA").buffer, current)).toBe(false);
+  });
+
+  it("rejects one of a different length rather than comparing a prefix", () => {
+    expect(sameKey(new Uint8Array([current[0]]).buffer, current)).toBe(false);
+  });
+
+  /* Browsers that predate `options.applicationServerKey` return null here.
+     Treating that as a match would keep a subscription we cannot vouch for. */
+  it("treats an unknown key as not matching", () => {
+    expect(sameKey(null, current)).toBe(false);
+    expect(sameKey(undefined, current)).toBe(false);
   });
 });
 

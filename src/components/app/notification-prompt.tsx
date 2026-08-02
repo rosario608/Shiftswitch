@@ -114,12 +114,20 @@ export function NotificationPrompt({
   async function enable() {
     if (!vapidPublicKey) return;
     setBusy(true);
-    const result = await subscribeToPush(vapidPublicKey);
-    setBusy(false);
-    setOutcome(result.ok ? null : (result.reason ?? "That did not work."));
-    if (result.ok) {
-      setGranted(true);
-      localStorage.setItem(DISMISSED_KEY, String(Date.now()));
+    /* `finally`, because the one thing this must never do is leave the button
+       spinning. Every branch below ends in either a subscription or a sentence;
+       a throw that skipped `setBusy(false)` would end in neither. */
+    try {
+      const result = await subscribeToPush(vapidPublicKey);
+      setOutcome(result.ok ? null : (result.reason ?? "That did not work."));
+      if (result.ok) {
+        setGranted(true);
+        localStorage.setItem(DISMISSED_KEY, String(Date.now()));
+      }
+    } catch {
+      setOutcome("That did not work. Try again in a moment.");
+    } finally {
+      setBusy(false);
     }
   }
 
