@@ -95,18 +95,18 @@ export function CalendarSubscription() {
     }
   }
 
+  /* No heading of its own: the page above supplies one, and a card that
+     restates its own section title is the third time a resident reads the same
+     sentence before reaching anything they can act on. */
   return (
-    <section>
+    <div>
       <Card>
         <CardBody className="space-y-3">
-          <div>
-            <p className="font-semibold text-ink">Your shifts in your calendar</p>
-            <p className="mt-1 text-sm text-ink-muted">
-              Subscribe in Apple Calendar, Google Calendar or Outlook and your
-              shifts appear alongside everything else. It updates itself, so a
-              completed switch reaches your calendar without you doing anything.
-            </p>
-          </div>
+          <p className="text-sm text-ink-muted">
+            Subscribe in Apple Calendar, Google Calendar or Outlook and your
+            shifts appear alongside everything else. It updates itself, so a
+            completed switch reaches your calendar without you doing anything.
+          </p>
 
           {url ? (
             <div className="rounded-xl bg-surface-muted p-3">
@@ -200,6 +200,6 @@ export function CalendarSubscription() {
         </p>
         <ActionAlert action={revoke} className="mt-3" />
       </Sheet>
-    </section>
+    </div>
   );
 }
