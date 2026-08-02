@@ -43,8 +43,13 @@ const schema = z.object({
 });
 
 export const POST = apiHandler(async (request: Request) => {
+  /* The session first, then the body. Both orders are safe — nothing is deleted
+     without a session either way — but validating first told an unauthenticated
+     caller the shape of the request before refusing them, which is a small thing
+     to give away for nothing. */
+  const context = await deletionContext();
   const input = await parseJson(request, schema);
-  const result = await deleteOwnAccount(await deletionContext(), input);
+  const result = await deleteOwnAccount(context, input);
   await destroyCurrentSessionAnywhere();
   return ok({ result });
 });
