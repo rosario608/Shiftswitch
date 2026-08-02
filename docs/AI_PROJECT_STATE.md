@@ -2633,30 +2633,67 @@ a wrong assertion and a wrong claim. Last run: **12/12**.
 
 **`npm run verify` exits 0.** That is the whole answer, and the only one worth
 quoting — it runs every row below in one command with one exit code. Last full
-run: 10 steps, **1238 seconds**, 1 August 2026, on the tree this session left
-behind, from a cleared `.next`.
+run: 10 steps, **1164 seconds**, 2 August 2026, on the tree this session left
+behind, from a cleared `.next` and a machine checked idle first.
 
 | Step | Result |
 |---|---|
 | Typecheck (`tsc --noEmit`) | clean |
 | Lint, server + web | clean, no warnings |
 | Lint, native client | clean |
-| Server unit + integration (`vitest run`) | **747 passed**, 42 files |
+| Server unit + integration (`vitest run`) | **968 passed**, 54 files |
 | Native client unit (`npm --prefix mobile run test`) | **64 passed**, 8 files |
 | Production build (`next build`) | succeeds |
-| Web end-to-end (`playwright test`) | **182 passed**, mobile + desktop projects |
+| Web end-to-end (`playwright test`) | **192 passed**, mobile + desktop projects |
 | Native end-to-end (`--config playwright.mobile.config.ts`) | **16 passed**, including the 9 screenshot specs |
-| Migrations from scratch (`migrate.ts --reset`) | **0001–0009 apply to an empty database** |
-| Integration suite against the rebuilt schema | **421 passed**, 22 files |
+| Migrations from scratch (`migrate.ts --reset`) | **0001–0014 apply to an empty database** |
+| Integration suite against the rebuilt schema | **497 passed**, 26 files |
 
-1009 distinct tests. The final 421 is the integration subset re-run against the
+1240 distinct tests. The final 497 is the integration subset re-run against the
 freshly rebuilt schema, which is why it is not added again.
 
-The run before this one **failed**, at the web end-to-end step, and is worth
-recording rather than tidying away: three of its four failures were real
-defects in the resilience work and one was `verify` being defeated by a dev
-server left running. All four are under **Defects found and fixed (resilience
-session)**.
+### The run before this one failed, and was not a defect
+
+Worth recording, because the conclusion "it was environmental" is the one most
+likely to be wrong and the one this project has been burned by before.
+
+`scheduler.spec.ts` — *a chief builds a draft, edits it, and sees the diff
+before publishing* — failed on both projects at the same assertion. The page
+snapshot showed the generic **Something went wrong. Please try again.** alert
+with no matching `api.rejected` on the server, which is the signature of a
+request that never got an answer rather than one that was refused.
+
+What was checked, in order, before calling it environmental:
+
+| Check | Result |
+|---|---|
+| The test alone | passes |
+| The test with `schedule-operations.spec.ts` immediately before it — the adjacency this session created, since Playwright runs files alphabetically with one worker | passes, 15/15 |
+| Whether that spec's state could leak | it cannot: `scheduler.spec.ts` truncates and rebuilds the fixture in its own `beforeAll`, and the failure is in its *second* test |
+| The full web suite, re-run locally | **192 passed** |
+| CI's own end-to-end job on the same commit | **192 passed** |
+| Whether CI merely *retried* a flake — `playwright.config.ts` sets `retries: 1` under CI, so a green job can hide one | no: the log contains no `flaky` line and no retry |
+
+That last row is the one that makes the rest mean anything. "Passes when run
+alone" is recorded elsewhere in this document as the shape of a wrong claim
+rather than proof of a flake, and a retried CI pass would have been exactly as
+misleading. Two full suites green with no retry is a different kind of evidence.
+
+The likely mechanism is already documented here: `verify` runs `next build`
+immediately before the end-to-end step, Playwright's web server is `next dev`,
+and the two share `.next` — on a container that warns about a slow filesystem,
+a route compiling on demand from a just-rewritten `.next` fits a request that
+fails with nothing logged server-side. Not proven, and deliberately written as
+a hypothesis rather than a finding.
+
+An **earlier** failing run, in the resilience session, went the other way and is
+the reason the checks above are done at all: three of its four failures were
+real defects and one was `verify` being defeated by a dev server left running.
+All four are under **Defects found and fixed (resilience session)**. A failing
+end-to-end step is a defect until the evidence says otherwise, and it has been a
+defect more often than not.
+
+### Concurrency, run twelve times
 
 Run **separately** from `verify`, because it is about flakiness rather than
 correctness: the two concurrency suites plus `schedule-lifecycle`, twelve
