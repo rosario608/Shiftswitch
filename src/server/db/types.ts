@@ -162,12 +162,16 @@ export interface TradePreferences {
   preferredShiftTypes?: string[];
 }
 
+export type TradeKind = "switch" | "giveaway";
+
 export interface TradeRequestRow {
   id: string;
   program_id: string;
   source_shift_id: string;
   initiating_resident_id: string;
   status: TradeRequestStatus;
+  /** `switch` wants a shift back; `giveaway` does not. */
+  kind: TradeKind;
   preferences: TradePreferences;
   notes: string;
   created_at: Date;

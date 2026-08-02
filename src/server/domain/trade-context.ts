@@ -156,3 +156,83 @@ export async function getProgram(
   if (!program) throw notFound("Program not found.");
   return program;
 }
+
+/**
+ * Everything the rules engine needs for a resident **taking** a shift and
+ * giving none back.
+ *
+ * One leg, because one schedule changes. That is not a simplification of the
+ * switch case — it is the whole reason this shape needs its own attention.
+ * A switch hands the rest and workload rules a schedule of unchanged size and
+ * asks whether the pieces still fit; a giveaway hands them a longer one. The
+ * rules that exist precisely for "am I working too much" are decorative in the
+ * first case and load-bearing in the second.
+ *
+ * Coverage is asked with a single leg too. The shift is counted once before
+ * and once after: it does not disappear and it does not duplicate — it changes
+ * hands. A programme that was covered before a giveaway is covered after it,
+ * unless the taker was already on that service at that hour, which is the
+ * overlap check's business and is refused outright.
+ */
+export async function buildGiveawayContext({
+  program,
+  shift,
+  takerResidentId,
+  now = new Date(),
+  executor = getPool(),
+}: {
+  program: ProgramRow;
+  /** The shift being given away, still held by the poster. */
+  shift: ShiftDetail;
+  takerResidentId: string;
+  now?: Date;
+  executor?: Queryable;
+}): Promise<TradeContext> {
+  if (!shift.resident_id) {
+    throw notFound("That shift no longer has anybody on it.");
+  }
+  const taker = await getResidentInfo(takerResidentId, executor);
+  if (!taker) throw notFound("That resident is no longer available.");
+
+  const shiftInfo = toShiftInfo(shift);
+  const schedule = await listScheduleWindow(taker.id, shiftInfo.start, executor);
+  const trades = await countCompletedTradesThisMonth(
+    taker.id,
+    now,
+    program.timezone,
+    executor,
+  );
+  const offers = await countOpenOffers(taker.id, executor);
+
+  const leg: TradeLegContext = buildProposedSchedule({
+    resident: taker,
+    /* Nothing goes back. `buildProposedSchedule` subtracts nothing, so the
+       proposed schedule is the current one plus this shift. */
+    gives: null,
+    receives: shiftInfo,
+    currentSchedule: schedule.map(toShiftInfo),
+    completedTradesThisMonth: trades,
+    openOffers: offers,
+  });
+
+  const programInfo = {
+    id: program.id,
+    name: program.name,
+    timezone: program.timezone,
+  };
+
+  return {
+    program: {
+      ...programInfo,
+      defaultTradeApprovalRequired: program.default_trade_approval_required,
+    },
+    now,
+    legs: [leg],
+    rules: await listActiveRules(program.id, executor),
+    coverageChecks: await checkTradeCoverage(
+      programInfo,
+      [{ shift: shiftInfo, from: shift.resident_id, to: taker.id }],
+      now,
+    ),
+  };
+}

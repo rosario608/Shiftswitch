@@ -93,6 +93,16 @@ export interface PostShiftInput {
   preferences?: TradePreferences;
   notes?: string;
   expiresAt?: Date;
+  /**
+   * `switch` wants a shift back; `giveaway` does not.
+   *
+   * Decided when the shift is posted rather than when somebody responds,
+   * because it changes what the posting *is* and therefore who should see it
+   * and what they are being asked for. A colleague reading the board needs to
+   * know whether saying yes costs them a shift or gains them one before they
+   * tap, not after.
+   */
+  kind?: "switch" | "giveaway";
 }
 
 export async function postShiftForTrade(
@@ -151,10 +161,11 @@ export async function postShiftWithin(
       ),
     );
 
+  const kind = input.kind ?? "switch";
   const request = await queryOne<TradeRequestRow>(
     `INSERT INTO trade_requests
-       (program_id, source_shift_id, initiating_resident_id, preferences, notes, expires_at)
-     VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+       (program_id, source_shift_id, initiating_resident_id, preferences, notes, expires_at, kind)
+     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)
      RETURNING *`,
     [
       context.program.id,
@@ -163,6 +174,7 @@ export async function postShiftWithin(
       JSON.stringify(input.preferences ?? {}),
       input.notes ?? "",
       expiresAt,
+      kind,
     ],
     client,
   );
@@ -174,13 +186,14 @@ export async function postShiftWithin(
       programId: context.program.id,
       actorUserId: context.user.id,
       actorLabel: context.user.email,
-      action: "trade.posted",
+      action: kind === "giveaway" ? "giveaway.posted" : "trade.posted",
       entityType: "trade_request",
       entityId: request!.id,
       previousState: { shiftStatus: shift.status },
       newState: {
         shiftId: shift.id,
         shiftStatus: "posted",
+        kind,
         preferences: input.preferences ?? {},
         expiresAt,
       },
@@ -968,11 +981,14 @@ async function finaliseTrade(
    * is live and unheld, because the end and the reassignment are the same
    * transaction. */
   const endedRows = await query<{ id: string }>(
+    /* Parameter lists are built per shape rather than padded with a null:
+       an unused `$2` leaves PostgreSQL unable to infer its type and the
+       statement is rejected outright. */
     oneWay
       ? `UPDATE shift_assignments
             SET assignment_status = 'ended', ended_at = now()
           WHERE assignment_status = 'active'
-            AND shift_id = $1 AND resident_id = $3
+            AND shift_id = $1 AND resident_id = $2
           RETURNING id`
       : `UPDATE shift_assignments
             SET assignment_status = 'ended', ended_at = now()
@@ -980,7 +996,7 @@ async function finaliseTrade(
             AND ((shift_id = $1 AND resident_id = $3) OR (shift_id = $2 AND resident_id = $4))
           RETURNING id`,
     oneWay
-      ? [sourceShift.id, null, residentA]
+      ? [sourceShift.id, residentA]
       : [sourceShift.id, offeredShift.id, residentA, residentB],
     client,
   );
@@ -1204,6 +1220,28 @@ async function finaliseTrade(
   });
 
   return completed as CompletedTradeRow;
+}
+
+/**
+ * Finalising a giveaway: the same writer, one leg.
+ *
+ * Exported so `./giveaway.ts` can drive it without duplicating the atomic
+ * move. Deliberately not a second implementation — `finaliseTrade` holds the
+ * guarded row count, the offer invalidation sweep, the completion record and
+ * the audit entries, and a shape that had its own copy of all that is a shape
+ * whose bugs get fixed once.
+ */
+export async function finaliseGiveaway(
+  client: PoolClient,
+  input: Omit<FinaliseInput, "offeredShift" | "approvalRequired"> & {
+    takingResidentId: string;
+  },
+): Promise<CompletedTradeRow> {
+  return finaliseTrade(client, {
+    ...input,
+    offeredShift: null,
+    approvalRequired: false,
+  });
 }
 
 // ---------------------------------------------------------------------------

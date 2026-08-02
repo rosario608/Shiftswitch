@@ -345,3 +345,52 @@ export function summariseValidation(result: TradeValidationResult): string {
   }
   return `Invalid — ${result.failures[0]?.message ?? "one or more checks failed"}`;
 }
+
+/**
+ * The same validation, read as a one-way transfer rather than a switch.
+ *
+ * ## What changes and what does not
+ *
+ * A resident picking up a colleague's shift ends up working **more**, and
+ * rest limits, consecutive-day limits and workload caps are exactly the rules
+ * that will object. Refusing on those grounds would mean the product deciding
+ * how much a resident may take on, which is not its decision to make: somebody
+ * who wants the extra shift, or who is covering for a friend, is entitled to.
+ *
+ * So a failure that a programme has marked **overridable** becomes a warning.
+ * `overridable` already carries precisely this meaning everywhere else in the
+ * product — it is what lets a chief approve a switch over a rule — and reusing
+ * it means a programme that has marked a rule as absolute keeps it absolute
+ * here too, without a second flag to configure and disagree with the first.
+ *
+ * What never softens: system checks. Overlap, a shift that has already
+ * started, a cancelled shift, a resident who is not eligible, the wrong
+ * programme. Those are all `overridable: false` and stay failures. "Never
+ * refuse it" is about workload, not about physics — being in two places at
+ * once is not a trade-off a resident gets to weigh.
+ *
+ * Nothing is recomputed: the checks are the same objects with a different
+ * status, so the sentence a resident reads is the sentence the engine wrote,
+ * with its real numbers in it.
+ */
+export function asOneWayTransfer(
+  result: TradeValidationResult,
+): TradeValidationResult {
+  const softened = result.checks.map((check) =>
+    check.status === "fail" && check.overridable
+      ? { ...check, status: "warn" as const }
+      : check,
+  );
+  const failures = softened.filter((check) => check.status === "fail");
+  const warnings = softened.filter((check) => check.status === "warn");
+  return {
+    ...result,
+    checks: softened,
+    failures,
+    warnings,
+    valid: failures.length === 0,
+    /* A softened rule still deserves a chief's attention where the programme
+       said so, and the approval reasons were computed from the original
+       warnings — so they are left exactly as they were. */
+  };
+}

@@ -45,6 +45,13 @@ export type AuditAction =
   | "rule.updated"
   | "rule.deleted"
   | "trade.posted"
+  /* A giveaway is posted, taken and completed through the same tables as a
+     switch, but a chief reading the log needs to see which it was without
+     opening the row: one leaves both people working the same amount and the
+     other does not. */
+  | "giveaway.posted"
+  | "giveaway.taken"
+  | "giveaway.warning_acknowledged"
   | "trade.cancelled"
   | "trade.expired"
   | "offer.created"

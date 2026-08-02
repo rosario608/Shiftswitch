@@ -30,6 +30,7 @@ export function ensureMigrated(): void {
 export async function resetDatabase(): Promise<void> {
   await query(`
     TRUNCATE audit_logs, email_records, notifications, trade_legs, completed_trades,
+             trade_warning_acknowledgements, shift_reminders, notification_preferences,
              trade_offers, trade_requests, schedule_corrections, resident_absences,
              schedule_version_locks, shift_assignments, shifts, schedule_versions,
              rules, program_contacts, residents, sessions, invitations, users,
@@ -409,16 +410,70 @@ export async function assertDatabaseConsistent(): Promise<void> {
     }
   }
 
-  // 2. Every completed switch moved exactly two shifts.
-  const legs = await query<{ id: string; legs: string }>(
-    `SELECT c.id, (SELECT count(*)::text FROM trade_legs l
-                    WHERE l.completed_trade_id = c.id) AS legs
+  /* 2. A completed exchange moved exactly as many shifts as its kind says.
+   *
+   *    A switch has two legs; a giveaway has one. Asserted per kind rather
+   *    than relaxed to "one or two", because "one or two" is satisfied by a
+   *    half-applied switch — which is the single defect this check was written
+   *    to catch, and the worst thing this software can do. An invariant that
+   *    stops distinguishing the shapes stops being an invariant.
+   *
+   *    The kind is read from the column rather than inferred from whether
+   *    `destination_shift_id` is null, so a row that is internally
+   *    inconsistent is reported as such instead of being quietly reclassified
+   *    into whichever shape it happens to satisfy. */
+  const legs = await query<{ id: string; kind: string; legs: string }>(
+    `SELECT c.id, c.kind::text AS kind,
+            (SELECT count(*)::text FROM trade_legs l
+              WHERE l.completed_trade_id = c.id) AS legs
        FROM completed_trades c`,
   );
   for (const row of legs) {
-    if (row.legs !== "2") {
-      problems.push(`completed trade ${row.id} has ${row.legs} legs, not 2`);
+    const expected = row.kind === "giveaway" ? "1" : "2";
+    if (row.legs !== expected) {
+      problems.push(
+        `completed ${row.kind} ${row.id} has ${row.legs} legs, not ${expected}`,
+      );
     }
+  }
+
+  /* 3. A giveaway names one shift and one resident; a switch names two of
+   *    each. The CHECK constraints in 0014 enforce this at the row level, so
+   *    a violation here means something bypassed them — which is worth
+   *    hearing about loudly rather than trusting the database to have been
+   *    the only writer. */
+  const shapes = await query<{
+    id: string;
+    kind: string;
+    has_destination: boolean;
+    has_resident_b: boolean;
+  }>(
+    `SELECT id, kind::text AS kind,
+            destination_shift_id IS NOT NULL AS has_destination,
+            resident_b IS NOT NULL AS has_resident_b
+       FROM completed_trades`,
+  );
+  for (const row of shapes) {
+    const oneWay = row.kind === "giveaway";
+    if (oneWay && (row.has_destination || row.has_resident_b)) {
+      problems.push(`giveaway ${row.id} names a second shift or resident`);
+    }
+    if (!oneWay && (!row.has_destination || !row.has_resident_b)) {
+      problems.push(`switch ${row.id} is missing a second shift or resident`);
+    }
+  }
+
+  /* 4. An offer with no shift belongs to a giveaway, and only to a giveaway.
+   *    This is the cross-table rule 0014 deliberately did not express as a
+   *    CHECK, because PostgreSQL rejects a subquery there. It lives here
+   *    instead of nowhere. */
+  const shapelessOffers = await query<{ id: string }>(
+    `SELECT o.id FROM trade_offers o
+       JOIN trade_requests r ON r.id = o.trade_request_id
+      WHERE o.offered_shift_id IS NULL AND r.kind <> 'giveaway'`,
+  );
+  for (const row of shapelessOffers) {
+    problems.push(`offer ${row.id} offers no shift on a switch`);
   }
 
   /* 3. A completed switch actually swapped the two residents — the torn-write
@@ -441,12 +496,13 @@ export async function assertDatabaseConsistent(): Promise<void> {
         `ended_at > completed_at` excludes the old one. */
   const swaps = await query<{
     id: string;
+    kind: string;
     source_holder: string | null;
     destination_holder: string | null;
     resident_a: string;
-    resident_b: string;
+    resident_b: string | null;
   }>(
-    `SELECT c.id, c.resident_a, c.resident_b,
+    `SELECT c.id, c.kind::text AS kind, c.resident_a, c.resident_b,
             (SELECT a.resident_id FROM shift_assignments a
               WHERE a.shift_id = c.source_shift_id
                 AND a.assigned_at <= c.completed_at
@@ -460,6 +516,26 @@ export async function assertDatabaseConsistent(): Promise<void> {
        FROM completed_trades c`,
   );
   for (const row of swaps) {
+    /* A giveaway cannot be *half* applied — there is only one half — but it
+       can be recorded and not applied, which is the same silent lie in a
+       smaller package: a completion row saying the shift changed hands while
+       the poster is still on it. Checked against the leg, because a giveaway
+       has no `resident_b` to compare with. */
+    if (row.kind === "giveaway") {
+      const leg = await queryOne<{ to_resident_id: string }>(
+        `SELECT to_resident_id FROM trade_legs
+          WHERE completed_trade_id = $1 AND leg_index = 0`,
+        [row.id],
+      );
+      if (!leg) {
+        problems.push(`giveaway ${row.id} has no leg`);
+      } else if (row.source_holder !== leg.to_resident_id) {
+        problems.push(
+          `giveaway ${row.id} was recorded but never applied: shift still held by ${row.source_holder}`,
+        );
+      }
+      continue;
+    }
     const swapped =
       row.source_holder === row.resident_b && row.destination_holder === row.resident_a;
     const reverted =
