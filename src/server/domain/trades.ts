@@ -250,6 +250,8 @@ export async function cancelTradeRequest(
   reason?: string,
 ): Promise<void> {
   await withTransaction(async (client) => {
+    /* Before any row lock — see `serialiseTrade`. */
+    await serialiseTrade(client, { requestId });
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
       [requestId],
@@ -335,6 +337,8 @@ export async function createOffer(
   input: { tradeRequestId: string; offeredShiftId: string },
 ): Promise<OfferResult> {
   return withTransaction(async (client) => {
+    /* Before any row lock — see `serialiseTrade`. */
+    await serialiseTrade(client, { requestId: input.tradeRequestId });
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
       [input.tradeRequestId],
@@ -467,6 +471,8 @@ export async function withdrawOffer(
   offerId: string,
 ): Promise<void> {
   await withTransaction(async (client) => {
+    /* Before any row lock — see `serialiseTrade`. */
+    await serialiseTrade(client, { offerId });
     const offer = await queryOne<TradeOfferRow>(
       "SELECT * FROM trade_offers WHERE id = $1 FOR UPDATE",
       [offerId],
@@ -505,6 +511,8 @@ export async function rejectOffer(
   reason?: string,
 ): Promise<void> {
   await withTransaction(async (client) => {
+    /* Before any row lock — see `serialiseTrade`. */
+    await serialiseTrade(client, { offerId });
     const offer = await queryOne<TradeOfferRow>(
       "SELECT * FROM trade_offers WHERE id = $1 FOR UPDATE",
       [offerId],
@@ -1524,6 +1532,8 @@ export async function rejectTrade(
     throw validationFailed("Say why you are turning this switch down — both residents will read it.");
   }
   await withTransaction(async (client) => {
+    /* Before any row lock — see `serialiseTrade`. */
+    await serialiseTrade(client, { requestId });
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
       [requestId],
@@ -1600,6 +1610,8 @@ export async function requestTradeChanges(
     throw validationFailed("Say what needs to change.");
   }
   await withTransaction(async (client) => {
+    /* Before any row lock — see `serialiseTrade`. */
+    await serialiseTrade(client, { requestId });
     const request = await queryOne<TradeRequestRow>(
       "SELECT * FROM trade_requests WHERE id = $1 FOR UPDATE",
       [requestId],
@@ -1767,6 +1779,41 @@ export async function runMaintenance(programId?: string): Promise<MaintenanceRes
   return withTransaction(async (client) => {
     const params = programId ? [programId] : [];
     const scope = programId ? "AND program_id = $1" : "";
+
+    /* The sweep is the one bulk actor, and that makes it every other verb's
+       deadlock partner: it updates many offer rows by `trade_request_id` while
+       a resident's tap is locking one posting and walking to its offers. Both
+       orders are reasonable and they are opposites.
+     *
+     * So the sweep takes the same advisory locks everything else takes, for
+     * every shift it is about to touch, before its first row lock. Sorted, and
+     * therefore in the same order as any single-posting transaction would take
+     * them, so the two can queue but never hold each other up.
+     *
+     * A posting created after this SELECT cannot be missed in a way that
+     * matters: it is new, so it has not expired, so no statement below would
+     * have matched it. */
+    const affected = await query<{ shift_id: string }>(
+      `SELECT DISTINCT r.source_shift_id AS shift_id
+         FROM trade_requests r
+        WHERE (r.status IN ('open', 'offer_pending') AND r.expires_at <= now())
+        ${programId ? "AND r.program_id = $1" : ""}
+       UNION
+       SELECT DISTINCT o.offered_shift_id AS shift_id
+         FROM trade_offers o
+        WHERE o.status = 'pending' AND o.expires_at <= now()
+          AND o.offered_shift_id IS NOT NULL
+        ${programId ? "AND o.trade_request_id IN (SELECT id FROM trade_requests WHERE program_id = $1)" : ""}
+       UNION
+       SELECT DISTINCT r2.source_shift_id AS shift_id
+         FROM trade_offers o2
+         JOIN trade_requests r2 ON r2.id = o2.trade_request_id
+        WHERE o2.status = 'pending' AND o2.expires_at <= now()
+        ${programId ? "AND r2.program_id = $1" : ""}`,
+      params,
+      client,
+    );
+    await serialiseOnShifts(client, affected.map((row) => row.shift_id));
 
     const expiredOffers = await query<TradeOfferRow>(
       `UPDATE trade_offers o
