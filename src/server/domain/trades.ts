@@ -201,6 +201,46 @@ export async function postShiftWithin(
     client,
   );
 
+  /* Tell the people who could take it.
+   *
+   * A giveaway is the one posting with no specific counterparty: a switch goes
+   * on the board and waits for somebody with a shift to trade, but a shift
+   * being given away is useful to anybody free that day, and nobody is
+   * watching the board at 3am. Without this the event existed in the catalogue
+   * and in the audit trail and was never once sent, which is the same as the
+   * board being the only way to find out.
+   *
+   * `giveaway.posted` is *ambient* — it defaults off — so this reaches only
+   * residents who asked for it. That is the point of the default: the person
+   * who wants extra shifts opts in, and everybody else is not woken up for
+   * somebody else's Saturday.
+   *
+   * The poster is excluded because being told about your own posting is noise,
+   * and `notify` filters by preference server-side, so a resident who turned
+   * this off has nothing written for them at all rather than something hidden
+   * on a screen. */
+  if (kind === "giveaway") {
+    const program = await getProgram(context.program.id, client);
+    const others = await query<{ id: string }>(
+      `SELECT u.id FROM users u
+         JOIN residents r ON r.user_id = u.id
+        WHERE u.program_id = $1 AND u.active = true AND r.id <> $2`,
+      [context.program.id, context.resident.id],
+      client,
+    );
+    await notify(
+      others.map((row) => ({
+        recipientUserId: row.id,
+        type: "giveaway.posted" as const,
+        title: "A shift you could pick up",
+        body: `${context.user.fullName} is giving away ${shiftLabel(shift, program.timezone)}.`,
+        relatedEntityType: "trade_request",
+        relatedEntityId: request!.id,
+      })),
+      client,
+    );
+  }
+
   return request as TradeRequestRow;
 }
 

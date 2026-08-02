@@ -243,7 +243,7 @@ function NotificationSettings() {
       resource.setData(updated);
     } catch (caught) {
       setFailure(
-        caught instanceof ApiError ? caught.message : "Could not save that.",
+        caught instanceof ApiError ? caught.message : "That did not save. Try again in a moment — your other settings are unchanged.",
       );
     } finally {
       setSaving(null);

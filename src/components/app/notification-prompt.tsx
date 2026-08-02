@@ -119,7 +119,9 @@ export function NotificationPrompt({
        a throw that skipped `setBusy(false)` would end in neither. */
     try {
       const result = await subscribeToPush(vapidPublicKey);
-      setOutcome(result.ok ? null : (result.reason ?? "That did not work."));
+      setOutcome(
+        result.ok ? null : (result.reason ?? "That did not work. Try again in a moment."),
+      );
       if (result.ok) {
         setGranted(true);
         localStorage.setItem(DISMISSED_KEY, String(Date.now()));

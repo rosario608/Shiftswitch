@@ -331,3 +331,134 @@ describe("each resident hears about it their own way", () => {
     expect(toTaker.some((n) => n.type === "giveaway.taken")).toBe(false);
   });
 });
+
+/**
+ * The whole thing, once, as three people would actually live it.
+ *
+ * Everything below is asserted somewhere above in isolation. This exists
+ * because the isolated tests each hold one part still while they examine
+ * another, and the joins are where two features that both work alone disagree
+ * about what happened. In particular: preferences are read at the moment of
+ * sending, warnings are recorded against the take that produced them, and the
+ * chief's copy is a different notification from the taker's — three things
+ * that pass separately and could still contradict each other in one story.
+ */
+describe("one shift given away, one taken over a warning, three people told what they asked to be told", () => {
+  it("runs the whole path", async () => {
+    await addRule(fixture.program, "min_rest_hours", { hours: 24 });
+
+    /* Tomas wants to hear about shifts going spare — it is ambient, so it is
+       off until he says otherwise. Tess never asks, and must hear nothing. */
+    await setPreference(taker.user.id, "giveaway.posted", { push: true, inApp: true });
+
+    // ---------------------------------------------------------------- posting
+    const shift = await createShift(fixture.program, {
+      inDays: 10,
+      service: fixture.services.MICU,
+      residentId: poster.resident.id,
+    });
+    const request = await postShiftForTrade(poster.context, {
+      shiftId: shift.id,
+      kind: "giveaway",
+    });
+
+    /* The poster still holds it. There is no moment where a live shift has
+       nobody on it, and that is the property this whole feature turns on. */
+    expect(await holderOf(shift.id)).toBe(poster.resident.id);
+
+    const tomasHeard = await listNotifications(taker.user.id);
+    expect(tomasHeard.some((n) => n.type === "giveaway.posted")).toBe(true);
+
+    const tessHeard = await listNotifications(tired.user.id);
+    expect(tessHeard.some((n) => n.type === "giveaway.posted")).toBe(false);
+
+    // ----------------------------------------------------------------- taking
+    const clean = await previewTake(taker.context, request.id);
+    expect(clean.warnings).toHaveLength(0);
+    expect(clean.blockers).toHaveLength(0);
+
+    const taken = await takeShift(taker.context, request.id, {
+      acknowledgedWarnings: [],
+    });
+    expect(taken.status).toBe("completed");
+
+    /* One way: Tomas holds it, Priya does not, and nothing came back to her. */
+    expect(await holderOf(shift.id)).toBe(taker.resident.id);
+    const legs = await query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM trade_legs l
+         JOIN completed_trades c ON c.id = l.completed_trade_id
+        WHERE c.kind = 'giveaway'`,
+    );
+    expect(legs[0].count).toBe("1");
+
+    const priyaHeard = await listNotifications(poster.user.id);
+    expect(priyaHeard.some((n) => n.type === "giveaway.taken")).toBe(true);
+
+    await assertDatabaseConsistent();
+
+    // ------------------------------------------------- taking over a warning
+    /* Tess works the day before, so the second shift costs her rest. */
+    await createShift(fixture.program, {
+      inDays: 19,
+      service: fixture.services.Floor,
+      residentId: tired.resident.id,
+    });
+    const second = await createShift(fixture.program, {
+      inDays: 20,
+      service: fixture.services.MICU,
+      residentId: poster.resident.id,
+    });
+    const secondRequest = await postShiftForTrade(poster.context, {
+      shiftId: second.id,
+      kind: "giveaway",
+    });
+
+    const warned = await previewTake(tired.context, secondRequest.id);
+    expect(warned.blockers).toHaveLength(0);
+    const rest = warned.warnings.find((w) => w.ruleType === "min_rest_hours");
+    expect(rest).toBeDefined();
+    /* The numbers are in the sentence a resident reads, not only in a
+       structured field no screen renders. */
+    expect(rest!.message).toContain("24");
+
+    /* Refused until she has actually said yes to them. */
+    await expect(
+      takeShift(tired.context, secondRequest.id, { acknowledgedWarnings: [] }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("read and accept the warnings"),
+    });
+
+    const accepted = await takeShift(tired.context, secondRequest.id, {
+      acknowledgedWarnings: warned.warnings.map((w) => w.key),
+    });
+    expect(accepted.warningsAcknowledged).toBe(warned.warnings.length);
+    expect(await holderOf(second.id)).toBe(tired.resident.id);
+
+    // ------------------------------------------- recorded, audited, and seen
+    const records = await listWarningAcknowledgements(fixture.program.id);
+    expect(records).toHaveLength(1);
+    expect(records[0].residentName).toBe("Tess Ademola");
+    expect(records[0].warnings.map((w) => w.message)).toEqual(
+      warned.warnings.map((w) => w.message),
+    );
+
+    const audit = await query<{ action: string }>(
+      "SELECT action FROM audit_logs WHERE action = 'giveaway.warning_acknowledged'",
+    );
+    expect(audit).toHaveLength(1);
+
+    const chiefHeard = await listNotifications(chief.user.id);
+    const oversight = chiefHeard.find((n) => n.type === "giveaway.warned");
+    expect(oversight).toBeDefined();
+    expect(oversight!.body).toContain("Tess Ademola");
+
+    /* And the chief hearing about it is not the same as Tomas hearing about
+       it: the oversight copy goes to whoever oversees coverage, and to nobody
+       else. A resident being told which of their colleagues is tired is the
+       kind of leak that is obvious only once it has happened. */
+    const tomasAfter = await listNotifications(taker.user.id);
+    expect(tomasAfter.some((n) => n.type === "giveaway.warned")).toBe(false);
+
+    await assertDatabaseConsistent();
+  });
+});

@@ -63,6 +63,26 @@ export interface NotificationEventSpec {
 const actionable = { push: true, inApp: true, email: false };
 const ambient = { push: false, inApp: true, email: false };
 
+/**
+ * Off everywhere, until asked for.
+ *
+ * The `ambient` default keeps the in-app row because of the no-dead-ends rule
+ * above: if the product decided something about *your* schedule, some screen
+ * says so even with every other channel off. That reasoning covers every
+ * ambient event here — your offer, your posting, your schedule, your shift.
+ *
+ * It does not cover an invitation. "Somebody is giving a shift away" is not a
+ * fact about the reader's schedule; it is an opportunity, and there are as
+ * many of them as the programme cares to post. Writing an in-app row for every
+ * one would turn the notification list — the place a resident goes to find out
+ * what happened to *them* — into a feed of other people's Saturdays, and the
+ * one screen that is supposed to have no noise on it is the one that must not.
+ *
+ * A resident who wants extra shifts turns this on. Everybody else finds them
+ * on the board, which is a place you look on purpose.
+ */
+const invitation = { push: false, inApp: false, email: false };
+
 export const NOTIFICATION_EVENTS: NotificationEventSpec[] = [
   {
     key: "giveaway.posted",
@@ -73,7 +93,7 @@ export const NOTIFICATION_EVENTS: NotificationEventSpec[] = [
     audience: "resident",
     costsShifts:
       "You will not hear when colleagues give shifts away. You can still find them under Available shifts.",
-    defaults: ambient,
+    defaults: invitation,
   },
   {
     key: "giveaway.taken",
