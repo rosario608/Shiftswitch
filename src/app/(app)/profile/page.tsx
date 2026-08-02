@@ -4,6 +4,7 @@ import { Download, LogOut, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, SectionHeading } from "@/components/ui/card";
 import { AvailabilityManager } from "@/components/app/availability-manager";
+import { CalendarSubscription } from "@/components/app/calendar-subscription";
 import { InstallPrompt } from "@/components/app/install-prompt";
 import { requirePageUser } from "@/server/auth/page-guards";
 import { queryOne } from "@/server/db/pool";
@@ -132,6 +133,18 @@ export default async function ProfilePage() {
               createdByName: absence.created_by_name,
             }))}
           />
+        </section>
+      ) : null}
+
+      {/* Residents only: the feed is one resident's own shifts, and somebody
+          with no resident record has none to publish. */}
+      {context.resident ? (
+        <section>
+          <SectionHeading
+            title="Calendar"
+            description="Read your shifts where you already look."
+          />
+          <CalendarSubscription />
         </section>
       ) : null}
 

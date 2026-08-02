@@ -376,3 +376,60 @@ describe("a workflow's screen and its API agree", () => {
     expect(can("chief", "services.manage")).toBe(false);
   });
 });
+
+describe("doors outside the api tree", () => {
+  /**
+   * Everything above reads `src/app/api`, because that is where route handlers
+   * live — and a sweep is only a sweep over what it looks at. Next.js will
+   * happily serve a `route.ts` anywhere under `src/app`, so a handler written
+   * one directory to the left is invisible to every assertion in this file
+   * while being just as reachable over HTTP.
+   *
+   * There is exactly one today and it is deliberate: the iCalendar feed, whose
+   * credential is the unguessable token in its own path rather than a session,
+   * because a calendar app cannot sign in. It reads and never writes.
+   *
+   * So this pins the exception rather than trusting that nobody adds another.
+   * A second file here, or a mutating verb on this one, fails — and the fix is
+   * to move it under `src/app/api` where the table above will hold it to a
+   * capability, not to widen this list.
+   */
+  const APP_ROOT = join(process.cwd(), "src", "app");
+
+  function nonApiRouteFiles(dir: string): string[] {
+    const found: string[] = [];
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) {
+        if (full === API_ROOT) continue;
+        found.push(...nonApiRouteFiles(full));
+      } else if (entry === "route.ts") {
+        found.push(relative(APP_ROOT, full).split(sep).join("/"));
+      }
+    }
+    return found.sort();
+  }
+
+  const OUTSIDE = nonApiRouteFiles(APP_ROOT);
+
+  it("has only the calendar feed, which is public on purpose", () => {
+    expect(OUTSIDE).toEqual(["calendar/[token]/route.ts"]);
+  });
+
+  it("never lets that route change anything", () => {
+    const source = readFileSync(join(APP_ROOT, "calendar", "[token]", "route.ts"), "utf8");
+    const verbs = [...source.matchAll(/export const (GET|POST|PUT|PATCH|DELETE)\b/g)].map(
+      (match) => match[1],
+    );
+    expect(verbs).toEqual(["GET"]);
+  });
+
+  it("keeps the feed out of search engines and referrer headers", () => {
+    /* The URL is the credential. Nothing here stops a leaked link being used —
+       rotating it from the profile page is what does that — but a link pasted
+       into a wiki should not become a crawlable schedule. */
+    const source = readFileSync(join(APP_ROOT, "calendar", "[token]", "route.ts"), "utf8");
+    expect(source).toContain("noindex");
+    expect(source).toContain("referrer-policy");
+  });
+});

@@ -193,6 +193,12 @@ If those six work, the product is ready. If step 6 shows nothing at all on a
 non-Apple device, `VAPID_PUBLIC_KEY` did not survive the redeploy — check
 `/api/health` again.
 
+**Optional, one extra minute:** open **Profile → Calendar** and tap *Create my
+calendar link*. Paste the link into your phone's calendar app as a subscription
+and the shift you just posted should appear there. Worth doing once because it
+is the feature residents will find on their own, and because the link is shown
+only once — if you lose it, you make a new one and the old one stops working.
+
 ---
 
 ## Step 9 — Sending the link
@@ -202,9 +208,22 @@ every update the site loads but every button fails, because the code is ahead of
 the database until the migration catches up. Residents opening the link then
 will conclude it is broken.
 
-Before sending, open `/api/health` and confirm `"status":"ok"`. If it names a
-missing migration, wait five minutes and look again. The full explanation is
-under **Rolling back a bad deploy → Before you roll back** in `docs/RUNBOOK.md`.
+Before sending, open `/api/health` and read the **components**, not the overall
+status. The top-level `status` reflects the worst component, so it stays
+`degraded` for as long as anything optional is unconfigured — error reporting,
+for one — and waiting for `"status":"ok"` means waiting for something that is
+not going to happen. What has to be green before residents arrive:
+
+| Component | Must say |
+|---|---|
+| `migrations` | `ok` — a count, with nothing pending. This is the one that makes buttons fail |
+| `auth` | `ok` |
+| `database` | `ok` |
+
+`email` and `error_reporting` may read `degraded`; neither stops a resident
+using the product. If `migrations` names a pending file, wait five minutes and
+look again. The full explanation is under **Rolling back a bad deploy → Before
+you roll back** in `docs/RUNBOOK.md`.
 
 ---
 

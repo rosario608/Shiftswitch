@@ -152,6 +152,10 @@ never grants a role.
 | Two regenerations into one draft — the loser is told, not discarded | `tests/integration/scheduler-concurrency.test.ts` |
 | Approval withdrawn as a schedule publishes | `tests/integration/scheduler-concurrency.test.ts` |
 | Every route's guard, and page/API capability agreement | `tests/unit/route-guards.test.ts` |
+| The one route handler outside `src/app/api` — the public feed — is read-only and stays the only one | `tests/unit/route-guards.test.ts`, last block |
+| The iCalendar document: CRLF, folding at 75 octets, escaping, stable UIDs, UTC instants, alarms | `tests/unit/calendar.test.ts` |
+| A shift the resident no longer holds is published cancelled, never dropped | `tests/unit/calendar.test.ts`, `tests/integration/giveaway.test.ts` ("what the calendar feed says afterwards") |
+| A resident can reach the feed at all: create the link, fetch it, revoke it, 404 | `tests/e2e/schedule-operations.spec.ts` |
 | A failed action shows what it wrote, not "something went wrong" | `tests/unit/action-messages.test.ts` |
 | Already-traded / obsolete offer rejected | `tests/integration/trade-workflow.test.ts`, `tests/e2e/edge-cases.spec.ts` |
 | Schedule changed under a pending trade | `tests/integration/trade-workflow.test.ts` ("administrator reassigned a shift underneath") |

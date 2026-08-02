@@ -306,3 +306,47 @@ test("a chief corrects a published shift and the record says why", async ({ page
   await expect(page.getByText(/sick leave from monday/i).first()).toBeVisible();
   await expect(page.getByText(/nothing has been corrected/i)).toHaveCount(0);
 });
+
+test("a resident subscribes their own calendar, and the link serves their shifts", async ({
+  page,
+}) => {
+  /**
+   * The feed, the token, the API and the native screen have existed for
+   * months; the web app never offered any of them, so every resident who
+   * arrives by link — which is all of them — could not reach a finished
+   * feature. This test exists because the gap was invisible to every other
+   * suite: the domain was covered, the API was covered, and nothing asked
+   * whether a person could get to it.
+   */
+  await signIn(page, ACCOUNTS.alice);
+  await page.goto("/profile");
+
+  await expect(page.getByRole("heading", { name: /^calendar$/i })).toBeVisible();
+  await page.getByRole("button", { name: /create my calendar link/i }).click();
+
+  const link = page.getByText(/\/calendar\/[A-Za-z0-9_-]+\.ics/);
+  await expect(link).toBeVisible({ timeout: 20_000 });
+  const token = (await link.innerText()).match(/\/calendar\/([A-Za-z0-9_-]+)\.ics/)?.[1];
+  expect(token, "a token in the link on screen").toBeTruthy();
+
+  /* Fetched by token against the server under test rather than by the URL as
+     displayed: the displayed origin comes from APP_URL, which is deployment
+     configuration and is deliberately not the test server. What is under test
+     is that the token the resident was handed actually opens the feed. */
+  const feed = await page.request.get(`/calendar/${token}.ics`);
+  expect(feed.status()).toBe(200);
+  expect(feed.headers()["content-type"]).toContain("text/calendar");
+  /* A leaked link is a leaked schedule, so nothing should help one get
+     indexed. Rotation is the fix; this is the part that costs nothing. */
+  expect(feed.headers()["x-robots-tag"]).toContain("noindex");
+
+  const ics = await feed.text();
+  expect(ics.startsWith("BEGIN:VCALENDAR")).toBe(true);
+  expect(ics).toContain("BEGIN:VEVENT");
+
+  // Turning it off kills the link immediately, which is the whole point of it.
+  await page.getByRole("button", { name: /turn the calendar feed off/i }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /^turn it off$/i }).click();
+  await expect(page.getByRole("button", { name: /turn the calendar feed off/i })).toHaveCount(0);
+  expect((await page.request.get(`/calendar/${token}.ics`)).status()).toBe(404);
+});

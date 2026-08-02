@@ -8,6 +8,8 @@ import {
 } from "@/server/domain/giveaway";
 import { listNotifications } from "@/server/domain/notifications";
 import { setPreference } from "@/server/domain/notification-preferences";
+import { buildCalendar } from "@/server/domain/calendar";
+import { listReleasedShifts, listResidentSchedule } from "@/server/domain/schedule";
 import {
   addRule,
   assertDatabaseConsistent,
@@ -460,5 +462,73 @@ describe("one shift given away, one taken over a warning, three people told what
     expect(tomasAfter.some((n) => n.type === "giveaway.warned")).toBe(false);
 
     await assertDatabaseConsistent();
+  });
+});
+
+describe("what the calendar feed says afterwards", () => {
+  /**
+   * The feed is the one surface that is synchronised rather than re-read, so
+   * it is the one surface where a shift changing hands can leave a resident
+   * looking at something false. Every other screen queries afresh; a phone
+   * holds a copy until told otherwise.
+   */
+
+  it("stops listing a shift the poster gave away, and publishes it cancelled", async () => {
+    const { shift, request } = await postGiveaway();
+    const from = new Date(Date.now() - 60 * 86_400_000);
+
+    // Before: it is theirs, and there is nothing to retract.
+    expect(
+      (await listResidentSchedule(poster.resident.id, { from })).map((s) => s.id),
+    ).toContain(shift.id);
+    expect(await listReleasedShifts(poster.resident.id, { from })).toHaveLength(0);
+
+    await takeShift(taker.context, request.id, { acknowledgedWarnings: [] });
+
+    // After: gone from the live list, and named in the retractions.
+    expect(
+      (await listResidentSchedule(poster.resident.id, { from })).map((s) => s.id),
+    ).not.toContain(shift.id);
+    expect((await listReleasedShifts(poster.resident.id, { from })).map((s) => s.id)).toEqual([
+      shift.id,
+    ]);
+
+    /* The document a subscribed calendar actually receives. This is the
+       assertion that matters: dropping the event is not an instruction to
+       delete it, and Google Calendar in particular will go on showing a shift
+       that simply disappeared from the feed. */
+    const ics = buildCalendar(await listResidentSchedule(poster.resident.id, { from }), {
+      programName: fixture.program.name,
+      residentName: "Priya Nair",
+      timezone: fixture.program.timezone,
+      appUrl: "https://shiftswitch.example",
+      reminderMinutes: 60,
+      released: await listReleasedShifts(poster.resident.id, { from }),
+    });
+    expect(ics).toContain(`UID:shift-${shift.id}@shiftswitch`);
+    expect(ics).toContain("STATUS:CANCELLED");
+    expect(ics).not.toContain("STATUS:CONFIRMED");
+  });
+
+  it("gives the shift to the taker's feed as a shift they work", async () => {
+    const { shift, request } = await postGiveaway();
+    await takeShift(taker.context, request.id, { acknowledgedWarnings: [] });
+    const from = new Date(Date.now() - 60 * 86_400_000);
+
+    expect(
+      (await listResidentSchedule(taker.resident.id, { from })).map((s) => s.id),
+    ).toContain(shift.id);
+    // Nothing was taken away from them, so nothing is retracted from them.
+    expect(await listReleasedShifts(taker.resident.id, { from })).toHaveLength(0);
+  });
+
+  it("retracts nothing from a resident who was never involved", async () => {
+    const { request } = await postGiveaway();
+    await takeShift(taker.context, request.id, { acknowledgedWarnings: [] });
+    expect(
+      await listReleasedShifts(tired.resident.id, {
+        from: new Date(Date.now() - 60 * 86_400_000),
+      }),
+    ).toHaveLength(0);
   });
 });

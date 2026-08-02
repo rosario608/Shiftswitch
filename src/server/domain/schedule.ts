@@ -132,6 +132,69 @@ export async function listResidentSchedule(
 }
 
 /**
+ * Shifts that were this resident's and are not any more.
+ *
+ * ## Why anything cares
+ *
+ * `listResidentSchedule` answers "what do you work", so a shift that changed
+ * hands simply stops appearing — which is right for every screen in the
+ * product, because a screen is re-read from scratch each time. It is wrong for
+ * the calendar feed, which is not read but *synchronised*: a subscribed client
+ * holds a copy, and clients differ on what a vanished `VEVENT` means. Google
+ * Calendar in particular is content to keep showing one.
+ *
+ * The failure that produces is the one this product exists to prevent. A
+ * resident gives away a Saturday, the app agrees they are off it, and their
+ * phone goes on saying MICU 07:00 until somebody notices. They either turn up
+ * to a shift that is not theirs or — far worse — decline something else
+ * because their calendar says they are working.
+ *
+ * So a released shift is published as `STATUS:CANCELLED` rather than dropped,
+ * which every client treats as an instruction to remove it. See
+ * `buildCalendar`.
+ *
+ * ## What counts as released
+ *
+ * Held then not held — the ended assignment with no active one for the same
+ * resident, which is exactly what the atomic switch writes — or still held but
+ * cancelled outright by a scheduler. Both mean "your calendar is wrong".
+ *
+ * A resident who gives a shift away and later takes it back has an active
+ * assignment again and is excluded, so the shift stays in the live feed and no
+ * cancellation is published for it.
+ */
+export async function listReleasedShifts(
+  residentId: string,
+  filters: { from: Date; limit?: number },
+  executor: Queryable = getPool(),
+): Promise<ShiftDetail[]> {
+  return query<ShiftDetail>(
+    `${SHIFT_DETAIL_SELECT}
+      WHERE ${PUBLISHED_ONLY}
+        AND s.end_datetime >= $2
+        AND (
+          (EXISTS (SELECT 1 FROM shift_assignments ended
+                    WHERE ended.shift_id = s.id
+                      AND ended.resident_id = $1
+                      AND ended.assignment_status = 'ended')
+           AND NOT EXISTS (SELECT 1 FROM shift_assignments held
+                            WHERE held.shift_id = s.id
+                              AND held.resident_id = $1
+                              AND held.assignment_status = 'active'))
+          OR (s.status = 'cancelled'
+              AND EXISTS (SELECT 1 FROM shift_assignments held
+                           WHERE held.shift_id = s.id
+                             AND held.resident_id = $1
+                             AND held.assignment_status = 'active'))
+        )
+      ORDER BY s.start_datetime ASC
+      LIMIT $3`,
+    [residentId, filters.from, Math.min(filters.limit ?? 200, 500)],
+    executor,
+  );
+}
+
+/**
  * Shifts used for rule evaluation: everything the resident holds in a window
  * around the trade. 45 days is comfortably wider than any configured rolling
  * window (28 days) plus shift length.
