@@ -839,7 +839,7 @@ number the upload is judged against:
 | The bundle as it stood | 3,256.90 KiB |
 | The free-plan ceiling | 3,072.00 KiB |
 | `pdfkit`, the schedule-export renderer | 256.39 KiB |
-| The bundle without it | **2,999.96 KiB** — fits, 72.04 KiB spare |
+| The bundle without it | **~2,999.9 KiB** — fits, ~72 KiB spare |
 
 So the first deploy would have been refused, and `pdfkit` was the single
 dependency whose removal closed the 185 KiB gap. Nothing else came close:
@@ -2175,7 +2175,7 @@ migration `0005`.
   could succeed. No migration. PR #20, merged. See `docs/CLOUDFLARE_CUTOVER.md`.
 - **Fitting the free plan** — PDF export removed, because the bundle was 185 KiB
   over Cloudflare's 3 MiB free ceiling and `pdfkit` was 256 KiB of it; the
-  bundle is now 2,999.96 KiB with 72.04 KiB spare. The download button returns a
+  bundle is now ~2,999.9 KiB with ~72 KiB spare. The download button returns a
   spreadsheet, an old `?format=pdf` link returns one too rather than an error,
   and reading uploaded PDFs during assisted import is a different mechanism and
   is untouched. `scripts/check-worker-size.ts` runs in `verify` and CI and fails
@@ -2779,24 +2779,32 @@ a wrong assertion and a wrong claim. Last run: **12/12**.
 
 **`npm run verify` exits 0.** That is the whole answer, and the only one worth
 quoting — it runs every row below in one command with one exit code. Last full
-run: 10 steps, **1164 seconds**, 2 August 2026, on the tree this session left
-behind, from a cleared `.next` and a machine checked idle first.
+run: 12 steps, **1176 seconds**, 8 August 2026, on the tree this session left
+behind, with no `flaky` line anywhere in the output.
 
 | Step | Result |
 |---|---|
 | Typecheck (`tsc --noEmit`) | clean |
 | Lint, server + web | clean, no warnings |
 | Lint, native client | clean |
-| Server unit + integration (`vitest run`) | **968 passed**, 54 files |
+| Server unit + integration (`vitest run`) | **987 passed**, 55 files |
 | Native client unit (`npm --prefix mobile run test`) | **64 passed**, 8 files |
 | Production build (`next build`) | succeeds |
-| Web end-to-end (`playwright test`) | **192 passed**, mobile + desktop projects |
+| Cloudflare Worker build (`opennextjs-cloudflare build`) | succeeds — the artefact that actually deploys |
+| Cloudflare Worker size (`check-worker-size.ts`) | **~2,999.9 KiB gzipped of 3,072**, ~72 KiB spare |
+| Web end-to-end (`playwright test`) | **194 passed**, mobile + desktop projects |
 | Native end-to-end (`--config playwright.mobile.config.ts`) | **16 passed**, including the 9 screenshot specs |
 | Migrations from scratch (`migrate.ts --reset`) | **0001–0014 apply to an empty database** |
-| Integration suite against the rebuilt schema | **497 passed**, 26 files |
+| Integration suite against the rebuilt schema | **506 passed**, 26 files |
 
-1240 distinct tests. The final 497 is the integration subset re-run against the
+1261 distinct tests. The final 506 is the integration subset re-run against the
 freshly rebuilt schema, which is why it is not added again.
+
+The Worker size is written with a tilde on purpose: two builds of the same tree
+measured 2,999.96 and 2,999.90 KiB. The bundle is not byte-identical between
+builds, so quoting it to the hundredth of a KiB would be precision the number
+does not have. What matters is the distance to the ceiling, and that is ~72 KiB
+either way.
 
 ### The run before this one failed, and was not a defect
 

@@ -18,10 +18,14 @@ Cloudflare refuses to upload a Worker script over **3,072 KiB gzipped** on the
 free plan. This one was **3,256.90 KiB** — 185 KiB over, so the first deploy
 would have been rejected outright. `pdfkit`, which existed to lay out the
 schedule export, was **256.39 KiB** of that. Removing it brings the bundle to
-**2,999.96 KiB**, which fits with **72.04 KiB to spare**.
+**~2,999.9 KiB**, which fits with **~72 KiB to spare**.
 
 Every number above came from `npx wrangler deploy --dry-run`, which reports the
-same figure the upload is judged against. None of it is estimated.
+same figure the upload is judged against. None of it is estimated. The tildes
+are there because the bundle is not byte-identical between builds — two builds
+of the same tree measured 2,999.96 and 2,999.90 KiB — so the last decimal would
+be precision the number does not have. The distance to the ceiling is ~72 KiB
+either way, and that is the part that matters.
 
 **72 KiB is not much**, so it is now a check rather than a hope:
 `npm run check:worker-size` runs in `verify` and in CI, fails if the bundle goes
