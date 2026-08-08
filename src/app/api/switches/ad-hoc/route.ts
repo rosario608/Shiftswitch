@@ -1,5 +1,5 @@
 import { requireResident } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { adHocPostSchema } from "@/lib/schemas";
 import { postAdHocShift } from "@/server/domain/ad-hoc";
 
@@ -27,3 +27,6 @@ export const POST = apiHandler(async (request: Request) => {
     { status: 201 },
   );
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

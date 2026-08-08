@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import {
   addEmailDomain,
   listEmailDomains,
@@ -35,3 +35,6 @@ export const DELETE = apiHandler(async (request: Request) => {
   await removeEmailDomain(context, domain);
   return ok({ removed: domain });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

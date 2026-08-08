@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import {
   applyStartingConfiguration,
   listUnconfirmedDefaults,
@@ -48,3 +48,6 @@ export const POST = apiHandler(async (request: Request) => {
   const result = await applyStartingConfiguration(context, input);
   return ok({ result }, { status: 201 });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

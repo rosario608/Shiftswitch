@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok } from "@/server/http/api";
 import { listManagedUsers } from "@/server/domain/admin";
 
 export const dynamic = "force-dynamic";
@@ -13,3 +13,6 @@ export const GET = apiHandler(async (request: Request) => {
   });
   return ok({ users });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

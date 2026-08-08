@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok } from "@/server/http/api";
 import { admitMember } from "@/server/domain/enrollment";
 
 export const dynamic = "force-dynamic";
@@ -19,3 +19,6 @@ export const POST = apiHandler(
     return ok({ id: user.id, email: user.email });
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

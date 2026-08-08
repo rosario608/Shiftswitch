@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { deleteCoverage, updateCoverage } from "@/server/domain/coverage";
 import { coverageSchema } from "../route";
 
@@ -21,3 +21,6 @@ export const DELETE = apiHandler(async (_request: Request, { params }: Params) =
   await deleteCoverage(context, coverageId);
   return ok({ deleted: true });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

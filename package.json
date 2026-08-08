@@ -4,6 +4,9 @@
   "private": true,
   "scripts": {
     "build": "next build",
+    "build:worker": "opennextjs-cloudflare build",
+    "preview:worker": "opennextjs-cloudflare build && wrangler dev",
+    "deploy:worker": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "check:migration-pipeline": "tsx scripts/check-migration-pipeline.ts",
     "check:release": "tsx scripts/check-release-env.ts",
     "db:migrate": "tsx scripts/migrate.ts",
@@ -48,6 +51,7 @@
     "next": "16.2.12",
     "pdfkit": "^0.19.1",
     "pg": "^8.22.0",
+    "pg-cloudflare": "^1.4.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-hook-form": "^7.83.0",
@@ -57,6 +61,7 @@
   },
   "devDependencies": {
     "@neondatabase/serverless": "^1.1.0",
+    "@opennextjs/cloudflare": "^1.20.2",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/luxon": "^3.7.2",
@@ -73,6 +78,7 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.1",
     "typescript": "^5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wrangler": "^4.120.0"
   }
 }

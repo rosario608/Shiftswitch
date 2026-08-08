@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireCapability, requireUser } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { deleteAbsence, updateAbsence } from "@/server/domain/availability";
 
 export const dynamic = "force-dynamic";
@@ -33,3 +33,6 @@ export const DELETE = apiHandler(async (_request: Request, { params }: Params) =
   await deleteAbsence(context, id);
   return ok({ deleted: true });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

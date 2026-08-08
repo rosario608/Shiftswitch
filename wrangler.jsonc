@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shiftswitch",
+  "main": ".open-next/worker.js",
+
+  // nodejs_compat needs a compatibility date on or after 2024-09-23. This one
+  // is what the bundled workerd supports; raising it is safe, lowering it below
+  // that threshold silently removes half of `node:crypto`.
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+
+  // --- Database -----------------------------------------------------------
+  //
+  // No Hyperdrive binding, on purpose.
+  //
+  // A Worker cannot hold a connection pool across requests and there are many
+  // isolates, so the thing to avoid is each one opening ten connections into
+  // Neon's limit. Two things solve that, and only one of them needs a resource
+  // provisioning: `src/server/db/pool.ts` uses a pool of 1 on Workers, and
+  // DATABASE_URL points at Neon's *pooled* endpoint, which this project already
+  // verified behaves correctly under contention (docs/DEPLOYMENT.md).
+  //
+  // Hyperdrive would add lower latency and is the upgrade path if connection
+  // pressure ever appears. It is not required for correctness, and skipping it
+  // removes a resource to create, a binding to wire and an id to keep in sync
+  // before the first deploy can succeed.
+  //
+  // DATABASE_URL is a secret: `wrangler secret put DATABASE_URL`, never here.
+}

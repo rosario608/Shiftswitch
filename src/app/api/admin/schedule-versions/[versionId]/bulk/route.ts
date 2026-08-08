@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { bulkAssign, repeatWeek } from "@/server/domain/schedule-bulk";
 
 export const dynamic = "force-dynamic";
@@ -46,3 +46,6 @@ export const POST = apiHandler(async (request: Request, { params }: Params) => {
 
   return ok(result);
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

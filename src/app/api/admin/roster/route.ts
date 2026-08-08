@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok } from "@/server/http/api";
 import { listRoster } from "@/server/domain/roster";
 
 export const dynamic = "force-dynamic";
@@ -11,3 +11,6 @@ export const GET = apiHandler(async () => {
   const roster = await listRoster(context);
   return ok({ roster });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

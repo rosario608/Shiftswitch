@@ -36,6 +36,7 @@ import {
 } from "@/server/domain/notification-preferences";
 import { acceptOffer, createOffer, postShiftForTrade } from "@/server/domain/trades";
 import { listResidentSchedule } from "@/server/domain/schedule";
+import { instantToZonedParts } from "@/server/domain/time";
 import { withTransaction } from "@/server/db/pool";
 import {
   closeDatabase,
@@ -582,9 +583,27 @@ describe("device registry and push", () => {
       platform: "ios",
       pushToken: "token-abc-1234567890",
     });
-    /* A window covering the whole day, so the test does not depend on when it
-       runs. `schedule.published` is ambient; `giveaway.taken` is urgent. */
-    await setQuietHours(alice.user.id, { start: "00:00", end: "23:59" });
+    /**
+     * A window built around *now*, so the test does not depend on when it runs.
+     *
+     * It used to say `00:00` to `23:59` and call that the whole day. It is the
+     * whole day minus one minute: `withinQuietHours` uses a half-open interval,
+     * so 23:59:00 to 23:59:59 falls outside — which is the correct reading of
+     * "quiet until 23:59", and exactly the minute a verify run landed in. The
+     * suite then reported that quiet hours do not work.
+     *
+     * Bracketing the current minute is what actually makes it time-independent.
+     * The wrap across midnight is deliberate and is the case real quiet hours
+     * take (22:00 to 07:00), so this exercises the interesting branch rather
+     * than the trivial one.
+     */
+    const { hour, minute } = instantToZonedParts(new Date(), fixture.program.timezone);
+    const clockAt = (offsetMinutes: number) => {
+      const total = (hour * 60 + minute + offsetMinutes + 24 * 60) % (24 * 60);
+      return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+    };
+    /* `schedule.published` is ambient; `giveaway.taken` is urgent. */
+    await setQuietHours(alice.user.id, { start: clockAt(-120), end: clockAt(120) });
     await setPreference(alice.user.id, "schedule.published", { push: true });
 
     await notifyAndFlush({

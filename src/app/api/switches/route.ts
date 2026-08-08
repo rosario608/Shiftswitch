@@ -1,5 +1,5 @@
 import { isPending, requireResident, requireUser } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { postShiftSchema } from "@/lib/schemas";
 import { listAvailableTrades, postShiftForTrade } from "@/server/domain/trades";
 
@@ -37,3 +37,6 @@ export const POST = apiHandler(async (request: Request) => {
   });
   return ok({ tradeRequest }, { status: 201 });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

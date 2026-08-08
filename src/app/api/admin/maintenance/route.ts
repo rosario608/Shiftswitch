@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok } from "@/server/http/api";
 import { runMaintenance } from "@/server/domain/trades";
 
 export const dynamic = "force-dynamic";
@@ -10,3 +10,6 @@ export const POST = apiHandler(async () => {
   const result = await runMaintenance(context.program.id);
   return ok({ result });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

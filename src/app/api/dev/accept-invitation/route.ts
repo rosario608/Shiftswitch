@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createSession } from "@/server/auth/session";
 import { acceptInvitation, findUsableInvitation } from "@/server/domain/invitations";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { forbidden, notFound, validationFailed } from "@/server/http/errors";
 import { describeEnvironment } from "@/server/config/environment";
 import { logger } from "@/server/observability/logger";
@@ -88,3 +88,6 @@ export const POST = apiHandler(async (request: Request) => {
     },
   });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

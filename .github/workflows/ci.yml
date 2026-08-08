@@ -61,6 +61,15 @@ jobs:
       - name: Production build
         run: npm run build
 
+      # The deployable artefact, not just a Next build. Three of the four
+      # things that broke this migration were invisible to `next build` and
+      # only appeared here: a Node.js proxy the adapter refuses outright, an
+      # optional `pg` dependency that file tracing never copied, and lint
+      # walking the generated output. Without this step each of those would
+      # have been found by a failed deploy instead of a failed check.
+      - name: Cloudflare Worker build
+        run: npm run build:worker
+
   e2e:
     name: End-to-end
     runs-on: ubuntu-latest

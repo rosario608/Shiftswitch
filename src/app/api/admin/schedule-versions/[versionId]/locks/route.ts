@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { LOCK_KINDS, addLock, listLocks, removeLock } from "@/server/domain/schedule-locks";
 
 export const dynamic = "force-dynamic";
@@ -44,3 +44,6 @@ export const DELETE = apiHandler(async (request: Request, { params }: Params) =>
   await removeLock(context, versionId, lockId);
   return ok({ removed: true });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

@@ -1,5 +1,5 @@
 import { requireResident } from "@/server/auth/guards";
-import { apiHandler, ok, requireUuid } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, requireUuid } from "@/server/http/api";
 import { getOfferCandidates } from "@/server/domain/candidates";
 
 export const dynamic = "force-dynamic";
@@ -14,3 +14,6 @@ export const GET = apiHandler(
     return ok(result);
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

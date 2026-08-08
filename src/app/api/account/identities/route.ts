@@ -1,5 +1,5 @@
 import { requireUser } from "@/server/auth/guards";
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok } from "@/server/http/api";
 import { listIdentities } from "@/server/domain/account";
 
 export const dynamic = "force-dynamic";
@@ -10,3 +10,6 @@ export const GET = apiHandler(async () => {
   const identities = await listIdentities(context.user.id);
   return ok({ identities });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

@@ -1,6 +1,6 @@
 import { requireUser } from "@/server/auth/guards";
 import { can } from "@/server/auth/roles";
-import { apiHandler } from "@/server/http/api";
+import { apiHandler, corsPreflight } from "@/server/http/api";
 import { forbidden, validationFailed } from "@/server/http/errors";
 import { listProgramSchedule } from "@/server/domain/admin";
 import { recordAudit } from "@/server/domain/audit";
@@ -77,3 +77,6 @@ export const GET = apiHandler(async (request: Request) => {
   const buffer = await toPdf(shifts, timezone, title);
   return new Response(new Uint8Array(buffer), { headers });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

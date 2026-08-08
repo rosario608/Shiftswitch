@@ -1,6 +1,6 @@
 import { requireUser } from "@/server/auth/guards";
 import { can } from "@/server/auth/roles";
-import { apiHandler, ok, requireUuid } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, requireUuid } from "@/server/http/api";
 import { forbidden, notFound } from "@/server/http/errors";
 import { getCompletedTrade } from "@/server/domain/trades";
 
@@ -24,3 +24,6 @@ export const GET = apiHandler(
     return ok({ trade, timezone: context.program.timezone });
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

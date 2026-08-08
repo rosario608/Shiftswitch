@@ -5,7 +5,7 @@ import {
   destroyCurrentSessionAnywhere,
 } from "@/server/auth/session";
 import { recordAudit } from "@/server/domain/audit";
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok } from "@/server/http/api";
 
 export const dynamic = "force-dynamic";
 
@@ -30,3 +30,6 @@ export const GET = apiHandler(async (request: Request) => {
   await destroyCurrentSession();
   return NextResponse.redirect(new URL("/login", request.url));
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

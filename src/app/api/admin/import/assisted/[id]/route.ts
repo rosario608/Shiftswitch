@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { notFound } from "@/server/http/errors";
 import { assistedRowReviewSchema } from "@/lib/schemas";
 import { loadExtraction, reviewRow } from "@/server/domain/assisted-import/store";
@@ -34,3 +34,6 @@ export const PATCH = apiHandler(
     return ok({ row });
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

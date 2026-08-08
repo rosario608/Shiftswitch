@@ -1,5 +1,5 @@
 import { requireUser } from "@/server/auth/guards";
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok } from "@/server/http/api";
 import { getResidentDashboard } from "@/server/domain/dashboard";
 import { countUnread } from "@/server/domain/notifications";
 
@@ -25,3 +25,6 @@ export const GET = apiHandler(async () => {
     role: context.user.role,
   });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

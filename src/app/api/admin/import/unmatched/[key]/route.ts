@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok } from "@/server/http/api";
 import { discardHeldRows } from "@/server/domain/held-rows";
 
 export const dynamic = "force-dynamic";
@@ -24,3 +24,6 @@ export const DELETE = apiHandler(
     return ok({ discarded });
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

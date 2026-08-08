@@ -4,6 +4,19 @@ const nextConfig: NextConfig = {
   // Dev-only: allow the loopback IP as well as localhost so end-to-end tests
   // can drive the dev server from either host.
   allowedDevOrigins: ["127.0.0.1", "localhost"],
+  /**
+   * `pg` reaches the network through `pg-cloudflare` when it runs on Workers —
+   * that package is what turns a Postgres connection into a `cloudflare:sockets`
+   * socket. It is an *optional* require inside `pg/lib/stream.js`, so Next's
+   * file tracing does not see it, the standalone output omits it, and the
+   * Worker bundle then fails to resolve it at build time.
+   *
+   * Forcing it into the trace is the whole fix. Harmless under Node: `pg` only
+   * reaches for it when the Workers socket API is present.
+   */
+  outputFileTracingIncludes: {
+    "/*": ["./node_modules/pg-cloudflare/**/*"],
+  },
   poweredByHeader: false,
   // The dev overlay indicator sits on top of the bottom navigation on a phone
   // viewport, so it is hidden; compile and runtime errors still surface.

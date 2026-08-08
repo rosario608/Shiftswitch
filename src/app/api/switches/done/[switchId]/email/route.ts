@@ -1,5 +1,5 @@
 import { requireUser } from "@/server/auth/guards";
-import { apiHandler, ok, requireUuid } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, requireUuid } from "@/server/http/api";
 import { generateSwitchEmail, listEmailRecords } from "@/server/domain/email";
 
 export const dynamic = "force-dynamic";
@@ -24,3 +24,6 @@ export const GET = apiHandler(
     return ok({ records });
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

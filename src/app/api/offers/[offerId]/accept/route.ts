@@ -1,5 +1,5 @@
 import { requireResident } from "@/server/auth/guards";
-import { apiHandler, ok, requireUuid } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, requireUuid } from "@/server/http/api";
 import { acceptOffer } from "@/server/domain/trades";
 
 export const dynamic = "force-dynamic";
@@ -13,3 +13,6 @@ export const POST = apiHandler(
     return ok(outcome);
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

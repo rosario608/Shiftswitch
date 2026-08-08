@@ -1,4 +1,4 @@
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok } from "@/server/http/api";
 import { requireUser } from "@/server/auth/guards";
 import { sendSelfTestPush } from "@/server/domain/push";
 
@@ -17,3 +17,6 @@ export const POST = apiHandler(async () => {
   const outcome = await sendSelfTestPush(context.user.id);
   return ok(outcome);
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

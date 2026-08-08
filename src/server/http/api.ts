@@ -12,6 +12,59 @@ import {
   assertSchemaCurrent,
   isSchemaGateExempt,
 } from "@/server/health/schema-gate";
+import { corsHeaders, isAllowedOrigin } from "./cors";
+
+/**
+ * Cross-origin access for the native app, which used to live in `src/proxy.ts`.
+ *
+ * ## Why it moved
+ *
+ * Next 16 renamed middleware to Proxy and pinned it to the Node.js runtime —
+ * the `runtime` option is not merely defaulted, it throws if you set it. The
+ * Cloudflare adapter refuses a Node.js proxy outright and exits the build. So
+ * on Workers the choice was: no CORS, or CORS somewhere else.
+ *
+ * ## Why here rather than in the Worker entry
+ *
+ * Wrapping the generated Worker would have been one file instead of ninety-
+ * eight, and it would have applied *only in production*. `next dev` would then
+ * serve the native app without CORS, so the one environment a mobile developer
+ * actually tests against would behave differently from the one residents use.
+ * Every route already passes through `apiHandler`; putting it here means the
+ * same code answers the same way in dev, in the end-to-end suite, and on
+ * Workers.
+ *
+ * The rule itself is unchanged from the proxy: an origin that is not on the
+ * allowlist gets no `Access-Control-*` headers at all, which is what stops an
+ * arbitrary web page reading these responses. Credentials are never allowed —
+ * the native client carries a bearer token.
+ */
+function withCors(response: Response, request: Request | undefined): Response {
+  const origin = request?.headers.get("origin") ?? null;
+  if (!isAllowedOrigin(origin)) return response;
+  for (const [key, value] of Object.entries(corsHeaders(origin))) {
+    response.headers.set(key, value);
+  }
+  return response;
+}
+
+/**
+ * The preflight answer, exported by every route under `/api`.
+ *
+ * A browser sends `OPTIONS` before any request carrying `Authorization` or a
+ * JSON body — which is every call the native client makes — and Next's default
+ * `OPTIONS` response carries `Allow` but no `Access-Control-*`, so preflight
+ * fails and the real request is never sent.
+ *
+ * Deliberately not authenticated: a preflight is the browser asking whether it
+ * *may* send credentials, and it does not carry any. It reveals nothing beyond
+ * the method list already implied by the route existing.
+ */
+export function corsPreflight(request: Request): Response {
+  const origin = request.headers.get("origin");
+  if (!isAllowedOrigin(origin)) return new Response(null, { status: 204 });
+  return new Response(null, { status: 204, headers: corsHeaders(origin) });
+}
 
 export interface ApiErrorBody {
   error: {
@@ -95,7 +148,7 @@ export function apiHandler<Args extends unknown[]>(
         /* On success too. A resident reporting "it was slow and then weird"
            has an id to give even when nothing threw. */
         response.headers.set(REQUEST_ID_HEADER, requestId);
-        return response;
+        return withCors(response, hasRequest ? request : undefined);
       } catch (error) {
         const appError = toAppError(error);
         if (appError.status >= 500) {
@@ -128,7 +181,10 @@ export function apiHandler<Args extends unknown[]>(
             message: appError.message,
           });
         }
-        return jsonError(appError, requestId);
+        /* Refusals get the headers too. A 403 the native client cannot read is
+           indistinguishable from the network failing, and the whole point of
+           the error envelope is that the resident is told which it was. */
+        return withCors(jsonError(appError, requestId), hasRequest ? request : undefined);
       }
     });
   };

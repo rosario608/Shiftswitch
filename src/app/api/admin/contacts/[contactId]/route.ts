@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson, requireUuid } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson, requireUuid } from "@/server/http/api";
 import { contactPatchSchema } from "@/lib/schemas";
 import { deleteContact, updateContact } from "@/server/domain/admin";
 
@@ -25,3 +25,6 @@ export const DELETE = apiHandler(
     return ok({ deleted: true });
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

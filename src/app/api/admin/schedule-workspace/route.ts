@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { loadWorkspace } from "@/server/domain/schedule-workspace";
 
 export const dynamic = "force-dynamic";
@@ -33,3 +33,6 @@ export const POST = apiHandler(async (request: Request) => {
 
   return ok({ workspace });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

@@ -69,6 +69,23 @@ const STEPS: Step[] = [
     slow: true,
   },
   { name: "production build", command: "npm", args: ["run", "build"], slow: true },
+  /**
+   * The artefact that actually gets deployed.
+   *
+   * `next build` passing says nothing about whether this runs on Cloudflare.
+   * Three of the four things that broke the migration were invisible to it and
+   * appeared only here: a Node.js proxy the adapter refuses outright, an
+   * optional `pg` dependency that file tracing never copied into the standalone
+   * output, and lint walking the generated bundle. Each would otherwise have
+   * been found by a failed deploy rather than a failed check — which for this
+   * product means found by a resident.
+   */
+  {
+    name: "cloudflare worker build",
+    command: "npm",
+    args: ["run", "build:worker"],
+    slow: true,
+  },
   {
     name: "end-to-end (web)",
     command: "npx",

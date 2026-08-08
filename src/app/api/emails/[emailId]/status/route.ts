@@ -1,5 +1,5 @@
 import { requireUser } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson, requireUuid } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson, requireUuid } from "@/server/http/api";
 import { emailStatusSchema } from "@/lib/schemas";
 import { setEmailStatus } from "@/server/domain/email";
 
@@ -15,3 +15,6 @@ export const POST = apiHandler(
     return ok({ record });
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

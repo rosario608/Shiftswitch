@@ -1,6 +1,6 @@
 import { assertSameProgram, requireUser } from "@/server/auth/guards";
 import { can } from "@/server/auth/roles";
-import { apiHandler, ok, requireUuid } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, requireUuid } from "@/server/http/api";
 import { forbidden, notFound } from "@/server/http/errors";
 import { getShiftDetail } from "@/server/domain/schedule";
 import { queryOne } from "@/server/db/pool";
@@ -35,3 +35,6 @@ export const GET = apiHandler(
     return ok({ shift, timezone: context.program.timezone });
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

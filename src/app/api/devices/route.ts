@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getSessionContext } from "@/server/auth/session";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { unauthenticated } from "@/server/http/errors";
 import { registerDevice, unregisterDevice } from "@/server/domain/push";
 
@@ -45,3 +45,6 @@ export const DELETE = apiHandler(async (request: Request) => {
   if (installId) await unregisterDevice(context.user.id, installId);
   return ok({ unregistered: true });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;
