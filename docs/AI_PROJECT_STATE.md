@@ -470,6 +470,7 @@ holds it; a session does not.
 | 3 | Searched the environment and every `.env` file for a production connection string | Only `DATABASE_URL` and `TEST_DATABASE_URL`, both pointing at `127.0.0.1`. Nothing remote anywhere. | Nothing. This is the intended state — the repository secret holds it and the pipeline uses it. | Nothing is broken by this. It is listed so a later session does not go looking for a connection string, find none, and conclude the deployment is unconfigured. |
 | 4 | Looked for a Neon API key or `neonctl` session, to create a `preview` branch | No `NEON_*` variable, no `neonctl`, no config on disk. `console.neon.tech` is reachable and answers **401** — the network is not the blocker, the credential is. | **Neon → Branches → New branch**, named `preview`, from `main`. | Every pull-request preview reads and writes the **live programme**. Previews are SSO-protected so nobody outside the team can reach one, which stops it being an exposure and does not stop it being a corruption. |
 | 5 | Looked for a Vercel token or CLI session, to point the Preview environment at that branch | No `VERCEL_*` variable and no CLI session on disk. A Vercel MCP connection was authenticated to the team `rosario608-2488's projects`, but its tool surface has no environment-variable management at all — and it disconnected mid-session. | **Vercel → Settings → Environment Variables**, add `DATABASE_URL` for **Preview only**, holding the `preview` branch's connection string. | As row 4. Rows 4 and 5 are one job in two places and neither half helps alone. |
+| 12 | Reaching Cloudflare to create the Worker, set its secrets and attach the domain — checked three ways | The four Cloudflare MCP servers (`cloudflare-api`, `cloudflare-bindings`, `cloudflare-builds`, `cloudflare-observability`) expose **no tools** in this session; only the read-only docs server does. No `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_ACCOUNT_ID` in the environment. `npx wrangler whoami` → **"You are not authenticated."** The owner reports having connected Cloudflare to Claude; that authorisation lives on their account and a background session's container does not inherit it, and cannot run the OAuth flow itself. | Authorise the Cloudflare connectors from an **interactive** session (`/mcp`) or claude.ai connector settings, then re-run the cutover with those tools available. Alternatively do steps 2–5 of `docs/CLOUDFLARE_CUTOVER.md` by hand — they are written for it. | No Cloudflare resource exists and Vercel keeps serving production. Nothing is broken; the migration simply has not started. Everything that *could* be done without an account has been — see the Completed entry on workerd, which closed the `exceljs` and socket questions locally. |
 | 11 | `npm run push:keys` — generating the VAPID keypair web push needs | It works, here, offline: there is no account to create and no service to ask. What cannot be done from here is the second half, which is the same wall as row 5 — putting the two values into Vercel. | **Vercel → Settings → Environment Variables**, environment **Production**: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` as `mailto:` plus an address somebody reads. Redeploy. | **Nobody is told anything.** `notify()` sends push and in-app, not email, and with the app stores parked there is no installed app for Firebase to reach — so until these three exist, "somebody offered on your shift" reaches a screen the resident has to think to open. `/api/health` says so in those words. Step by step in `docs/PUSH_SETUP.md`. |
 
 ### Not a credential problem: things only a person can be
@@ -2181,6 +2182,19 @@ migration `0005`.
   is untouched. `scripts/check-worker-size.ts` runs in `verify` and CI and fails
   the check rather than the deploy — both directions exercised before it landed.
   No migration. See **Decisions**.
+- **Two Workers unknowns closed by running the thing** — `wrangler dev` executes
+  the built Worker in real workerd and needs no Cloudflare account, which no
+  earlier session had used. Under it, **`exceljs` runs** rather than merely
+  bundling: it wrote a workbook (6,647 bytes, `PK` magic, bold header, frozen
+  pane) and read the same buffer back with cell values intact — both the export
+  and the import direction, and the largest open question before cutover.
+  **PostgreSQL over `cloudflare:sockets` works**: a raw `connect()` opened in
+  108 ms and got `S` from an SSLRequest, and the app's own `pg` path reached a
+  TLS handshake, so the socket layer, `pg-cloudflare` and the optional
+  dependency file tracing nearly missed are all functioning. Two defects fell
+  out of it — see **Defects found and fixed (workerd runtime session)**. What
+  is still unproven is a connection to **Neon** from a Worker; that needs the
+  Worker to exist. No migration.
 
 ## Demo data
 
@@ -2303,6 +2317,34 @@ The most recent are under **Audit, 1 August 2026**, near the top. The sections
 below are earlier sessions, newest first. They are kept rather than summarised
 because several of them explain *why* a piece of code looks the way it does, and
 a later session that does not know will simplify the defect back in.
+
+### Defects found and fixed (workerd runtime session)
+
+1. **`rejectUnauthorized: false` is silently ignored on Workers.**
+   `src/server/db/pool.ts` relaxes TLS verification when `DATABASE_SSL=true`,
+   and on Node that is exactly what happens. On Workers it does nothing:
+   `pg-cloudflare` hands the `ssl` object to workerd's `startTls()`, which
+   accepts `expectedServerHostname` and nothing else, and workerd verifies
+   against its own trust store with no way to disable it. Proven rather than
+   reasoned — the built Worker was run under local workerd against a PostgreSQL
+   with a self-signed certificate and refused with `TLS peer's certificate is
+   not trusted; reason = IP address mismatch`, with that setting in place.
+   Deployed this is the safe direction, and Neon's certificate is publicly
+   trusted, so nothing breaks. The defect was the comment: one configuration
+   line meaning two different things depending on where it runs, with nothing
+   saying so. Now stated at the line itself.
+2. **Nothing could preview the Worker against local data, and nothing said so.**
+   A consequence of (1). `npm run preview:worker` cannot reach a local
+   PostgreSQL: TLS is refused because the certificate is self-signed, and the
+   plaintext path hangs until `pg` gives up at its ten-second connect timeout.
+   The failure is opaque — the runtime kills the request as a hang — and it
+   cost this session an hour before the cause was isolated. Written into
+   `docs/CLOUDFLARE_CUTOVER.md` so the next person spends none.
+
+Both were found by running `wrangler dev`, which executes the built Worker in
+real workerd and needs no Cloudflare account. That is worth remembering: the
+runtime was reachable for testing this whole time, and two sessions treated it
+as something only a deploy could exercise.
 
 ### Defects found and fixed (self-enrolment session)
 
