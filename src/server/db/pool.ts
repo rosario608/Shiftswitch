@@ -27,6 +27,21 @@ declare global {
   var __shiftswitchPool: Pool | undefined;
 }
 
+/**
+ * Whether this process is a Cloudflare Worker isolate.
+ *
+ * `navigator.userAgent` is workerd's documented self-identification, and it is
+ * the only thing asked here — no Cloudflare package is imported, so `scripts/`,
+ * the migration runner and every test keep a module graph that has never heard
+ * of Workers.
+ */
+function onWorkers(): boolean {
+  return (
+    typeof navigator !== "undefined" &&
+    navigator.userAgent === "Cloudflare-Workers"
+  );
+}
+
 function createPool(): Pool {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
@@ -36,7 +51,25 @@ function createPool(): Pool {
   }
   const pool = new Pool({
     connectionString,
-    max: Number(process.env.DATABASE_POOL_MAX ?? 10),
+    /**
+     * One connection per isolate on Workers, ten in a Node process.
+     *
+     * A Worker cannot hold a pool across requests the way a Node server can,
+     * and there are many isolates. Ten each would multiply into Neon's
+     * connection limit under a Monday morning — and running out of connections
+     * presents as the schedule being down, which is the worst way for this to
+     * fail.
+     *
+     * What makes one enough is Neon's own pooler: `DATABASE_URL` points at the
+     * pooled endpoint, which this project verified empirically (a competing
+     * transaction blocked correctly for the duration of a held row lock, and
+     * ten concurrent read-modify-write transactions lost no updates — see
+     * docs/DEPLOYMENT.md). Cloudflare Hyperdrive would do the same job with
+     * lower latency, and is the upgrade path if connection pressure ever shows
+     * up, but it is a resource to provision and a binding to wire for a problem
+     * that is already solved.
+     */
+    max: onWorkers() ? 1 : Number(process.env.DATABASE_POOL_MAX ?? 10),
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
     ssl:

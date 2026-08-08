@@ -20,19 +20,19 @@
 
   // --- Database -----------------------------------------------------------
   //
-  // Postgres reaches Neon through a Hyperdrive binding, which pools
-  // connections at the edge. A Worker cannot hold a connection pool between
-  // requests the way a Node server does, and Neon's connection limit is not
-  // large enough for one connection per isolate.
+  // No Hyperdrive binding, on purpose.
   //
-  // The binding is deliberately NOT declared here yet: wrangler refuses to
-  // deploy against a Hyperdrive id that does not exist, and creating it needs
-  // an authenticated Cloudflare account. Once it exists, add:
+  // A Worker cannot hold a connection pool across requests and there are many
+  // isolates, so the thing to avoid is each one opening ten connections into
+  // Neon's limit. Two things solve that, and only one of them needs a resource
+  // provisioning: `src/server/db/pool.ts` uses a pool of 1 on Workers, and
+  // DATABASE_URL points at Neon's *pooled* endpoint, which this project already
+  // verified behaves correctly under contention (docs/DEPLOYMENT.md).
   //
-  //   "hyperdrive": [
-  //     { "binding": "HYPERDRIVE", "id": "<id from `wrangler hyperdrive create`>" }
-  //   ]
+  // Hyperdrive would add lower latency and is the upgrade path if connection
+  // pressure ever appears. It is not required for correctness, and skipping it
+  // removes a resource to create, a binding to wire and an id to keep in sync
+  // before the first deploy can succeed.
   //
-  // `src/server/db/pool.ts` already prefers that binding and falls back to
-  // DATABASE_URL, so nothing else changes when it appears.
+  // DATABASE_URL is a secret: `wrangler secret put DATABASE_URL`, never here.
 }
