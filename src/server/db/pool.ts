@@ -72,6 +72,27 @@ function createPool(): Pool {
     max: onWorkers() ? 1 : Number(process.env.DATABASE_POOL_MAX ?? 10),
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
+    /**
+     * `rejectUnauthorized: false` applies on Node and is **ignored on Workers**.
+     *
+     * `pg-cloudflare` hands this object to workerd's `socket.startTls()`, which
+     * accepts `expectedServerHostname` and nothing else: workerd verifies the
+     * certificate against its own trust store unconditionally, and there is no
+     * option that turns that off. Confirmed by running the built Worker under
+     * local workerd, where a self-signed certificate was refused —
+     * `TLS peer's certificate is not trusted; reason = IP address mismatch` —
+     * with this exact setting in place.
+     *
+     * So the deployed behaviour is *stricter* than this line reads, which is
+     * the safe direction and is fine against Neon, whose certificate is
+     * publicly trusted and presented on a hostname. It is written down because
+     * the discrepancy is invisible: the same configuration means two different
+     * things depending on where it runs, and the Workers one cannot be relaxed.
+     *
+     * The consequence to know about is local: `wrangler dev` cannot reach a
+     * PostgreSQL with a self-signed certificate, so previewing the Worker
+     * against a local database does not work. See `docs/CLOUDFLARE_CUTOVER.md`.
+     */
     ssl:
       process.env.DATABASE_SSL === "true"
         ? { rejectUnauthorized: false }

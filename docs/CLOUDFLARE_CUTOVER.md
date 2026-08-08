@@ -101,13 +101,13 @@ The Worker gets a `*.workers.dev` address. Open it and confirm, in this order:
 | `/api/health` — `database`, `migrations`, `auth` all `ok` | it can reach Neon and knows its own configuration |
 | Sign in with Google | the OAuth redirect matches |
 | Open `/schedule` | server rendering and queries work |
-| **Download my schedule** from the profile screen | `exceljs` survives on Workers — it bundles, which was the surprise; it has never actually *run* there |
-| **Import a small spreadsheet** | the same library on the reading path |
+| **Download my schedule** from the profile screen | the export path end to end against real data |
+| **Import a small spreadsheet** | the reading path end to end |
 
-Those last two rows are the same unknown approached from both ends — writing a
-spreadsheet and reading one. `exceljs` reaches for Node APIs that workerd
-implements only partly, and no test in this repository exercises it inside a
-Worker. Do not cut over before trying both.
+The last two used to be listed here as the genuine unknown, because `exceljs`
+bundled but had never *run* on Workers. **It has now been run**, under real
+workerd — see below. They stay on the list as end-to-end checks against real
+data, not as a question about the library.
 
 ## Step 4 — Google OAuth
 
@@ -180,9 +180,49 @@ KiB, and it was the only dependency whose removal cost a feature rather than a
 refactor. `src/server/domain/export.ts` says so at the top, so the next person
 to wonder where `toPdf` went does not have to find this file.
 
+## What was proven by running it, and what was not
+
+`wrangler dev` runs the built Worker in **real workerd on this machine** and
+needs no Cloudflare account at all. That is worth knowing, because it moved
+three things out of "we think so".
+
+**`exceljs` runs on Workers.** Not "bundles" — runs. Under workerd it wrote a
+workbook (6,647 bytes, `PK` magic, bold header, frozen pane, column widths) and
+read the same buffer back with the cell values intact. Both directions the
+product uses: the schedule export and the importer. This was the largest open
+question in this document and it is now closed.
+
+**PostgreSQL over `cloudflare:sockets` works.** A raw `connect()` from workerd
+to a local PostgreSQL opened in 108 ms and got `S` back from an SSLRequest, and
+the app's own `pg` path went all the way to a TLS handshake. The socket layer,
+`pg-cloudflare`, and the optional dependency that file tracing nearly missed are
+all doing their jobs.
+
+**`rejectUnauthorized: false` does nothing on Workers.** This is the finding
+that matters. `pg-cloudflare` passes the `ssl` object to workerd's
+`startTls()`, which accepts `expectedServerHostname` and nothing else — workerd
+verifies the certificate against its own trust store and offers no way to turn
+that off. The local run proved it: a self-signed certificate was refused with
+`TLS peer's certificate is not trusted; reason = IP address mismatch`, with
+`rejectUnauthorized: false` set.
+
+Deployed, this is the *safe* direction — Workers is stricter than the code
+reads, and Neon's certificate is publicly trusted and served on a hostname, so
+it verifies. It is written down because the same configuration means two
+different things depending on where it runs.
+
+**What that costs locally:** `npm run preview:worker` cannot reach a local
+PostgreSQL. TLS is refused (self-signed) and the plaintext path hangs until
+`pg` times out. Previewing the Worker against local data does not work today;
+use `npm run dev` for that, and `wrangler dev` for questions about the runtime
+itself. To try it anyway, `wrangler dev` reads `.dev.vars` — local values only,
+it is gitignored, and it must never hold a production connection string.
+
 ## Still not done
 
-- `exceljs` has never executed on Workers — see step 3.
+- Nothing has run against **Neon** from a Worker. The TLS handshake was proven
+  locally against a certificate that was then correctly rejected; a real
+  connection to Neon is still step 3's first row.
 - Cron: nothing currently schedules `runMaintenance` on Cloudflare. On Vercel
   this was not scheduled either, so it is not a regression, but a Cron Trigger
   is the natural home for it and expiring postings depend on it running.

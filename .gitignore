@@ -50,3 +50,11 @@ next-env.d.ts
 /pgdata
 /playwright-report
 /test-results
+
+# `wrangler dev` reads local Worker vars from here. Local values only —
+# never a production connection string or key. Not committed.
+.dev.vars
+.dev.vars.*
+
+# wrangler dev local state (workerd cache, local KV/D1). Regenerated on demand.
+.wrangler/
