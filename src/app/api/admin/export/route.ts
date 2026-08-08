@@ -7,7 +7,6 @@ import { recordAudit } from "@/server/domain/audit";
 import {
   EXPORT_CONTENT_TYPES,
   toCsv,
-  toPdf,
   toXlsx,
   type ExportFormat,
 } from "@/server/domain/export";
@@ -22,9 +21,15 @@ export const dynamic = "force-dynamic";
 export const GET = apiHandler(async (request: Request) => {
   const context = await requireUser();
   const url = new URL(request.url);
-  const format = (url.searchParams.get("format") ?? "csv") as ExportFormat;
-  if (!["csv", "xlsx", "pdf"].includes(format)) {
-    throw validationFailed("Choose CSV, XLSX or PDF.");
+  const requested = url.searchParams.get("format") ?? "csv";
+  /* PDF export is gone (see `src/server/domain/export.ts`), but the link to it
+     was on the profile screen for months and is in browser download histories
+     and bookmarks. Answering those with a validation error would be a dead end
+     for the one thing the resident wanted — their own schedule — so an old
+     `format=pdf` link returns the spreadsheet instead of failing. */
+  const format = (requested === "pdf" ? "xlsx" : requested) as ExportFormat;
+  if (!["csv", "xlsx"].includes(format)) {
+    throw validationFailed("Choose CSV or XLSX.");
   }
   const scope = url.searchParams.get("scope") ?? "mine";
   const elevated = can(context.user.role, "schedule.export_program");
@@ -70,11 +75,7 @@ export const GET = apiHandler(async (request: Request) => {
   if (format === "csv") {
     return new Response(toCsv(shifts, timezone), { headers });
   }
-  if (format === "xlsx") {
-    const buffer = await toXlsx(shifts, timezone, title);
-    return new Response(new Uint8Array(buffer), { headers });
-  }
-  const buffer = await toPdf(shifts, timezone, title);
+  const buffer = await toXlsx(shifts, timezone, title);
   return new Response(new Uint8Array(buffer), { headers });
 });
 

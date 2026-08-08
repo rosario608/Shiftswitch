@@ -86,6 +86,20 @@ const STEPS: Step[] = [
     args: ["run", "build:worker"],
     slow: true,
   },
+  /**
+   * And whether the thing that was just built can actually be uploaded.
+   *
+   * Cloudflare's free plan refuses a Worker script over 3 MiB gzipped, and this
+   * one is within a few percent of that. The refusal happens at deploy — which
+   * is to say, at the moment somebody is trying to ship a fix — so the size is
+   * checked here instead, next to the diff that changed it.
+   */
+  {
+    name: "cloudflare worker size",
+    command: "npm",
+    args: ["run", "check:worker-size"],
+    slow: true,
+  },
   {
     name: "end-to-end (web)",
     command: "npx",

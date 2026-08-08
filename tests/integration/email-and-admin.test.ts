@@ -11,7 +11,7 @@ import {
 } from "@/server/domain/admin";
 import { commitImport, validateImport } from "@/server/domain/import";
 import { listUnmatched } from "@/server/domain/held-rows";
-import { toCsv, toPdf, toXlsx } from "@/server/domain/export";
+import { toCsv, toXlsx } from "@/server/domain/export";
 import {
   generateSwitchEmail,
   setEmailStatus,
@@ -454,7 +454,7 @@ describe("schedule import", () => {
 });
 
 describe("export", () => {
-  it("exports CSV, XLSX and PDF for the caller's schedule", async () => {
+  it("exports CSV and XLSX for the caller's schedule", async () => {
     await createShift(fixture.program, {
       inDays: 3,
       residentId: alice.resident.id,
@@ -470,9 +470,6 @@ describe("export", () => {
     const xlsx = await toXlsx(shifts, fixture.program.timezone, "Test");
     // XLSX files are ZIP archives — check the magic bytes.
     expect(xlsx.subarray(0, 2).toString("utf8")).toBe("PK");
-
-    const pdf = await toPdf(shifts, fixture.program.timezone, "Test");
-    expect(pdf.subarray(0, 4).toString("utf8")).toBe("%PDF");
   });
 
   it("escapes CSV values that contain separators", async () => {
