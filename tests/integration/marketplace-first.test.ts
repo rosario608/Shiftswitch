@@ -94,6 +94,49 @@ function tomorrow(): string {
   return at.toISOString().slice(0, 10);
 }
 
+/** The week the recorded extraction fixture names, verbatim. */
+const FIXTURE_WEEK = [
+  "2026-08-10",
+  "2026-08-11",
+  "2026-08-12",
+  "2026-08-13",
+  "2026-08-14",
+];
+
+/**
+ * Moves the recorded week to a fixed offset from today.
+ *
+ * ## The bug this exists to kill
+ *
+ * The fixture names a *fixed* week and `tomorrow()` returns a *relative* day
+ * (today + 3, despite the name). Those two coexisted only for as long as the
+ * relative day happened to land outside the fixed week. On 2 August 2026 it
+ * was the 5th and the suite was green; on the 8th it became the 11th, which is
+ * inside the fixture week, and the composition test started failing with the
+ * resident holding two overlapping shifts — one they had entered themselves
+ * and one the file gave them for the same hours.
+ *
+ * That is a real thing for the product to have an opinion about, and it does:
+ * `assertDatabaseConsistent` refused it, correctly. But it is not what *this*
+ * test is for, and a test that changes its mind based on the calendar is worth
+ * nothing on the day it matters. So the fixture's week is rebased here, far
+ * enough out that the resident's own shift is always before it.
+ *
+ * Rebasing the fixture rather than moving `tomorrow()` also fixes the slower
+ * failure waiting behind this one: a hard-coded August 2026 week becomes a week
+ * in the past, and an importer that refuses to schedule people into last month
+ * would then fail for a completely different reason.
+ */
+function withRebasedWeek(text: string, startsInDays: number): string {
+  const base = new Date();
+  base.setDate(base.getDate() + startsInDays);
+  return FIXTURE_WEEK.reduce((carried, fixed, index) => {
+    const moved = new Date(base);
+    moved.setDate(moved.getDate() + index);
+    return carried.replaceAll(fixed, moved.toISOString().slice(0, 10));
+  }, text);
+}
+
 describe("a shift needs nothing behind it", () => {
   it("names a shift, posts it, and a colleague takes it", async () => {
     await assertProgrammeIsEmpty();
@@ -506,9 +549,14 @@ describe("a programme that starts empty and gets its file later", () => {
        already built for themselves. */
     const matching = {
       ...MERGED_WEEK,
-      text: MERGED_WEEK.text
-        .replace(/"residentName":"Alice Nguyen"/g, '"residentName":"alice@example.invalid"')
-        .replace(/"residentName":"Ben Okafor"/g, '"residentName":"ben@example.invalid"'),
+      /* Ten days out, so the imported block sits entirely after the shift Alice
+         named for herself three days out. See `withRebasedWeek`. */
+      text: withRebasedWeek(
+        MERGED_WEEK.text
+          .replace(/"residentName":"Alice Nguyen"/g, '"residentName":"alice@example.invalid"')
+          .replace(/"residentName":"Ben Okafor"/g, '"residentName":"ben@example.invalid"'),
+        10,
+      ),
     };
     const extraction = await extractSchedule("merged-week.xlsx", contents, {
       transport: new ReplayTransport(matching),
