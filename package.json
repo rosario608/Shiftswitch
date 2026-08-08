@@ -4,6 +4,9 @@
   "private": true,
   "scripts": {
     "build": "next build",
+    "build:worker": "opennextjs-cloudflare build",
+    "preview:worker": "opennextjs-cloudflare build && wrangler dev",
+    "deploy:worker": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "check:migration-pipeline": "tsx scripts/check-migration-pipeline.ts",
     "check:release": "tsx scripts/check-release-env.ts",
     "db:migrate": "tsx scripts/migrate.ts",
