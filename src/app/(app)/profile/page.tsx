@@ -152,11 +152,11 @@ export default async function ProfilePage() {
 
       <section className="space-y-2">
         <a
-          href="/api/admin/export?format=pdf&scope=mine"
+          href="/api/admin/export?format=xlsx&scope=mine"
           className="flex min-h-[2.75rem] items-center justify-center gap-2 rounded-xl border border-border-strong px-4 font-semibold text-ink"
         >
           <Download className="h-4 w-4" aria-hidden="true" />
-          Download my schedule (PDF)
+          Download my schedule (spreadsheet)
         </a>
         {can(context.user.role, "audit.view") ? (
           <Link

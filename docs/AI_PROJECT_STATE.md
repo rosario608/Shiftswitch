@@ -824,6 +824,62 @@ Choices made without asking, as `/CLAUDE.md` requires. Each says what was
 chosen, why, and what was rejected, so any of them can be revisited by someone
 who disagrees rather than rediscovered.
 
+### PDF export was removed to fit Cloudflare's free plan
+
+**Chosen by the product owner** — the instruction was "cloudflare without pdf",
+given after the measurement below was put to them. Recorded here because it is
+the only decision in this list that removed a working feature.
+
+Cloudflare Workers refuses to upload a script over **3,072 KiB gzipped** on the
+free plan. Measured with `npx wrangler deploy --dry-run`, which is the same
+number the upload is judged against:
+
+| | gzipped |
+|---|---|
+| The bundle as it stood | 3,256.90 KiB |
+| The free-plan ceiling | 3,072.00 KiB |
+| `pdfkit`, the schedule-export renderer | 256.39 KiB |
+| The bundle without it | **~2,999.9 KiB** — fits, ~72 KiB spare |
+
+So the first deploy would have been refused, and `pdfkit` was the single
+dependency whose removal closed the 185 KiB gap. Nothing else came close:
+`exceljs` is larger but is on the *reading* path too — the assisted importer
+needs it, and removing it would cost onboarding rather than a download button.
+
+**Rejected: Workers Paid at $5/month**, which raises the ceiling to 10 MiB and
+would have kept the PDF. It remains available and is one dashboard click; the
+trade is stated plainly in `docs/CLOUDFLARE_CUTOVER.md` so it can be reversed
+by paying rather than by re-engineering.
+
+**Rejected: Netlify's free plan**, checked properly rather than assumed. It is
+credit-based — 300 credits a month, 15 per deployment, 20 per GB of bandwidth —
+and when the credits run out **the project pauses until the next billing
+cycle**. About twenty deploys exhausts a month, and the failure mode is the app
+going dark rather than a bill.
+
+**Rejected: lazy-loading `pdfkit`**, because a Worker has no runtime module
+loading. Everything ships up front; there is no import that does not count.
+
+**What a resident loses.** The **Download my schedule** button now returns a
+spreadsheet. An old `?format=pdf` link returns the spreadsheet too rather than
+an error — that URL was on the profile screen for months and is in download
+histories, and a validation failure there would be a dead end in front of the
+one thing the resident wanted. Assisted import still *reads* uploaded PDFs;
+that is a different mechanism and is untouched.
+
+The replacement is arguably better for the audience. A resident reads the
+schedule on a phone, and the calendar subscription directly above that button
+puts the shifts in the calendar app they already open and keeps them current.
+A PDF was neither live nor editable.
+
+**What stops this happening again.** `scripts/check-worker-size.ts` runs in
+`verify` and in CI, fails over the ceiling and warns below 150 KiB of headroom.
+At 97.7% of the limit the next dependency anybody adds decides whether the app
+can be deployed at all; that answer now arrives on the pull request instead of
+at the moment somebody is trying to ship a fix. Both directions of the gate
+were exercised before it was committed — it exits 1 against a lowered ceiling
+and 0 against the real one.
+
 ### A new account joins as a resident, with nobody's permission
 
 **Chosen by the product owner**, over two narrower alternatives that were put
@@ -2107,6 +2163,24 @@ migration `0005`.
   `noindex` and `no-referrer`, and the authorization sweep — which only ever
   read `src/app/api` — now pins the one deliberate handler outside it. No
   migration. See **Decisions**.
+- **Built for Cloudflare Workers** — the deployable artefact is now a Worker
+  (`@opennextjs/cloudflare`), and `verify` and CI build it, because three of the
+  four things that broke the port were invisible to `next build`: the Next 16
+  Proxy is pinned to the Node.js runtime and the adapter refuses it, so CORS for
+  the native client moved into `apiHandler` and 91 routes gained an `OPTIONS`
+  export; `pg` reaches the network through an *optional* `pg-cloudflare` require
+  that file tracing never copied; and lint walked the generated bundle. On
+  Workers the pool is one connection — Neon's own pooler does the pooling, which
+  is why no Hyperdrive resource had to be provisioned before the first deploy
+  could succeed. No migration. PR #20, merged. See `docs/CLOUDFLARE_CUTOVER.md`.
+- **Fitting the free plan** — PDF export removed, because the bundle was 185 KiB
+  over Cloudflare's 3 MiB free ceiling and `pdfkit` was 256 KiB of it; the
+  bundle is now ~2,999.9 KiB with ~72 KiB spare. The download button returns a
+  spreadsheet, an old `?format=pdf` link returns one too rather than an error,
+  and reading uploaded PDFs during assisted import is a different mechanism and
+  is untouched. `scripts/check-worker-size.ts` runs in `verify` and CI and fails
+  the check rather than the deploy — both directions exercised before it landed.
+  No migration. See **Decisions**.
 
 ## Demo data
 
@@ -2705,24 +2779,32 @@ a wrong assertion and a wrong claim. Last run: **12/12**.
 
 **`npm run verify` exits 0.** That is the whole answer, and the only one worth
 quoting — it runs every row below in one command with one exit code. Last full
-run: 10 steps, **1164 seconds**, 2 August 2026, on the tree this session left
-behind, from a cleared `.next` and a machine checked idle first.
+run: 12 steps, **1176 seconds**, 8 August 2026, on the tree this session left
+behind, with no `flaky` line anywhere in the output.
 
 | Step | Result |
 |---|---|
 | Typecheck (`tsc --noEmit`) | clean |
 | Lint, server + web | clean, no warnings |
 | Lint, native client | clean |
-| Server unit + integration (`vitest run`) | **968 passed**, 54 files |
+| Server unit + integration (`vitest run`) | **987 passed**, 55 files |
 | Native client unit (`npm --prefix mobile run test`) | **64 passed**, 8 files |
 | Production build (`next build`) | succeeds |
-| Web end-to-end (`playwright test`) | **192 passed**, mobile + desktop projects |
+| Cloudflare Worker build (`opennextjs-cloudflare build`) | succeeds — the artefact that actually deploys |
+| Cloudflare Worker size (`check-worker-size.ts`) | **~2,999.9 KiB gzipped of 3,072**, ~72 KiB spare |
+| Web end-to-end (`playwright test`) | **194 passed**, mobile + desktop projects |
 | Native end-to-end (`--config playwright.mobile.config.ts`) | **16 passed**, including the 9 screenshot specs |
 | Migrations from scratch (`migrate.ts --reset`) | **0001–0014 apply to an empty database** |
-| Integration suite against the rebuilt schema | **497 passed**, 26 files |
+| Integration suite against the rebuilt schema | **506 passed**, 26 files |
 
-1240 distinct tests. The final 497 is the integration subset re-run against the
+1261 distinct tests. The final 506 is the integration subset re-run against the
 freshly rebuilt schema, which is why it is not added again.
+
+The Worker size is written with a tilde on purpose: two builds of the same tree
+measured 2,999.96 and 2,999.90 KiB. The bundle is not byte-identical between
+builds, so quoting it to the hundredth of a KiB would be precision the number
+does not have. What matters is the distance to the ceiling, and that is ~72 KiB
+either way.
 
 ### The run before this one failed, and was not a defect
 

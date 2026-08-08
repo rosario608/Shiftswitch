@@ -1,5 +1,4 @@
 import ExcelJS from "exceljs";
-import PDFDocument from "pdfkit";
 import type { ShiftDetail } from "@/server/db/types";
 import { formatShiftDateLong, formatShiftRange, formatTimestamp } from "./time";
 
@@ -7,9 +6,26 @@ import { formatShiftDateLong, formatShiftRange, formatTimestamp } from "./time";
  * Schedule export. The caller is responsible for having applied the viewer's
  * permissions to `shifts` before calling — a resident export only ever contains
  * that resident's own shifts.
+ *
+ * ## Why there is no PDF here any more
+ *
+ * There was a `toPdf` built on `pdfkit`, and it worked. It was removed because
+ * of where this runs: Cloudflare's free plan refuses to upload a Worker script
+ * over 3 MiB gzipped, this bundle was 185 KiB over, and `pdfkit` was 256 KiB of
+ * it. Carrying it meant the app could not be deployed at all. The trade was
+ * made deliberately — see the Decisions entry in `docs/AI_PROJECT_STATE.md`,
+ * which also records the $5/month that would buy it back.
+ *
+ * Nothing a resident needs was lost. A phone reads the schedule best through
+ * the calendar subscription, which puts the shifts in the calendar app they
+ * already open; XLSX is what a chief opens to work on. A PDF was the worst of
+ * both: not live, and not editable.
+ *
+ * If it comes back, it must not come back as `pdfkit` in this bundle.
+ * `scripts/check-worker-size.ts` is the check that would catch it.
  */
 
-export type ExportFormat = "csv" | "xlsx" | "pdf";
+export type ExportFormat = "csv" | "xlsx";
 
 const COLUMNS = [
   "Resident",
@@ -76,78 +92,7 @@ export async function toXlsx(
   return Buffer.from(buffer);
 }
 
-export async function toPdf(
-  shifts: ShiftDetail[],
-  timezone: string,
-  title: string,
-): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    try {
-      const doc = new PDFDocument({ size: "LETTER", margin: 40, layout: "landscape" });
-      const chunks: Buffer[] = [];
-      doc.on("data", (chunk: Buffer) => chunks.push(chunk));
-      doc.on("end", () => resolve(Buffer.concat(chunks)));
-      doc.on("error", reject);
-
-      doc.fontSize(16).text(title, { align: "left" });
-      doc
-        .fontSize(9)
-        .fillColor("#555555")
-        .text(
-          `Generated ${formatTimestamp(new Date(), timezone)} · ${shifts.length} shift${
-            shifts.length === 1 ? "" : "s"
-          } · times shown in ${timezone}`,
-        );
-      doc.moveDown(0.8);
-
-      const widths = [110, 40, 120, 90, 90, 80, 80, 60];
-      const headers = ["Resident", "PGY", "Date", "Time", "Service", "Rotation", "Location", "Status"];
-      const drawRow = (values: string[], bold: boolean) => {
-        const y = doc.y;
-        let x = doc.page.margins.left;
-        doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(9).fillColor("#111111");
-        values.forEach((value, index) => {
-          doc.text(value, x, y, { width: widths[index] - 6, ellipsis: true });
-          x += widths[index];
-        });
-        doc.y = y + 16;
-      };
-
-      drawRow(headers, true);
-      doc
-        .moveTo(doc.page.margins.left, doc.y - 4)
-        .lineTo(doc.page.width - doc.page.margins.right, doc.y - 4)
-        .strokeColor("#cccccc")
-        .stroke();
-
-      for (const shift of shifts) {
-        if (doc.y > doc.page.height - 60) {
-          doc.addPage();
-          drawRow(headers, true);
-        }
-        drawRow(
-          [
-            shift.resident_name ?? "Unassigned",
-            shift.resident_pgy ? String(shift.resident_pgy) : "",
-            formatShiftDateLong(shift.start_datetime, timezone),
-            formatShiftRange(shift.start_datetime, shift.end_datetime, timezone),
-            shift.service_name,
-            shift.rotation_name ?? "",
-            shift.location,
-            shift.status,
-          ],
-          false,
-        );
-      }
-      doc.end();
-    } catch (error) {
-      reject(error instanceof Error ? error : new Error(String(error)));
-    }
-  });
-}
-
 export const EXPORT_CONTENT_TYPES: Record<ExportFormat, string> = {
   csv: "text/csv; charset=utf-8",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  pdf: "application/pdf",
 };

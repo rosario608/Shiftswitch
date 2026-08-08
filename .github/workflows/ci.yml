@@ -70,6 +70,13 @@ jobs:
       - name: Cloudflare Worker build
         run: npm run build:worker
 
+      # The free plan refuses a Worker script over 3 MiB gzipped, and this one
+      # is within a few percent of it. Without this step the refusal arrives at
+      # deploy time — when somebody is trying to ship a fix — rather than on the
+      # pull request that added the dependency.
+      - name: Cloudflare Worker size
+        run: npm run check:worker-size
+
   e2e:
     name: End-to-end
     runs-on: ubuntu-latest

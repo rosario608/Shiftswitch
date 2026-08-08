@@ -35,10 +35,12 @@ failure:
 | 4 | unit + integration (`vitest run`) |
 | 5 | native client unit suite |
 | 6 | production build |
-| 7 | end-to-end, web |
-| 8 | end-to-end, native |
-| 9 | migrations from scratch — drops the **test** schema and applies `0001`… |
-| 10 | the integration suite again, against that rebuilt schema |
+| 7 | Cloudflare Worker build — the artefact that actually gets deployed |
+| 8 | Cloudflare Worker size — does it still fit the free plan's 3 MiB |
+| 9 | end-to-end, web |
+| 10 | end-to-end, native |
+| 11 | migrations from scratch — drops the **test** schema and applies `0001`… |
+| 12 | the integration suite again, against that rebuilt schema |
 
 It needs a local PostgreSQL and nothing else: no credential, no network
 service, no prompt. A preflight reports an unreachable database as a single
@@ -50,10 +52,17 @@ because both Playwright configs start `next dev` and `next dev` contends with
 `next build` over `.next`. **The migration reset runs last**, because it drops
 the schema every earlier step depends on.
 
-Step 9 is the one a developer's own database can never demonstrate: an
+Step 11 is the one a developer's own database can never demonstrate: an
 incrementally-migrated database has been carrying each migration's result since
 whenever it landed, so it cannot show that the set still applies to an empty
 database in order.
+
+Steps 7 and 8 exist because `next build` passing says nothing about whether the
+result can be deployed. Three of the four things that broke the Cloudflare port
+appeared only in the Worker bundle, and the bundle now sits at 97.7% of the free
+plan's 3 MiB ceiling — over it, Cloudflare refuses the upload outright and
+whatever is already deployed keeps serving. Both would otherwise be found by a
+failed deploy, at the moment somebody is trying to ship a fix.
 
 ### Run separately: the migration pipeline
 

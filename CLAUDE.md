@@ -20,9 +20,16 @@ standing agreement about how this repository is worked on.
 
 Not "the tests I ran pass". Not "it looks finished". The command is
 `scripts/verify.ts` and it runs typecheck, both lints, the unit and integration
-suites, the native unit suite, a production build, both end-to-end suites, and a
-from-scratch migration followed by the integration suite against the rebuilt
-schema. One exit code.
+suites, the native unit suite, a production build, the Cloudflare Worker build
+and a size check against the free plan's 3 MiB ceiling, both end-to-end suites,
+and a from-scratch migration followed by the integration suite against the
+rebuilt schema. One exit code.
+
+The Worker steps are not decoration. The deployable artefact is a Worker, not
+the `next build` output, and it sits at 97.7% of the size limit — over it,
+Cloudflare refuses the upload and whatever is already deployed keeps serving.
+Both would otherwise be found by a failed deploy, which for this product means
+found while somebody is trying to ship a fix.
 
 ```
 npm run verify        everything — what "done" means (~8 min)

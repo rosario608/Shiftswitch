@@ -152,3 +152,29 @@ test("posting is refused for a shift that is no longer eligible", async ({ page 
   expect(second.status()).toBe(409);
   expect((await second.json()).error.message).toMatch(/already/i);
 });
+
+/**
+ * PDF export was removed to fit the Cloudflare Worker size limit, and the
+ * profile screen linked to `?format=pdf` for months. Those links are in
+ * bookmarks and download histories, so they answer with the spreadsheet rather
+ * than a validation error — a dead end in front of the one thing the resident
+ * wanted is worse than a format they did not choose.
+ */
+test("a retired ?format=pdf export link still downloads the schedule", async ({ page }) => {
+  await signIn(page, ACCOUNTS.alice);
+
+  const legacy = await page.request.get("/api/admin/export?format=pdf&scope=mine");
+  expect(legacy.ok()).toBe(true);
+  expect(legacy.headers()["content-type"]).toContain("spreadsheetml.sheet");
+  expect(legacy.headers()["content-disposition"]).toContain("my-schedule.xlsx");
+  // XLSX files are ZIP archives; the magic bytes prove a real workbook came back.
+  expect((await legacy.body()).subarray(0, 2).toString("utf8")).toBe("PK");
+
+  const current = await page.request.get("/api/admin/export?format=xlsx&scope=mine");
+  expect(current.ok()).toBe(true);
+
+  // A format nobody ever offered is still refused, and says what to choose.
+  const unknown = await page.request.get("/api/admin/export?format=docx&scope=mine");
+  expect(unknown.ok()).toBe(false);
+  expect((await unknown.json()).error.message).toMatch(/CSV or XLSX/i);
+});
