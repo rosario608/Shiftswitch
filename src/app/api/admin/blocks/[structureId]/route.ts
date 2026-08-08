@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { deleteBlockStructure, listBlocks } from "@/server/domain/blocks";
 import {
   assignCohortToBlock,
@@ -85,3 +85,6 @@ export const DELETE = apiHandler(async (_request: Request, { params }: Params) =
   await deleteBlockStructure(context, structureId);
   return ok({ deleted: true });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { redeemHandoffCode } from "@/server/auth/native";
 import { resolveSessionByToken } from "@/server/auth/session";
 
@@ -36,3 +36,6 @@ export const POST = apiHandler(async (request: Request) => {
       : null,
   });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

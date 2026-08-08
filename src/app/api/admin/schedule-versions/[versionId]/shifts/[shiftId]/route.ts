@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { queryOne } from "@/server/db/pool";
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { assignDraftShift, removeDraftShift } from "@/server/domain/schedule-versions";
 import { getScheduleVersion } from "@/server/domain/schedule-versions";
 import { loadScheduleSnapshot } from "@/server/domain/constraints/snapshot";
@@ -88,3 +88,6 @@ export const DELETE = apiHandler(async (_request: Request, { params }: Params) =
   await removeDraftShift(context, versionId, shiftId);
   return ok({ removed: true });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { queryOne } from "@/server/db/pool";
 import { createSession, issueSessionToken } from "@/server/auth/session";
 import type { UserRow } from "@/server/db/types";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { forbidden, notFound } from "@/server/http/errors";
 import { logger } from "@/server/observability/logger";
 
@@ -55,3 +55,6 @@ export const POST = apiHandler(async (request: Request) => {
   await createSession(user.id, { userAgent: "test-login" });
   return ok({ userId: user.id, role: user.role });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

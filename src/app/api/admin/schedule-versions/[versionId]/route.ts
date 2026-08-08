@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireCapability, requireUser } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { notFound } from "@/server/http/errors";
 import { loadScheduleSnapshot } from "@/server/domain/constraints/snapshot";
 import { validateSchedule } from "@/server/domain/constraints/validator";
@@ -118,3 +118,6 @@ export const DELETE = apiHandler(async (_request: Request, { params }: Params) =
   await discardScheduleVersion(context, versionId);
   return ok({ discarded: true });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

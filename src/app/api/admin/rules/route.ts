@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { ruleSchema } from "@/lib/schemas";
 import { createRule, listRuleTypes, listRules } from "@/server/domain/admin";
 
@@ -17,3 +17,6 @@ export const POST = apiHandler(async (request: Request) => {
   const rule = await createRule(context, input);
   return ok({ rule }, { status: 201 });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson, requireUuid } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson, requireUuid } from "@/server/http/api";
 import { userPatchSchema } from "@/lib/schemas";
 import { updateManagedUser } from "@/server/domain/admin";
 
@@ -15,3 +15,6 @@ export const PATCH = apiHandler(
     return ok({ user });
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

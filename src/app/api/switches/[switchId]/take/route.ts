@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireResident } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { previewTake, takeShift } from "@/server/domain/giveaway";
 
 export const dynamic = "force-dynamic";
@@ -37,3 +37,6 @@ export const POST = apiHandler(
     return ok(await takeShift(context, switchId, input));
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

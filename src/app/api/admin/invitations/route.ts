@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { userRole } from "@/lib/schemas";
 import { createInvitation, listInvitations } from "@/server/domain/invitations";
 import { sendInvitationEmail } from "@/server/domain/invitation-email";
@@ -76,3 +76,6 @@ export const POST = apiHandler(async (request: Request) => {
 
   return ok({ created, failed }, { status: created.length > 0 ? 201 : 200 });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

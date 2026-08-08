@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok } from "@/server/http/api";
 import { validationFailed } from "@/server/http/errors";
 import { assistedImportLimits } from "@/server/domain/assisted-import/limits";
 import {
@@ -106,3 +106,6 @@ export const POST = apiHandler(async (request: Request) => {
     throw error;
   }
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

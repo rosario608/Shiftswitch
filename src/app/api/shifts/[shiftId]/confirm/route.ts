@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok } from "@/server/http/api";
 import { confirmShift } from "@/server/domain/self-report";
 
 export const dynamic = "force-dynamic";
@@ -17,3 +17,6 @@ export const POST = apiHandler(
     return ok({ shift });
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import {
   deleteOwnAccount,
   previewAccountDeletion,
@@ -53,3 +53,6 @@ export const POST = apiHandler(async (request: Request) => {
   await destroyCurrentSessionAnywhere();
   return ok({ result });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

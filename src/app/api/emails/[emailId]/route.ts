@@ -1,5 +1,5 @@
 import { requireUser } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson, requireUuid } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson, requireUuid } from "@/server/http/api";
 import { emailPatchSchema } from "@/lib/schemas";
 import { updateEmailRecord } from "@/server/domain/email";
 
@@ -15,3 +15,6 @@ export const PATCH = apiHandler(
     return ok({ email });
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

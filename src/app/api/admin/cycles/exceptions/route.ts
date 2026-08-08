@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import {
   createPatternException,
   listAllExceptions,
@@ -53,3 +53,6 @@ export const POST = apiHandler(async (request: Request) => {
   );
   return ok({ exception }, { status: 201 });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

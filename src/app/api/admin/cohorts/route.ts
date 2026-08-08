@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { createCohort, listCohorts } from "@/server/domain/cohorts";
 
 export const dynamic = "force-dynamic";
@@ -30,3 +30,6 @@ export const POST = apiHandler(async (request: Request) => {
   const cohort = await createCohort(context, input);
   return ok({ cohort }, { status: 201 });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

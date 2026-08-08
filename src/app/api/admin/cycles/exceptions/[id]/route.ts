@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok } from "@/server/http/api";
 import { notFound } from "@/server/http/errors";
 import { deletePatternException } from "@/server/domain/rotation-cycles";
 
@@ -16,3 +16,6 @@ export const DELETE = apiHandler(
     return ok({ removed: id });
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

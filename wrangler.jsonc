@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shiftswitch",
+  "main": ".open-next/worker.js",
+
+  // nodejs_compat needs a compatibility date on or after 2024-09-23. This one
+  // is what the bundled workerd supports; raising it is safe, lowering it below
+  // that threshold silently removes half of `node:crypto`.
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+
+  // --- Database -----------------------------------------------------------
+  //
+  // Postgres reaches Neon through a Hyperdrive binding, which pools
+  // connections at the edge. A Worker cannot hold a connection pool between
+  // requests the way a Node server does, and Neon's connection limit is not
+  // large enough for one connection per isolate.
+  //
+  // The binding is deliberately NOT declared here yet: wrangler refuses to
+  // deploy against a Hyperdrive id that does not exist, and creating it needs
+  // an authenticated Cloudflare account. Once it exists, add:
+  //
+  //   "hyperdrive": [
+  //     { "binding": "HYPERDRIVE", "id": "<id from `wrangler hyperdrive create`>" }
+  //   ]
+  //
+  // `src/server/db/pool.ts` already prefers that binding and falls back to
+  // DATABASE_URL, so nothing else changes when it appears.
+}

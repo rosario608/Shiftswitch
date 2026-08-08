@@ -1,5 +1,5 @@
 import { requireUser } from "@/server/auth/guards";
-import { apiHandler, ok, parseOptionalJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseOptionalJson } from "@/server/http/api";
 import { markNotificationsSchema } from "@/lib/schemas";
 import { markRead } from "@/server/domain/notifications";
 
@@ -11,3 +11,6 @@ export const POST = apiHandler(async (request: Request) => {
   const updated = await markRead(context.user.id, body.notificationIds);
   return ok({ updated });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

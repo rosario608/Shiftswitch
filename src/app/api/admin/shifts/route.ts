@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { shiftCreateSchema } from "@/lib/schemas";
 import { createShift, listProgramSchedule } from "@/server/domain/admin";
 
@@ -28,3 +28,6 @@ export const POST = apiHandler(async (request: Request) => {
   const shift = await createShift(context, input);
   return ok({ shift }, { status: 201 });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

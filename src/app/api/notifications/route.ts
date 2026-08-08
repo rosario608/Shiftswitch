@@ -1,5 +1,5 @@
 import { requireUser } from "@/server/auth/guards";
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok } from "@/server/http/api";
 import { countUnread, listNotifications } from "@/server/domain/notifications";
 
 export const dynamic = "force-dynamic";
@@ -14,3 +14,6 @@ export const GET = apiHandler(async (request: Request) => {
   const unread = await countUnread(context.user.id);
   return ok({ notifications, unread });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

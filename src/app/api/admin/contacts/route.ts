@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { contactSchema } from "@/lib/schemas";
 import { createContact } from "@/server/domain/admin";
 import { listProgramContacts } from "@/server/domain/email";
@@ -18,3 +18,6 @@ export const POST = apiHandler(async (request: Request) => {
   const contact = await createContact(context, input);
   return ok({ contact }, { status: 201 });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

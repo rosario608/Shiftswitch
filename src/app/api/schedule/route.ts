@@ -1,5 +1,5 @@
 import { assertOwnResidentOrElevated, requireUser } from "@/server/auth/guards";
-import { apiHandler, ok } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok } from "@/server/http/api";
 import { forbidden } from "@/server/http/errors";
 import { listResidentSchedule } from "@/server/domain/schedule";
 
@@ -24,3 +24,6 @@ export const GET = apiHandler(async (request: Request) => {
   });
   return ok({ shifts, timezone: context.program.timezone });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { createCoverage, listCoverage } from "@/server/domain/coverage";
 
 export const dynamic = "force-dynamic";
@@ -55,3 +55,6 @@ export const POST = apiHandler(async (request: Request) => {
   const requirement = await createCoverage(context, input);
   return ok({ requirement }, { status: 201 });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireUser } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import {
   getQuietHours,
   listPreferences,
@@ -85,3 +85,6 @@ export const PATCH = apiHandler(async (request: Request) => {
   ]);
   return ok({ events, quietHours });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { selfShiftSchema } from "@/lib/schemas";
 import { addOwnShifts } from "@/server/domain/self-report";
 
@@ -19,3 +19,6 @@ export const POST = apiHandler(async (request: Request) => {
   const result = await addOwnShifts(context, input);
   return ok({ result }, { status: 201 });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

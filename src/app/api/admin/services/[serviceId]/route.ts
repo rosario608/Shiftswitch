@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson, requireUuid } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson, requireUuid } from "@/server/http/api";
 import { updateService, type ServiceKind } from "@/server/domain/services";
 
 export const dynamic = "force-dynamic";
@@ -55,3 +55,6 @@ export const PATCH = apiHandler(
     return ok({ record });
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

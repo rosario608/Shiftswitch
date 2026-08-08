@@ -1,5 +1,5 @@
 import { requireUser } from "@/server/auth/guards";
-import { apiHandler, ok, parseOptionalJson, requireUuid } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseOptionalJson, requireUuid } from "@/server/http/api";
 import { rejectSchema } from "@/lib/schemas";
 import { cancelTradeRequest } from "@/server/domain/trades";
 
@@ -15,3 +15,6 @@ export const POST = apiHandler(
     return ok({ cancelled: true });
   },
 );
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;

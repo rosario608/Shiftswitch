@@ -1,5 +1,5 @@
 import { requireCapability } from "@/server/auth/guards";
-import { apiHandler, ok, parseJson } from "@/server/http/api";
+import { apiHandler, corsPreflight, ok, parseJson } from "@/server/http/api";
 import { validationFailed } from "@/server/http/errors";
 import { importCommitSchema } from "@/lib/schemas";
 import { commitImport, validateImport } from "@/server/domain/import";
@@ -60,3 +60,6 @@ export const POST = apiHandler(async (request: Request) => {
   const result = await commitImport(context, rows);
   return ok({ result });
 });
+
+/** CORS preflight for the native client. See `corsPreflight`. */
+export const OPTIONS = corsPreflight;
